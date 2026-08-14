@@ -28,6 +28,13 @@ ORDER = [
     "14-LIARS-DIVIDEND.md", "15-CONCLUSION.md", "16-APPENDICES.md", "17-SOURCES.md",
 ]
 
+NON_TOC_H2_FILES = {
+    "07A-TRUST-CHAIN.md",
+    "11A-WHO-IS-REAL.md",
+    "13A-PUBLIC-EVIDENCE.md",
+    "17-SOURCES.md",
+}
+
 BANNED = [
     "мы живём в эпоху", "мы живем в эпоху", "важно понимать", "следует отметить",
     "в современном мире", "страшно подумать", "зловещая технология",
@@ -114,7 +121,7 @@ def build_docx(texts: list[tuple[str, str]]) -> Path:
 
     # Internal subsection headings are intentionally NOT Word Heading 3/4.
     # LitRes builds navigation from Heading styles; keeping internal subheads in a
-    # custom paragraph style prevents a 200+ item generated table of contents.
+    # custom paragraph style prevents an oversized generated table of contents.
     internal = styles.add_style("Internal Heading", WD_STYLE_TYPE.PARAGRAPH)
     internal.base_style = normal
     internal.font.name = "Times New Roman"
@@ -131,12 +138,8 @@ def build_docx(texts: list[tuple[str, str]]) -> Path:
         for kind, raw in blocks(text):
             if kind.startswith("h"):
                 level = min(int(kind[1]), 4)
-                # Parts / chapters / interludes / appendices remain navigation headings.
-                # Source-list subsections are reference scaffolding, not TOC entries.
-                if level <= 2 and not (filename == "17-SOURCES.md" and level == 2):
-                    p = doc.add_paragraph(style=f"Heading {level}")
-                else:
-                    p = doc.add_paragraph(style="Internal Heading")
+                is_reader_toc = level <= 2 and not (level == 2 and filename in NON_TOC_H2_FILES)
+                p = doc.add_paragraph(style=f"Heading {level}" if is_reader_toc else "Internal Heading")
             elif kind == "quote":
                 p = doc.add_paragraph(style="Quote")
             elif kind == "bullet":
