@@ -2,9 +2,9 @@
 
 Автоматическая проверка дополняет, но не заменяет содержательную редактуру.
 
-- Общий объём текста: **176 392 знаков с пробелами**
-- Ориентировочный объём: **4.41 авторского листа**
-- Слов: **22 761**
+- Общий объём текста: **177 591 знаков с пробелами**
+- Ориентировочный объём: **4.44 авторского листа**
+- Слов: **22 883**
 - DOCX: `ne-ver-golosu/dist/ne-ver-golosu-litres.docx`
 
 ## Объём по файлам
@@ -13,24 +13,24 @@
 |---|---:|---:|
 | 00-PROLOG.md | 6733 | 925 |
 | 01-VOICE.md | 8571 | 1116 |
-| 02-FACE.md | 9253 | 1158 |
-| 03-MESSAGES.md | 8239 | 1093 |
+| 02-FACE.md | 9355 | 1169 |
+| 03-MESSAGES.md | 8279 | 1098 |
 | 04-EVIDENCE.md | 8352 | 1083 |
-| 05-DECISION.md | 7947 | 1027 |
+| 05-DECISION.md | 7967 | 1031 |
 | 06-SECRECY.md | 5144 | 672 |
-| 07-KNOWLEDGE.md | 7553 | 1009 |
-| 07A-TRUST-CHAIN.md | 9904 | 1297 |
+| 07-KNOWLEDGE.md | 7583 | 1013 |
+| 07A-TRUST-CHAIN.md | 9923 | 1299 |
 | 08-EXIT-CHANNEL.md | 7021 | 912 |
-| 09-RISK.md | 6894 | 890 |
-| 10-FAMILY.md | 7971 | 1082 |
-| 11-BUSINESS.md | 8530 | 1069 |
-| 11A-WHO-IS-REAL.md | 11781 | 1499 |
-| 12-DETECTORS-PROVENANCE.md | 8413 | 1054 |
-| 13-DIGITAL-DOUBLE.md | 11971 | 1533 |
-| 13A-PUBLIC-EVIDENCE.md | 11581 | 1456 |
-| 14-LIARS-DIVIDEND.md | 7914 | 1039 |
+| 09-RISK.md | 6903 | 891 |
+| 10-FAMILY.md | 7983 | 1083 |
+| 11-BUSINESS.md | 8686 | 1081 |
+| 11A-WHO-IS-REAL.md | 12078 | 1531 |
+| 12-DETECTORS-PROVENANCE.md | 8521 | 1066 |
+| 13-DIGITAL-DOUBLE.md | 11970 | 1533 |
+| 13A-PUBLIC-EVIDENCE.md | 11723 | 1469 |
+| 14-LIARS-DIVIDEND.md | 7938 | 1042 |
 | 15-CONCLUSION.md | 4288 | 561 |
-| 16-APPENDICES.md | 9021 | 1117 |
+| 16-APPENDICES.md | 9262 | 1139 |
 | 17-SOURCES.md | 9291 | 1169 |
 
 ## Gate
