@@ -1,0 +1,33 @@
+name: Rewrite Ne ver golosu defensive POV final
+
+on:
+  push:
+    paths:
+      - 'tools/rewrite_ne_ver_golosu_defensive_pov_final.py'
+      - '.github/workflows/rewrite-ne-ver-golosu-defensive-pov-final.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  rewrite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tighten all remaining attacker-centric framing
+        run: python tools/rewrite_ne_ver_golosu_defensive_pov_final.py
+      - name: Validate diff
+        run: git diff --check
+      - name: Commit final defensive rewrite
+        run: |
+          if git diff --quiet; then
+            echo 'No changes'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ne-ver-golosu/manuscript
+          git commit -m 'Tighten defensive point of view throughout manuscript'
+          git push
