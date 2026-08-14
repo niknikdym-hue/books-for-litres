@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Scan all reader-facing manuscript files for Latin tokens
+      - name: Scan all reader-facing manuscript files for Latin tokens after cleanup
         shell: bash
         run: |
           python - <<'PY'
@@ -28,7 +28,6 @@ jobs:
               if p.name == '17-SOURCES.md':
                   continue
               for n, line in enumerate(p.read_text(encoding='utf-8').splitlines(), 1):
-                  # Strip URLs if any, then collect every remaining Latin token.
                   clean = re.sub(r'https?://\S+', '', line)
                   toks = token_rx.findall(clean)
                   for tok in toks:
