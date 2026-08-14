@@ -8,7 +8,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.oxml.ns import qn
-from docx.shared import Pt
+from docx.shared import Pt, RGBColor
 
 ROOT = Path(__file__).resolve().parents[1]
 BOOK = ROOT / "ne-ver-golosu"
@@ -97,6 +97,7 @@ def build_docx(texts: list[tuple[str, str]]) -> Path:
     normal = doc.styles["Normal"]
     normal.font.name = "Times New Roman"
     normal.font.size = Pt(12)
+    normal.font.color.rgb = RGBColor(0, 0, 0)
     normal._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
     normal.paragraph_format.space_after = Pt(6)
     normal.paragraph_format.line_spacing = 1.15
@@ -105,6 +106,8 @@ def build_docx(texts: list[tuple[str, str]]) -> Path:
         st = doc.styles[name]
         st.font.name = "Times New Roman"
         st.font.size = Pt(size)
+        st.font.color.rgb = RGBColor(0, 0, 0)
+        st.font.bold = True
         st._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
 
     # LitRes upload file intentionally has no title page, author block, manual TOC,
