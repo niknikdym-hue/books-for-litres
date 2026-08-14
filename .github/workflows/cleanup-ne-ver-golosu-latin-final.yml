@@ -23,57 +23,60 @@ jobs:
           from pathlib import Path
           root = Path('ne-ver-golosu/manuscript')
 
-          def edit(name, replacements):
+          def repl_file(name, pairs):
               p = root / name
               text = p.read_text(encoding='utf-8')
               old = text
-              for a,b in replacements:
-                  if a not in text:
-                      print(f'WARN missing in {name}: {a}')
+              for a,b in pairs:
                   text = text.replace(a,b)
               if text != old:
                   p.write_text(text, encoding='utf-8')
                   print('changed', name)
 
-          edit('07A-TRUST-CHAIN.md', [
-              ('Content Credentials', 'проверяемых данных о происхождении'),
-          ])
-
-          edit('12-DETECTORS-PROVENANCE.md', [
-              ('В упрощённом виде запись Content Credentials содержит', 'В упрощённом виде такая запись содержит'),
-              ('### Content Credentials не являются сертификатом правды', '### Проверяемые данные о происхождении не являются сертификатом правды'),
-              ('с безупречными Content Credentials', 'с безупречными проверяемыми данными о происхождении'),
-              ('отсутствие Content Credentials', 'отсутствие проверяемых данных о происхождении'),
-              ('Content Credentials дают **сигналы происхождения и целостности заявленной истории**', 'Проверяемые данные о происхождении дают **сигналы происхождения и целостности заявленной истории**'),
-          ])
-
-          edit('13A-PUBLIC-EVIDENCE.md', [
-              ('Content Credentials позволяют', 'Проверяемые данные о происхождении позволяют'),
-              ('Пусть запись Content Credentials показывает', 'Пусть проверяемая запись о происхождении показывает'),
-              ('У файла нет Content Credentials — значит, фейк', 'У файла нет проверяемых данных о происхождении — значит, фейк'),
-          ])
-
-          edit('11-BUSINESS.md', [
+          repl_file('11-BUSINESS.md', [
               ('рекомендации FBI', 'рекомендации ФБР'),
               ('около HK$200 млн', 'около 200 млн гонконгских долларов'),
           ])
-
-          edit('16-APPENDICES.md', [
+          repl_file('16-APPENDICES.md', [
               ('**FBI / IC3**', '**ФБР / IC3**'),
               ('**FTC** — потребительские рекомендации', '**Федеральная торговая комиссия США** — потребительские рекомендации'),
               ('**INTERPOL / Europol**', '**Интерпол / Европол**'),
               ('**C2PA** — актуальная спецификация Content Credentials.', '**C2PA** — открытая техническая спецификация для проверяемых данных о происхождении цифрового контента; в книге используется версия 2.4.'),
           ])
 
-          # Reader text should retain the official English product name only at its first explanation and glossary entry.
+          # Preserve the official product name only in two places:
+          # 1) first explanatory introduction in chapter 12; 2) glossary entry in appendix 16.
+          keep_intro = 'Коалиция по происхождению и подлинности контента (C2PA) развивает открытый технический стандарт Content Credentials.'
+          keep_gloss = '**Content Credentials** —'
+
+          for p in sorted(root.glob('*.md')):
+              if p.name == '17-SOURCES.md':
+                  continue
+              text = p.read_text(encoding='utf-8')
+              old = text
+              text = text.replace(keep_intro, keep_intro.replace('Content Credentials', '__KEEP_CC_INTRO__'))
+              text = text.replace(keep_gloss, keep_gloss.replace('Content Credentials', '__KEEP_CC_GLOSS__'))
+              text = text.replace('Content Credentials', 'проверяемые данные о происхождении')
+              text = text.replace('__KEEP_CC_INTRO__', 'Content Credentials')
+              text = text.replace('__KEEP_CC_GLOSS__', 'Content Credentials')
+              # Polish the known sentences after generic replacement.
+              text = text.replace('В упрощённом виде запись проверяемые данные о происхождении содержит', 'В упрощённом виде такая запись содержит')
+              text = text.replace('### проверяемые данные о происхождении не являются сертификатом правды', '### Проверяемые данные о происхождении не являются сертификатом правды')
+              text = text.replace('Пусть запись проверяемые данные о происхождении показывает', 'Пусть проверяемая запись о происхождении показывает')
+              text = text.replace('проверяемые данные о происхождении позволяют', 'Проверяемые данные о происхождении позволяют')
+              if text != old:
+                  p.write_text(text, encoding='utf-8')
+                  print('changed', p.name)
+
+          # Hard gate: exactly two reader-facing occurrences remain.
           total = 0
           for p in root.glob('*.md'):
               if p.name == '17-SOURCES.md':
                   continue
               total += p.read_text(encoding='utf-8').count('Content Credentials')
           print('Content Credentials remaining:', total)
-          if total > 2:
-              raise SystemExit('Too many repeated Content Credentials occurrences remain')
+          if total != 2:
+              raise SystemExit(f'Expected exactly 2 Content Credentials occurrences, got {total}')
           PY
       - name: Commit cleanup
         run: |
