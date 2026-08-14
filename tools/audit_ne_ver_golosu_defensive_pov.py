@@ -3,6 +3,7 @@ import re
 
 ROOT = Path('ne-ver-golosu/manuscript')
 # Deliberately broad: false positives are acceptable; every hit is reviewed manually.
+# Final post-rewrite control pass.
 patterns = [
     r'атакующ', r'злоумышлен', r'мошенник', r'преступник', r'атака', r'атаке', r'атаки',
     r'его задача', r'задача —', r'задача:', r'ему достаточно', r'достаточно .*чтобы',
