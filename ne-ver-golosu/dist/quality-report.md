@@ -2,9 +2,9 @@
 
 Автоматическая проверка дополняет, но не заменяет содержательную редактуру.
 
-- Общий объём текста: **180 596 знаков с пробелами**
-- Ориентировочный объём: **4.51 авторского листа**
-- Слов: **23 274**
+- Общий объём текста: **180 647 знаков с пробелами**
+- Ориентировочный объём: **4.52 авторского листа**
+- Слов: **23 271**
 - DOCX: `ne-ver-golosu/dist/ne-ver-golosu-litres.docx`
 
 ## Объём по файлам
@@ -17,21 +17,21 @@
 | 03-MESSAGES.md | 8279 | 1098 |
 | 04-EVIDENCE.md | 8352 | 1083 |
 | 05-DECISION.md | 8081 | 1046 |
-| 06-SECRECY.md | 5144 | 672 |
+| 06-SECRECY.md | 5170 | 673 |
 | 07-KNOWLEDGE.md | 7583 | 1013 |
 | 07A-TRUST-CHAIN.md | 9923 | 1299 |
 | 08-EXIT-CHANNEL.md | 7021 | 912 |
 | 09-RISK.md | 6903 | 891 |
 | 10-FAMILY.md | 7983 | 1083 |
-| 11-BUSINESS.md | 8686 | 1081 |
-| 11A-WHO-IS-REAL.md | 12078 | 1531 |
-| 12-DETECTORS-PROVENANCE.md | 8521 | 1066 |
+| 11-BUSINESS.md | 8714 | 1083 |
+| 11A-WHO-IS-REAL.md | 11944 | 1519 |
+| 12-DETECTORS-PROVENANCE.md | 8457 | 1059 |
 | 13-DIGITAL-DOUBLE.md | 13049 | 1679 |
-| 13A-PUBLIC-EVIDENCE.md | 11723 | 1469 |
-| 14-LIARS-DIVIDEND.md | 7938 | 1042 |
+| 13A-PUBLIC-EVIDENCE.md | 11731 | 1470 |
+| 14-LIARS-DIVIDEND.md | 7908 | 1037 |
 | 15-CONCLUSION.md | 4288 | 561 |
-| 16-APPENDICES.md | 9569 | 1172 |
-| 17-SOURCES.md | 10796 | 1366 |
+| 16-APPENDICES.md | 9434 | 1156 |
+| 17-SOURCES.md | 11148 | 1399 |
 
 ## Gate
 
