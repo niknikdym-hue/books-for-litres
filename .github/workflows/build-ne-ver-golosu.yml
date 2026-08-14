@@ -1,0 +1,53 @@
+name: Build Ne ver golosu LitRes book
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ne-ver-golosu/manuscript/**'
+      - 'ne-ver-golosu/12-LITRES-METADATA.md'
+      - 'tools/build_ne_ver_golosu.py'
+      - '.github/workflows/build-ne-ver-golosu.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install builder dependencies
+        run: python -m pip install --disable-pip-version-check python-docx
+
+      - name: Build LitRes DOCX and QA report
+        run: python tools/build_ne_ver_golosu.py
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ne-ver-golosu-litres-build
+          path: |
+            ne-ver-golosu/dist/ne-ver-golosu-litres.docx
+            ne-ver-golosu/dist/quality-report.md
+            ne-ver-golosu/dist/build-manifest.json
+
+      - name: Commit reproducible build outputs
+        run: |
+          if git diff --quiet -- ne-ver-golosu/dist && git diff --cached --quiet; then
+            echo 'No build changes'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ne-ver-golosu/dist
+          git commit -m 'Build LitRes DOCX for Ne ver golosu'
+          git push
