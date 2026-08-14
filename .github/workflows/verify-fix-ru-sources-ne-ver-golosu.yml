@@ -1,0 +1,38 @@
+name: Verify and fix Russian sources in Ne ver golosu
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/verify_and_fix_ru_sources_2026.py'
+      - '.github/workflows/verify-fix-ru-sources-ne-ver-golosu.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply verified source corrections
+        run: python tools/verify_and_fix_ru_sources_2026.py
+
+      - name: Validate diff
+        run: git diff --check
+
+      - name: Commit corrections
+        run: |
+          if git diff --quiet; then
+            echo 'No changes needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ne-ver-golosu/manuscript ne-ver-golosu/10-LEGAL-SNAPSHOT-RU-2026-08.md
+          git commit -m 'Verify and correct Russian sources in Ne ver golosu'
+          git push
