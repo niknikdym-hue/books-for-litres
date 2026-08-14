@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 
@@ -94,7 +95,8 @@ def blocks(text: str):
 
 def build_docx(texts: list[tuple[str, str]]) -> Path:
     doc = Document()
-    normal = doc.styles["Normal"]
+    styles = doc.styles
+    normal = styles["Normal"]
     normal.font.name = "Times New Roman"
     normal.font.size = Pt(12)
     normal.font.color.rgb = RGBColor(0, 0, 0)
@@ -102,20 +104,39 @@ def build_docx(texts: list[tuple[str, str]]) -> Path:
     normal.paragraph_format.space_after = Pt(6)
     normal.paragraph_format.line_spacing = 1.15
 
-    for name, size in [("Heading 1", 18), ("Heading 2", 15), ("Heading 3", 13), ("Heading 4", 12)]:
-        st = doc.styles[name]
+    for name, size in [("Heading 1", 18), ("Heading 2", 15)]:
+        st = styles[name]
         st.font.name = "Times New Roman"
         st.font.size = Pt(size)
         st.font.color.rgb = RGBColor(0, 0, 0)
         st.font.bold = True
         st._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
 
+    # Internal subsection headings are intentionally NOT Word Heading 3/4.
+    # LitRes builds navigation from Heading styles; keeping internal subheads in a
+    # custom paragraph style prevents a 200+ item generated table of contents.
+    internal = styles.add_style("Internal Heading", WD_STYLE_TYPE.PARAGRAPH)
+    internal.base_style = normal
+    internal.font.name = "Times New Roman"
+    internal.font.size = Pt(12)
+    internal.font.color.rgb = RGBColor(0, 0, 0)
+    internal.font.bold = True
+    internal._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
+    internal.paragraph_format.space_before = Pt(8)
+    internal.paragraph_format.space_after = Pt(3)
+
     # LitRes upload file intentionally has no title page, author block, manual TOC,
     # page numbers, headers/footers, cover, annotation or forced page breaks.
-    for _, text in texts:
+    for filename, text in texts:
         for kind, raw in blocks(text):
             if kind.startswith("h"):
-                p = doc.add_paragraph(style=f"Heading {min(int(kind[1]), 4)}")
+                level = min(int(kind[1]), 4)
+                # Parts / chapters / interludes / appendices remain navigation headings.
+                # Source-list subsections are reference scaffolding, not TOC entries.
+                if level <= 2 and not (filename == "17-SOURCES.md" and level == 2):
+                    p = doc.add_paragraph(style=f"Heading {level}")
+                else:
+                    p = doc.add_paragraph(style="Internal Heading")
             elif kind == "quote":
                 p = doc.add_paragraph(style="Quote")
             elif kind == "bullet":
