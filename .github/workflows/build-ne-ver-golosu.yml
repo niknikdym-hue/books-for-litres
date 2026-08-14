@@ -42,7 +42,7 @@ jobs:
 
       - name: Commit reproducible build outputs
         run: |
-          # Reproducible build after final defensive-point-of-view audit.
+          # Reproducible build after final terminology and defensive-point-of-view audits.
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ne-ver-golosu/dist
