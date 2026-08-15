@@ -92,9 +92,12 @@ def blocks(text: str):
         b = re.match(r"^[-*]\s+(.*)$", line)
         if b:
             flush(); out.append(("bullet", b.group(1).strip())); continue
-        n = re.match(r"^\d+\.\s+(.*)$", line)
+        n = re.match(r"^(\d+)\.\s+(.*)$", line)
         if n:
-            flush(); out.append(("number", n.group(1).strip())); continue
+            # Keep the author's explicit number as text. Word's built-in List Number
+            # style may silently continue numbering across separate lists, which is
+            # undesirable in a reflowable LitRes manuscript.
+            flush(); out.append(("number", f"{n.group(1)}. {n.group(2).strip()}")); continue
         buf.append(line)
     flush()
     return out
@@ -145,7 +148,9 @@ def build_docx(texts: list[tuple[str, str]]) -> Path:
             elif kind == "bullet":
                 p = doc.add_paragraph(style="List Bullet")
             elif kind == "number":
-                p = doc.add_paragraph(style="List Number")
+                # Number already comes from the manuscript; keep it as ordinary
+                # text so separate lists restart exactly where the author wrote 1.
+                p = doc.add_paragraph()
             else:
                 p = doc.add_paragraph()
             add_runs(p, raw)
