@@ -1,0 +1,60 @@
+name: Final Ne ver golosu residual clean
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/final-ne-ver-golosu-residual-clean.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove final residual terminology
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          changes={
+            '07-KNOWLEDGE.md': [
+              ('Поэтому профессиональные стандарты цифровой идентичности давно относятся скептически к проверкам, основанным на знании биографических сведений. NIST в актуальных руководствах не предлагает строить надёжную проверку личности на вопросах вроде «как звали вашего первого питомца». Информация может быть обнаруживаемой, а пространство ответов — слишком маленьким.',
+               'Современные рекомендации по подтверждению личности, включая актуальные руководства NIST, не предлагают строить надёжную проверку на вопросах вроде «как звали вашего первого питомца». Такие сведения могут быть известны другим или найдены, а вариантов ответа нередко слишком мало.')],
+            '11A-WHO-IS-REAL.md': [
+              ('NIST — Национальный институт стандартов и технологий США — в своих рекомендациях по цифровой идентичности тоже разделяет эти задачи. Семье не нужно изучать стандарты. Полезен сам принцип: одного убедительного признака недостаточно, если цена ошибки высока.',
+               'NIST — Национальный институт стандартов и технологий США — в своих рекомендациях по подтверждению личности и защите доступа тоже разделяет эти задачи. Семье не нужно изучать стандарты. Полезен сам принцип: одного убедительного признака недостаточно, если цена ошибки высока.')],
+            '16-APPENDICES.md': [
+              ('**NIST** — рекомендации по цифровой идентичности и материалы о рисках синтетического контента.',
+               '**NIST** — рекомендации по подтверждению личности, защите доступа и рискам синтетического контента.'),
+              ('**ФБР / IC3** — официальные предупреждения о компрометации деловой электронной почты и цифровой имперсонации.',
+               '**ФБР / IC3** — официальные предупреждения о подмене деловой переписки и мошенничестве от чужого имени в цифровых каналах.')]
+          }
+          root=Path('ne-ver-golosu/manuscript')
+          changed=[]
+          for name,pairs in changes.items():
+              p=root/name
+              t=p.read_text(encoding='utf-8')
+              before=t
+              for old,new in pairs:
+                  if old not in t:
+                      raise SystemExit(f'Missing exact phrase in {name}: {old[:140]}')
+                  t=t.replace(old,new)
+              if t!=before:
+                  p.write_text(t,encoding='utf-8')
+                  changed.append(name)
+          print('CHANGED',changed)
+          PY
+          git diff --check
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ne-ver-golosu/manuscript
+          git commit -m 'Remove final technical wording from Ne ver golosu'
+          git push
