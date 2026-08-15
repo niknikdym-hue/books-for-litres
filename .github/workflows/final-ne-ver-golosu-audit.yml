@@ -1,0 +1,137 @@
+name: Final Ne ver golosu post-fix audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/final-ne-ver-golosu-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit reader text, Latin terms, defensive POV and source links
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, collections, urllib.parse
+
+          root = Path('ne-ver-golosu/manuscript')
+          files = sorted(p for p in root.glob('*.md') if p.name != '17-SOURCES.md')
+          text = '\n'.join(p.read_text(encoding='utf-8') for p in files)
+
+          print('=== BASIC ===')
+          print('READER_FILES', len(files))
+          print('CHARS', len(text))
+
+          print('\n=== LATIN TOKENS IN READER TEXT ===')
+          rx = re.compile(r"[A-Za-z][A-Za-z0-9’'._+-]*")
+          counts = collections.Counter()
+          ctx = collections.defaultdict(list)
+          for p in files:
+              for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+                  clean = re.sub(r'https?://\S+', '', line)
+                  for tok in rx.findall(clean):
+                      counts[tok] += 1
+                      if len(ctx[tok]) < 3:
+                          ctx[tok].append(f'{p.name}:{n}: {line.strip()}')
+          for tok,cnt in sorted(counts.items(), key=lambda kv: kv[0].lower()):
+              print(f'TOKEN {tok} x{cnt}')
+              for c in ctx[tok]: print('  ',c)
+
+          banned_english = [
+              'authenticity','detection','deepfake detection','identity proofing','remote proofing',
+              'liveness','provenance','human-in-the-loop','authorization','authentication intent',
+              'forensic','false positive','false negative','liar\'s dividend','generative AI',
+              'deepfake video','deepfake audio','chatbots','knowledge-based','security concept'
+          ]
+          print('\n=== BANNED ENGLISH JARGON ===')
+          bad_eng=[]
+          low=text.lower()
+          for term in banned_english:
+              if term.lower() in low:
+                  bad_eng.append(term)
+                  print('FOUND',term)
+          print('BANNED_ENGLISH_COUNT',len(bad_eng))
+
+          print('\n=== KNOWN MECHANICAL DEFECTS ===')
+          bad_phrases=[
+              'без проверяемые данные','с безупречными проверяемые данные',
+              'отсутствие проверяемые данные','У файла нет проверяемые данные',
+              'проверяемые данные о происхождении дают **сигналы',
+              '№152-ФЗ'
+          ]
+          defects=[]
+          for s in bad_phrases:
+              if s in text:
+                  defects.append(s); print('FOUND',s)
+          print('MECHANICAL_DEFECT_COUNT',len(defects))
+
+          print('\n=== ALL CHECKABLE-DATA CONTEXTS ===')
+          for p in files:
+              for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+                  if 'проверяем' in line.lower() and 'происхожд' in line.lower():
+                      print(f'{p.name}:{n}: {line.strip()}')
+
+          print('\n=== READY-MADE HIGH-RISK QUOTED COMMANDS ===')
+          qrx = re.compile(r'[«“](.{0,260}?)[»”]')
+          risk = re.compile(r'(?i)\b(перевед|пришл|отправ|код|парол|реквизит|доступ|установ|никому|срочно|выгруз|оплат|карты|паспортн)')
+          risky=[]
+          for p in files:
+              for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+                  for m in qrx.finditer(line):
+                      if risk.search(m.group(1)):
+                          s=f'{p.name}:{n}: {m.group(0)}'
+                          risky.append(s); print(s)
+          print('RISKY_QUOTE_COUNT',len(risky))
+
+          print('\n=== ATTACK-SIDE FRAMING CANDIDATES ===')
+          patterns = [
+              r'(?i)задач[аи] (?:атакующ|мошенник|злоумышлен)',
+              r'(?i)(?:атакующ|мошенник|злоумышлен)[^.!?]{0,100}(?:нужно|достаточно|выгод|получ|добив|обход|скры|маскир)',
+              r'(?i)(?:как|способ)[^.!?]{0,80}(?:обойти|взломать|захватить|скомпрометировать|подделать|клонировать)',
+              r'(?i)легенд[а-я]*[^.!?]{0,100}(?:подтверж|перенос|изол|действ)',
+              r'(?i)вход\s*→|подтверждение легенды|перенос доверия.*изоляц',
+              r'(?i)атак[аеуы][^.!?]{0,120}(?:выигрывает|достаточно|нужно|задача|цель)'
+          ]
+          cand=[]
+          for p in files:
+              for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+                  for pat in patterns:
+                      if re.search(pat,line):
+                          s=f'{p.name}:{n}: {line.strip()}'
+                          if s not in cand:
+                              cand.append(s); print(s)
+                          break
+          print('ATTACK_SIDE_CANDIDATE_COUNT',len(cand))
+
+          print('\n=== SOURCE URL INVENTORY ===')
+          sp = root/'17-SOURCES.md'
+          st = sp.read_text(encoding='utf-8')
+          urls = re.findall(r'https?://[^\s)]+', st)
+          for u in urls: print(u)
+          print('SOURCE_URL_COUNT',len(urls))
+
+          print('\n=== STALE SOURCE-SIDE ATTACK MODEL / ENGLISH EXPLANATORY TERMS ===')
+          source_banned=[
+              'вход → подтверждение легенды → перенос → изоляция → действие',
+              'generative AI, включая deepfake video/images/audio и chatbots',
+              'online publication 20 февраля', 'Volume 119', 'Issue 1', 'pp. 71'
+          ]
+          sb=[]
+          for s in source_banned:
+              if s in st:
+                  sb.append(s); print('FOUND',s)
+          print('SOURCE_BANNED_COUNT',len(sb))
+
+          hard_fail = bool(bad_eng or defects or sb)
+          print('\n=== RESULT ===')
+          print('HARD_FAIL', hard_fail)
+          if hard_fail:
+              raise SystemExit(1)
+          PY
