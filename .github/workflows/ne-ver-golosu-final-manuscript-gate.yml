@@ -1,0 +1,99 @@
+name: Ne ver golosu final manuscript gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ne-ver-golosu-final-manuscript-gate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Final manuscript checks
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, collections
+          root=Path('ne-ver-golosu/manuscript')
+          reader=sorted(p for p in root.glob('*.md') if p.name!='17-SOURCES.md')
+          sources=root/'17-SOURCES.md'
+          reader_text='\n'.join(p.read_text(encoding='utf-8') for p in reader)
+          source_text=sources.read_text(encoding='utf-8')
+
+          forbidden_reader=[
+            'атака с внедрением цифрового медиапотока','цифрового медиапотока','техножаргон',
+            'фактологический срез','авторская модель','риск-модель','архитектурный вопрос',
+            'аутентификац','аутентификатор','авторизац','имперсонац','компрометац',
+            'фишинг-устойчив','проверка живого присутствия','манифест','валидатор','генерализация детектор',
+            'высокорисков','риск-процедур','семейный протокол','деловой протокол','контрольная точка',
+            'финальный контроль','класс риска','уровень риска','уровень проверки','служебная записка'
+          ]
+          reader_hits=[]
+          for p in reader:
+            for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+              low=line.lower()
+              for term in forbidden_reader:
+                if term in low: reader_hits.append(f'{p.name}:{n}:{term} :: {line}')
+
+          source_forbidden=['цифрового медиапотока','многослой','уровень уверенности','трёхзон','фактологический срез','техножаргон','высокорисков','аутентификац','авторизац','имперсонац','компрометац','манифест','валидатор']
+          source_hits=[term for term in source_forbidden if term in source_text.lower()]
+
+          banned_en=['authenticity detection','identity proofing вопросы','human-in-the-loop','false positive','false negative',"liar's dividend"+' —', 'generative ai —']
+          english_hits=[x for x in banned_en if x in reader_text.lower()]
+
+          tokens=collections.Counter()
+          rx=re.compile(r"[A-Za-z][A-Za-z0-9’'._+-]*")
+          for p in reader:
+            for line in p.read_text(encoding='utf-8').splitlines():
+              line=re.sub(r'https?://\S+','',line)
+              tokens.update(rx.findall(line))
+          allowed={'NIST','NIST.','SP','A-4','B-4','C2PA','C2PA.','Content','Credentials','Credentials.','PDF','PDF.','PDF-','WhatsApp','WhatsApp.','WhatsApp-','IC3','IC3.','I.','II.','III.','IV.'}
+          unexpected_latin=sorted(t for t in tokens if t not in allowed)
+
+          attacker=[]
+          pats=[
+            r'(?i)(?:мошенник|злоумышленник|атакующий)[^.!?]{0,150}(?:нужно|достаточно|должен|следует|выгодно|получить|обойти|скрыть|маскировать)',
+            r'(?i)(?:как|способ)[^.!?]{0,100}(?:взломать|захватить|скомпрометировать|клонировать|подделать|обойти защит)'
+          ]
+          for p in reader:
+            for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+              if any(re.search(pat,line) for pat in pats): attacker.append(f'{p.name}:{n}:{line}')
+
+          urls=re.findall(r'https?://\S+',source_text)
+          malformed=[u for u in urls if not (u.startswith('https://') or u.startswith('http://'))]
+          required=[
+            '## Приложение 7. Краткий словарь',
+            '**Content Credentials (C2PA)**',
+            'Подлинность не равна истинности.',
+            '**Не проверяйте, похож ли человек на настоящего. Проверяйте, действительно ли это он.**',
+            'Федеральный закон от 26.07.2026 № 243-ФЗ',
+            'Федеральный закон от 02.05.2026 № 130-ФЗ',
+            'Федеральный закон от 27.07.2006 № 152-ФЗ'
+          ]
+          full=reader_text+'\n'+source_text
+          missing=[x for x in required if x not in full]
+
+          print('READER_FORBIDDEN',reader_hits)
+          print('SOURCE_STIFF_TERMS',source_hits)
+          print('READER_ENGLISH_JARGON',english_hits)
+          print('UNEXPECTED_READER_LATIN',unexpected_latin)
+          print('ATTACKER_SIDE_OPERATIONAL',attacker)
+          print('SOURCE_URLS',len(urls),'MALFORMED',malformed)
+          print('MISSING_REQUIRED',missing)
+          failures=[]
+          if reader_hits: failures.append('reader jargon/tone')
+          if source_hits: failures.append('source-note jargon')
+          if english_hits: failures.append('English jargon')
+          if unexpected_latin: failures.append('unexpected reader Latin')
+          if attacker: failures.append('attacker-side operational framing')
+          if malformed: failures.append('malformed source URL')
+          if missing: failures.append('missing required content')
+          print('FINAL_FAILURES',failures)
+          if failures: raise SystemExit(1)
+          PY
