@@ -1,0 +1,92 @@
+name: Final Ne ver golosu post-polish audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/final-ne-ver-golosu-audit-v3.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Final final content and terminology gate
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, collections
+          root=Path('ne-ver-golosu/manuscript')
+          reader=sorted(p for p in root.glob('*.md') if p.name!='17-SOURCES.md')
+          text='\n'.join(p.read_text(encoding='utf-8') for p in reader)
+          src=(root/'17-SOURCES.md').read_text(encoding='utf-8')
+          combined=text+'\n'+src
+
+          banned_en=['authenticity','detection','deepfake detection','identity proofing','remote proofing','liveness','provenance','human-in-the-loop','authorization','authentication intent','forensic','false positive','false negative',"liar's dividend",'generative ai','deepfake video','deepfake audio','knowledge-based','security concept']
+          bad_en=[x for x in banned_en if x in text.lower()]
+
+          rx=re.compile(r"[A-Za-z][A-Za-z0-9’'._+-]*")
+          tokens=collections.Counter()
+          for p in reader:
+            for line in p.read_text(encoding='utf-8').splitlines():
+              clean=re.sub(r'https?://\S+','',line)
+              tokens.update(rx.findall(clean))
+          allowed={'NIST','SP','A-4','B-4','C2PA','Content','Credentials','Credentials.','PDF','PDF-','WhatsApp-','IC3','I.','II.','III.','IV.'}
+          unexpected=sorted(t for t in tokens if t not in allowed)
+
+          forbidden=[
+            'без проверяемые','с безупречными проверяемые','отсутствие проверяемые','У файла нет проверяемые',
+            'вход → подтверждение легенды → перенос → изоляция → действие',
+            'Я сейчас без связи. Срочно выгрузи базу клиентов','Вот письмо директора — переведите',
+            'скинь мастеру ещё 30 тысяч','срочно пришли код подтверждения','Позвоните моему новому помощнику',
+            'Ей достаточно попасть в человеческое узнавание','разработчики получают ровно ту же публикацию',
+            'Его можно вырезать из контекста. Склеить. Изменить скорость.',
+            'Чтобы сообщение казалось «вашим», не требуется воспроизвести личность целиком',
+            'Статья 9, устанавливающая требования к маркировке','Статья 9 о маркировке информационных материалов',
+            '**Robert Chesney, Danielle Keats Citron.**','статьи 8–10, включая требования к маркировке'
+          ]
+          stale=[x for x in forbidden if x in combined]
+
+          required=[
+            'Статья 9, посвящённая информационному предупреждению',
+            'не устанавливает универсальную обязанность маркировать каждый материал',
+            'https://publication.pravo.gov.ru/document/0001202605020015',
+            'https://www.consultant.ru/document/cons_doc_LAW_61801/7336c78762a98b5f4f698b8c3800dca1111acc16/',
+            '**Bobby Chesney, Danielle Citron.**','https://doi.org/10.1017/S0003055423001454',
+            'https://www.ic3.gov/PSA/2022/PSA220216'
+          ]
+          missing=[x for x in required if x not in combined]
+
+          # Broad operational-language scan. Anything returned is printed for manual inspection.
+          pats=[
+            r'(?i)(?:мошенник|злоумышленник|атакующий)[^.!?]{0,140}(?:нужно|достаточно|должен|следует|выгодно|получить|обойти|скрыть|маскировать)',
+            r'(?i)(?:как|способ)[^.!?]{0,100}(?:взломать|захватить|скомпрометировать|клонировать|подделать|обойти защит)'
+          ]
+          suspicious=[]
+          for p in reader:
+            for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+              if any(re.search(pat,line) for pat in pats): suspicious.append(f'{p.name}:{n}:{line.strip()}')
+
+          print('BANNED_ENGLISH',bad_en)
+          print('LATIN_TOKENS',dict(tokens))
+          print('UNEXPECTED_LATIN',unexpected)
+          print('CONTENT_CREDENTIALS_COUNT',text.count('Content Credentials'))
+          print('STALE_OR_OFFENSIVE',stale)
+          print('MISSING_REQUIRED',missing)
+          print('SUSPICIOUS_OPERATIONAL_CANDIDATES',len(suspicious))
+          for s in suspicious: print(s)
+
+          failures=[]
+          if bad_en: failures.append('English jargon')
+          if unexpected: failures.append('Unexpected Latin')
+          if text.count('Content Credentials')!=2: failures.append('Content Credentials count')
+          if stale: failures.append('Stale/offensive wording')
+          if missing: failures.append('Missing legal/source precision')
+          if suspicious: failures.append('Operational attack framing')
+          print('FINAL_FAILURES',failures)
+          if failures: raise SystemExit(1)
+          PY
