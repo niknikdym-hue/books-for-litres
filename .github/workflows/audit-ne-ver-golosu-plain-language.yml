@@ -1,0 +1,34 @@
+name: Audit Ne ver golosu plain language
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audit-ne-ver-golosu-plain-language.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan reader text for unnecessary technical language
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('ne-ver-golosu/manuscript')
+          files=sorted(p for p in root.glob('*.md') if p.name!='17-SOURCES.md')
+          pat=re.compile(r'(?i)(?:медиапоток|внедрен(?:ие|ия)\s+(?:цифрового|медиа)|инъекц|аутентификатор|аутентификац|авторизац|федерац(?:ия|ии)\s+идентичност|идентичност|уров(?:ень|ни)\s+уверенности|AAL|криптограф|манифест|подпис[ьи]\s+утвержден|утверждени[ея]|происхождени[ея]\s+цифров|проверяем(?:ое|ые)\s+данн(?:ые|ого)\s+о\s+происхожд|жив(?:ое|ого)\s+присутств|биометр|имперсонац|компрометац|фишинг|многофактор|фактор(?:а|ы|ов)?\s+(?:аутентификац|«знаю|\"знаю)|защищ[её]нн(?:ый|ого)\s+канал|установлени[ея]\s+личности|контрольн(?:ые|ых)\s+вопрос|цифров(?:ая|ой)\s+идентичност|криптографически\s+проверяем|цифров(?:ой|ого)\s+актив)')
+          total=0
+          for p in files:
+            for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+              if pat.search(line):
+                total+=1
+                print(f'@@ {p.name}:{n}')
+                print(line)
+          print('TOTAL_TECH_CANDIDATES',total)
+          PY
