@@ -1,0 +1,50 @@
+name: Audit Ne ver golosu editorial jargon
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audit-ne-ver-golosu-editorial-jargon.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan manuscript for editorial/meta language
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('ne-ver-golosu/manuscript')
+          files=sorted(p for p in root.glob('*.md') if p.name!='17-SOURCES.md')
+          patterns={
+            'tech_jargon': r'техножаргон|жаргон',
+            'reader_meta': r'читател[ьяюе]|для читателя|читатель этой книги',
+            'book_meta': r'этой книг[аеуи]|в этой книг[аеуи]|книга (?:не|даёт|показывает|использует|строится|описывает)|вывод книги|идея книги',
+            'author_meta': r'авторск(?:ая|ий|ое|ую|ой)|автор этой книги',
+            'fact_snapshot': r'фактологическ(?:ий|ого|ому|ая|ую|ом) срез|срез книги',
+            'protective_meta': r'защитн(?:ая|ой|ую|ой|ого|ому) логик|для защитной логики|защитная позиция|защитный вывод',
+            'framework_meta': r'интеллектуальн(?:ая|ой|ую) (?:рамк|опор)|рабоч(?:ая|ее) (?:рамк|определен)|практическ(?:ая|ой) рамк|рамка книги',
+            'chapter_meta': r'в этой главе|в следующей главе|мы ещё верн[её]мся|мы уже (?:видели|говорили|разбирали)|ниже (?:мы|я) |выше (?:мы|я) ',
+            'service_words': r'служебн(?:ый|ая|ое|ые)|методологическ(?:ий|ая|ое)|редакторск(?:ий|ая|ое)|операционн(?:ая|ой) логик',
+            'model_meta': r'модель книги|модель, которую|эта модель|наша модель|авторская модель',
+          }
+          total=0
+          for p in files:
+            lines=p.read_text(encoding='utf-8').splitlines()
+            for n,line in enumerate(lines,1):
+              hit=[]
+              low=line.lower()
+              for name,pat in patterns.items():
+                if re.search(pat,low): hit.append(name)
+              if hit:
+                total+=1
+                print(f'@@ {p.name}:{n} [{",".join(hit)}]')
+                print(line)
+          print('TOTAL_CANDIDATES',total)
+          PY
