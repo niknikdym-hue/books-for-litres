@@ -1,0 +1,44 @@
+name: Audit Ne ver golosu publicistic tone v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audit-ne-ver-golosu-publicistic-tone-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan remaining bureaucratic tone
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, collections
+          root=Path('ne-ver-golosu/manuscript')
+          files=sorted(p for p in root.glob('*.md') if p.name!='17-SOURCES.md')
+          terms=[
+            r'высокорисков',r'процедур',r'протокол',r'регламент',r'контрольн',r'канал',r'сигнал',
+            r'сло[йяе]',r'механизм',r'процесс',r'оператор',r'полномоч',r'инцидент',r'валидац',r'вериф',
+            r'риск',r'защитн(?:ая|ый|ое|ые|ого|ому)',r'подтверждени[ея] личности',r'источник контроля',
+            r'финальн(?:ый|ая|ое) контрол',r'контекст операции',r'класс риска',r'архитектур'
+          ]
+          rx=[re.compile(x,re.I) for x in terms]
+          score=collections.Counter(); hits=[]
+          for p in files:
+            for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+              if not line.strip(): continue
+              c=sum(bool(r.search(line)) for r in rx)
+              if c>=2:
+                score[p.name]+=c; hits.append((c,p.name,n,line))
+          print('TOP_FILES')
+          for k,v in score.most_common(): print(v,k)
+          print('HEAVY_LINES')
+          for c,name,n,line in sorted(hits,reverse=True)[:220]:
+            print(f'{c}\t{name}:{n}\t{line}')
+          PY
