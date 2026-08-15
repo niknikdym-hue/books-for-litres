@@ -14,21 +14,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Scan residual jargon and meta terms
+      - name: Scan source notes for editorial/meta language
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           import re
-          root=Path('ne-ver-golosu/manuscript')
-          files=sorted(p for p in root.glob('*.md') if p.name!='17-SOURCES.md')
-          pat=re.compile(r'(?i)(?:кейс|артефакт|риск-модел|фрейм|воронк|контур|операционн|методолог|редакторск|служебн|технож|жаргон|фактологическ|авторск|для читател|этой книг|в этой книг|по всей книг|следующ(?:ая|ей) част[ьи] книг|предыдущ(?:их|ей) глав|мы уже|мы ещё|мы постепенно пришли)')
+          p=Path('ne-ver-golosu/manuscript/17-SOURCES.md')
+          pat=re.compile(r'(?i)(?:кейс|артефакт|риск-модел|фрейм|воронк|контур|операционн|методолог|редакторск|служебн|технож|жаргон|фактологическ|авторск|рамк|интеллектуальн(?:ая|ой) опор|для читател|этой книг|в этой книг|книг[аеуи] |вывод книг|модель книг)')
           total=0
-          for p in files:
-            for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+          for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
               if pat.search(line):
-                total+=1
-                print(f'@@ {p.name}:{n}')
-                print(line)
-          print('TOTAL_RESIDUAL_CANDIDATES',total)
+                  total+=1
+                  print(f'@@ {p.name}:{n}')
+                  print(line)
+          print('TOTAL_SOURCE_CANDIDATES',total)
           PY
