@@ -1,4 +1,4 @@
-name: Audit Ne ver golosu editorial jargon
+name: Final style and safety gate Ne ver golosu
 
 on:
   push:
@@ -14,19 +14,77 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Scan source notes for editorial/meta language
+      - name: Final manuscript style safety and language gate
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
-          p=Path('ne-ver-golosu/manuscript/17-SOURCES.md')
-          pat=re.compile(r'(?i)(?:кейс|артефакт|риск-модел|фрейм|воронк|контур|операционн|методолог|редакторск|служебн|технож|жаргон|фактологическ|авторск|рамк|интеллектуальн(?:ая|ой) опор|для читател|этой книг|в этой книг|книг[аеуи] |вывод книг|модель книг)')
-          total=0
-          for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
-              if pat.search(line):
-                  total+=1
-                  print(f'@@ {p.name}:{n}')
-                  print(line)
-          print('TOTAL_SOURCE_CANDIDATES',total)
+          import re, collections
+          root=Path('ne-ver-golosu/manuscript')
+          reader=sorted(p for p in root.glob('*.md') if p.name!='17-SOURCES.md')
+          allfiles=reader+[root/'17-SOURCES.md']
+          text='\n'.join(p.read_text(encoding='utf-8') for p in reader)
+          combined='\n'.join(p.read_text(encoding='utf-8') for p in allfiles)
+
+          # Editorial/service jargon that should no longer appear in finished prose.
+          forbidden_style=[
+            'техножаргон','реальных кейсов','корпоративных кейсов','советы по артефактам',
+            'найди артефакт на лице','риск-модель','фактологический срез','интеллектуальная опора',
+            'авторская модель','для читателя этой книги','для читателя важна','практический вывод для читателя',
+            'защитный вывод','для защитной логики','парадокс названия книги','операционная система» — человек',
+            'в предыдущей главе мы обсуждали','мы уже применяли риск-модель','по всей книге',
+            'к чему мы постепенно пришли','следующая часть книги'
+          ]
+          bad_style=[s for s in forbidden_style if s.lower() in combined.lower()]
+
+          # English professional jargon remains forbidden in reader text.
+          banned_en=['authenticity','detection','deepfake detection','identity proofing','remote proofing',
+                     'liveness','provenance','human-in-the-loop','authorization','authentication intent',
+                     'forensic','false positive','false negative',"liar's dividend",'generative ai',
+                     'deepfake video','deepfake audio','knowledge-based','security concept']
+          bad_en=[s for s in banned_en if s in text.lower()]
+
+          # Allowed Latin tokens only (URLs excluded).
+          rx=re.compile(r"[A-Za-z][A-Za-z0-9’'._+-]*")
+          tokens=collections.Counter()
+          for p in reader:
+            for line in p.read_text(encoding='utf-8').splitlines():
+              clean=re.sub(r'https?://\S+','',line)
+              tokens.update(rx.findall(clean))
+          allowed={'NIST','SP','A-4','B-4','C2PA','Content','Credentials','Credentials.','PDF','PDF-','WhatsApp-','IC3','I.','II.','III.','IV.'}
+          unexpected=sorted(t for t in tokens if t not in allowed)
+
+          # No attacker-side operational framing.
+          pats=[
+            r'(?i)(?:мошенник|злоумышленник|атакующий)[^.!?]{0,140}(?:нужно|достаточно|должен|следует|выгодно|получить|обойти|скрыть|маскировать)',
+            r'(?i)(?:как|способ)[^.!?]{0,100}(?:взломать|захватить|скомпрометировать|клонировать|подделать|обойти защит)'
+          ]
+          operational=[]
+          for p in reader:
+            for n,line in enumerate(p.read_text(encoding='utf-8').splitlines(),1):
+              if any(re.search(pat,line) for pat in pats): operational.append(f'{p.name}:{n}:{line}')
+
+          required=[
+            '## Приложение 7. Краткий словарь',
+            'Сведения и правовые положения проверены по состоянию на **14 августа 2026 года**.',
+            'По состоянию на 14 августа 2026 года отдельного универсального «права на голос»',
+            'не устанавливает универсальную обязанность маркировать каждый материал'
+          ]
+          missing=[s for s in required if s not in combined]
+
+          print('BAD_STYLE',bad_style)
+          print('BANNED_ENGLISH',bad_en)
+          print('UNEXPECTED_LATIN',unexpected)
+          print('CONTENT_CREDENTIALS_COUNT',text.count('Content Credentials'))
+          print('OPERATIONAL_ATTACK_FRAMING',operational)
+          print('MISSING_REQUIRED',missing)
+          failures=[]
+          if bad_style: failures.append('editorial/service jargon')
+          if bad_en: failures.append('English jargon')
+          if unexpected: failures.append('unexpected Latin')
+          if text.count('Content Credentials')!=2: failures.append('Content Credentials count')
+          if operational: failures.append('attacker-side operational framing')
+          if missing: failures.append('required wording missing')
+          print('FINAL_FAILURES',failures)
+          if failures: raise SystemExit(1)
           PY
