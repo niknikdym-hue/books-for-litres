@@ -1,0 +1,16 @@
+{
+  "studio_name": "Qwen Audiobook Studio",
+  "studio_version": "1.0.0",
+  "engine_root": "/Users/elenadymova/Documents/New project/qwen3-tts-0.6b-customvoice-mlx-book-audition-2026-08-16",
+  "engine_python": "/Users/elenadymova/Documents/New project/qwen3-tts-0.6b-customvoice-mlx-book-audition-2026-08-16/.venv/bin/python",
+  "hf_home": "/Users/elenadymova/Documents/New project/qwen3-tts-0.6b-customvoice-mlx-book-audition-2026-08-16/hf-cache",
+  "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16",
+  "output_root": "/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio/renders",
+  "default_generation": {
+    "temperature": 0.9,
+    "top_k": 50,
+    "top_p": 1.0,
+    "repetition_penalty": 1.05,
+    "max_tokens": 4096
+  }
+}
