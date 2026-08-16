@@ -1,0 +1,23 @@
+{
+  "enabled": false,
+  "slug": "new-book",
+  "title": "НАЗВАНИЕ КНИГИ",
+  "author": "АВТОР",
+  "language": "Russian",
+  "default_speaker": "Vivian",
+  "seed": 20260816,
+  "audiobook_instruct": "BOOK-SPECIFIC CONTROL INSTRUCTION. This is not spoken text.",
+  "pronunciation_overrides": {},
+  "jobs": {
+    "short-test": {
+      "label": "Короткий тест",
+      "segments": [
+        {
+          "id": "t01",
+          "text": "Чистый текст, который должен прозвучать.",
+          "pause_after_ms": 0
+        }
+      ]
+    }
+  }
+}
