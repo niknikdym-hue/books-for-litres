@@ -1,5 +1,7 @@
 # NEW CHAT HANDOFF — аудиокнига «Хватит себя обесценивать»
 
+Дата актуализации: 2026-08-17
+
 ## ПРОЕКТ
 
 Автор: Елена Дилон
@@ -8,10 +10,6 @@
 Репозиторий: `niknikdym-hue/books-for-litres`
 Рабочая папка:
 `pravo-na-sebya/hvatit-sebya-obestsenivat-audioversiya-tts/`
-
-Актуальная точка немедленного продолжения после фактического PyTorch/MPS-теста Qwen3-TTS 0.6B CustomVoice 16 августа 2026 года.
-
----
 
 ## 1. MASTER — НЕ ТРОГАТЬ
 
@@ -22,17 +20,11 @@
 - blob SHA: `e9b053954bd217d978aeea2950a5821a8a105e57`
 - размер: `149308 bytes`
 
-Master неприкосновенен:
-- никаких `+`;
-- никаких acute stress marks;
-- никакого SSML;
-- никакой служебной TTS-разметки.
-
----
+Master неприкосновенен. Не добавлять SSML, `+`, acute marks или служебную TTS-разметку.
 
 ## 2. ЦЕЛЬ
 
-Нужна не технически работающая читалка, а полноценная русская аудиокнига:
+Нужна полноценная русская аудиокнига, а не технически работающая читалка:
 - человеческая фразовая интонация;
 - естественная русская речь;
 - живая смысловая динамика;
@@ -41,55 +33,52 @@ Master неприкосновенен:
 - без newsreader/рекламной подачи;
 - без переигрывания.
 
-Полную книгу не генерировать до SHORT/HUMAN PASS и LONG TEST PASS.
+Полную книгу не генерировать до HUMAN/LONG PASS.
 
----
+## 3. ЗАКРЫТЫЕ ПУТИ
 
-## 3. QWEN — ЧТО ИМЕННО ЗАКРЫТО
+- Silero — FAIL / CLOSED: авточтец.
+- Piper — FAIL / CLOSED: качество не принято.
+- Qwen voice cloning — FAIL / CLOSED: плохое клонирование, к нему не возвращаться.
+- Chatterbox V3 — FAIL / CLOSED: Perth crash, не чинить.
+- ZONOS2 — SUPERSEDED / NOT ACTIVE.
+- Qwen PyTorch/MPS PR #345 — TECHNICAL FAIL / CLOSED.
 
-### Qwen voice cloning — FAIL / CLOSED
+PyTorch/MPS test был pinned к `26a5dacbc1644772df13f34966838e601a59c03c`, загрузил 0.6B на MPS/float16, но Serena упала до первого WAV с `torch.AcceleratorError: probability tensor contains either inf, nan or element < 0`. WAV 0. Этот backend больше не чинить.
 
-Прежний путь:
-`Qwen3-TTS 0.6B + MLX + voice cloning`.
+Неудачный сегодняшний PyTorch/MPS каталог позже удалён целиком. По `du` он занимал 3.8G; фактически свободного места прибавилось примерно 1.32 GiB. Рабочий MLX-Qwen каталог не затронут.
 
-Клонированный результат был плохим («звуковая каша»). К cloning не возвращаться.
-
-### Qwen PyTorch/MPS PR #345 — TECHNICAL FAIL / CLOSED
-
-Pinned head:
-`26a5dacbc1644772df13f34966838e601a59c03c`
-
-Фактический локальный запуск:
-- MacBook Air M1 / 8 GB;
-- модель `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`;
-- `mps / float16`;
-- MPS доступен;
-- model load `282.01 s`;
-- Serena упала до первого WAV:
-  `torch.AcceleratorError: probability tensor contains either inf, nan or element < 0`;
-- WAV: `0`;
-- остальные 8 speaker не запускались;
-- swap примерно `1211.69 -> 2431.75 MB`;
-- OOM/kill не было;
-- STOP выполнен правильно, никаких ремонтов не делалось.
-
-Подробно:
+Подробный архивный файл:
 `18-QWEN3-TTS-MPS-TECHNICAL-FAIL-2026-08-16.md`
 
-Не чинить этот backend, не тюнить sampling, не уходить в CPU/float32 ради demo.
+## 4. РАБОЧИЙ PRODUCTION-КАНДИДАТ
 
----
+Runtime:
+- MLX-Audio `v0.4.5`
+- commit `04151c6abb74b886f879a4457ccdc96761f10102`
 
-## 4. QWEN 0.6B CUSTOMVOICE КАК МОДЕЛЬ НЕ ЗАКРЫТ
+Модель:
+`mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16`
 
-Активен другой runtime path:
+Рабочий локальный каталог:
+`/Users/elenadymova/Documents/New project/qwen3-tts-0.6b-customvoice-mlx-book-audition-2026-08-16`
 
-`Qwen3-TTS 0.6B CustomVoice + MLX-Audio`
+Этот каталог НЕ удалять и НЕ переустанавливать. Это действующая локальная TTS-студия.
 
-Причина: MPS-падение произошло до любого WAV и не говорит ничего о художественном качестве Qwen CustomVoice.
+## 5. STAGE A — PASS 9/9
 
-Русский Qwen официально поддерживает.
-Есть 9 preset speaker:
+Stage A через MLX успешно завершён.
+
+Факты:
+- Serena smoke: PASS;
+- все 9 joined WAV созданы и машинно проверены;
+- mono PCM16;
+- 24 kHz;
+- полный Stage A: `1323.22 s`;
+- max reported MLX peak: `8.244 GB`;
+- OOM/process kill/fatal errors: нет.
+
+Все 9 preset speaker остаются доступными для будущих книг:
 - Vivian
 - Serena
 - Uncle_Fu
@@ -100,194 +89,105 @@ Pinned head:
 - Ono_Anna
 - Sohee
 
-Voice cloning не требуется.
+Выбор одного диктора для текущей книги НЕ удаляет и не отключает остальные голоса.
 
----
+## 6. ВЫБОР ПОЛЬЗОВАТЕЛЯ
 
-## 5. НОВЫЙ АКТИВНЫЙ RUNTIME — MLX-AUDIO
+Финалист для «Хватит себя обесценивать»:
 
-Проект:
-`https://github.com/Blaizzy/mlx-audio`
+`Vivian`
 
-Использовать только pinned release:
-- tag `v0.4.5`
-- commit `04151c6abb74b886f879a4457ccdc96761f10102`
+Только Vivian идёт в Stage B этой книги.
 
-Runtime license: MIT.
+Остальные восемь голосов сохранить для будущих книг.
 
-Модель только:
-`mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16`
+## 7. SCRIPT / RUNNER
 
-Model repo примерно `2.5 GB`, основной safetensors примерно `1.81 GB`, license Apache-2.0.
-
-Почему этот путь допустим:
-- MLX-Audio создан для Apple Silicon;
-- Qwen3-TTS поддерживается штатно;
-- merged PR #444 специально исправлял 0.6B CustomVoice (`Fix some Custom Voices producing silence with 0.6B`);
-- MLX implementation использует собственный native sampling path;
-- все 9 нужных speaker доступны;
-- WAV не требует установки ffmpeg.
-
----
-
-## 6. ВАЖНОЕ РАЗЛИЧИЕ ПО `instruct`
-
-Официальный PyTorch Qwen-код для 0.6B зануляет `instruct`.
-
-Но pinned MLX-Audio после PR #444 имеет другое runtime-specific поведение: для `0.6B custom_voice` instruction path сохраняется.
-
-Поэтому новый MLX audition использует **один фиксированный audiobook instruct**.
-
-Он передаётся как отдельный control argument и НЕ является произносимым текстом.
-
-Книжная инструкция требует:
-- native-sounding Russian pronunciation;
-- тёплую, умную, камерную подачу одному слушателю;
-- естественную русскую фразировку и смысловые акценты;
-- разнообразный ритм;
-- умеренный неторопливый conversational pace;
-- тонкую сухую иронию только там, где она есть в тексте;
-- не звучать как newsreader/commercial/announcer/voice assistant/synthetic reader;
-- не переигрывать, не шептать, не петь и не добавлять слов.
-
----
-
-## 7. НОВЫЙ КНИЖНЫЙ СЦЕНАРИЙ
-
-Файл:
+Книжный сценарий:
 `20-QWEN3-TTS-MLX-BOOK-AUDITION-SCRIPT.json`
 
-Там:
-- `text` = только то, что должно быть произнесено;
-- `audiobook_instruct` = отдельная control-инструкция;
-- `pause_after_ms` = цифровая тишина, которую вставляет runner после синтеза;
-- generation settings зафиксированы и одинаковы для всех speaker.
-
-Stage A использует настоящий фрагмент вступления книги с:
-- повествованием;
-- внутренней репликой;
-- иронией;
-- длинной фразой;
-- короткой фразой;
-- ритмическим перечислением.
-
-Это audition аудиокниги, а не тест скороговорки.
-
----
-
-## 8. MLX RUNNER
-
-Файл:
+Runner:
 `21-QWEN3-TTS-MLX-AUDIOBOOK-RUNNER.py`
 
-Он:
-- работает через `mlx_audio.tts.utils.load_model`;
-- требует Apple Silicon arm64;
-- использует только подготовленный MLX model id;
-- передаёт модели clean `text` + separate `instruct`;
-- не использует cloning/SSML/stress markup;
-- одинаково seed-ит соответствующие сегменты;
-- сохраняет каждый сегмент;
-- делает минимальный edge fade;
-- вставляет `pause_after_ms` как цифровую тишину;
-- собирает `BOOK-AUDITION-MLX-<speaker>.wav`;
-- пишет `RUN-REPORT.json`;
-- фиксирует reported MLX peak memory и времена.
+Сценарий содержит:
+- Stage A короткий реальный фрагмент;
+- Stage B длинный реальный фрагмент из 19 сегментов;
+- отдельный `audiobook_instruct` как control argument;
+- цифровые паузы `pause_after_ms` вне модели;
+- фиксированные generation settings.
 
----
+Stage B уже подготовлен и не требует нового текста или нового runner.
 
-## 9. ТОЧНОЕ СЛЕДУЮЩЕЕ ЗАДАНИЕ CODEX
+## 8. INSTRUCT
 
-Файл:
-`19-QWEN3-TTS-MLX-AUDIO-M1-CODEX-TASK.md`
+В MLX-Audio path используется отдельная книжная control-инструкция. Она не является произносимым текстом.
 
-Выполнить буквально.
+Цель инструкции:
+- native-sounding Russian;
+- тёплая, умная, камерная подача одному слушателю;
+- естественная русская фразировка;
+- смысловые акценты;
+- разнообразный ритм;
+- умеренный неторопливый conversational pace;
+- тонкая ирония только там, где её допускает текст;
+- без newsreader/commercial/announcer/voice-assistant/synthetic-reader подачи;
+- без переигрывания и добавления слов.
 
-Новый test dir:
-`/Users/elenadymova/Documents/New project/qwen3-tts-0.6b-customvoice-mlx-book-audition-2026-08-16`
+На первом Vivian Stage B instruct НЕ менять: сначала получить стабильный длинный эталон. Корректировать режиссуру только после пользовательского прослушивания.
 
-Если существует — STOP, не перезаписывать.
-
-Использовать существующий Python 3.11.16, отдельный venv и отдельный HF cache внутри test dir.
-
-### Порядок
-
-1. pinned MLX-Audio v0.4.5;
-2. только bf16 0.6B CustomVoice;
-3. smoke: Serena + первый книжный сегмент;
-4. если smoke WAV есть — Stage A всех 9 speaker;
-5. после 9 WAV STOP;
-6. пользователь слушает и выбирает максимум 1–2 финалиста.
-
-Stage B автоматически НЕ запускать.
-
----
-
-## 10. УДАРЕНИЯ
+## 9. УДАРЕНИЯ / ИМЯ АВТОРА
 
 Файл:
 `17-QWEN3-TTS-PRONUNCIATION-GATE.json`
 
-Не добавлять stress syntax заранее.
-Сначала услышать реальный русский WAV.
-Потом фиксировать только фактически неправильные слова отдельными TTS-overrides, не в master.
-
-Известное правильное произношение:
+Правильное ожидаемое произношение:
 **Елена ДИлон**.
 
----
+Stage B начинается с титула `Елена Дилон.`
+
+Не добавлять знаки ударения и фонетические хаки заранее. Сначала пользователь слушает естественную Vivian. Если фамилия реально произнесена неправильно — делать отдельный короткий pronunciation correction test только для TTS working copy. Master и основной script не менять без подтверждённого решения.
+
+## 10. ТОЧНОЕ СЛЕДУЮЩЕЕ ЗАДАНИЕ CODEX
+
+Файл:
+`22-QWEN3-TTS-VIVIAN-STAGE-B-CODEX-TASK.md`
+
+Выполнить буквально.
+
+Главное:
+- использовать существующую рабочую MLX-студию;
+- ничего не переустанавливать и не скачивать повторно;
+- `--stage stage_b_finalists`;
+- `--speakers Vivian`;
+- новый output `output-stage-b-vivian`;
+- все 19 сегментов;
+- после joined Vivian WAV — STOP;
+- не запускать полную книгу;
+- не тюнить параметры/инструкцию до прослушивания.
 
 ## 11. ЧТО НЕЛЬЗЯ ДЕЛАТЬ
 
-- Не возвращаться к Qwen voice cloning.
+- Не удалять рабочий MLX-Qwen каталог.
+- Не удалять остальные preset speaker.
 - Не возвращаться к PyTorch/MPS PR #345.
-- Не менять старые Qwen/MLX окружения.
-- Не использовать старый HF cache для нового теста.
+- Не возвращаться к voice cloning.
+- Не переустанавливать MLX-Audio без отдельной причины.
+- Не скачивать модель заново для каждой книги.
 - Не делать общую чистку Mac.
-- Не ставить новый системный Python.
-- Не делать Homebrew update/upgrade.
-- Не ставить ffmpeg ради WAV.
-- Не делать автоматический fallback на 8bit/6bit/1.7B.
-- Не monkey-patch MLX-Audio.
-- Не менять audiobook instruct до первого прослушивания.
-- Не менять текст/паузы сценария.
-- Не использовать SSML и выдуманные stress marks.
 - Не менять master.
-- Не запускать Stage B, главу или книгу до пользовательского выбора.
-- Не выбирать победителя вместо пользователя.
-- Не возвращаться к Silero/Piper/Chatterbox.
-- ZONOS2 не активен.
-
----
-
-## 12. ЗАКРЫТЫЕ ДВИЖКИ / ПУТИ
-
-- Silero — FAIL / CLOSED: авточтец.
-- Piper — FAIL / CLOSED: качество не принято.
-- Qwen voice cloning — FAIL / CLOSED.
-- Qwen PyTorch/MPS PR #345 — TECHNICAL FAIL / CLOSED.
-- Chatterbox V3 — FAIL / CLOSED, не чинить Perth.
-- ZONOS2 — SUPERSEDED / NOT ACTIVE.
-
----
+- Не использовать SSML/`+`/acute marks без подтверждённого pronunciation test.
+- Не запускать 8 других speaker в Stage B текущей книги.
+- Не запускать полную книгу до Vivian Stage B HUMAN PASS.
 
 ## STATUS
 
 `MASTER SOURCE: LOCKED / UNCHANGED`
-`SILERO: FAIL / CLOSED`
-`PIPER: FAIL / CLOSED`
-`QWEN VOICE CLONING: FAIL / CLOSED`
-`QWEN PYTORCH/MPS PR #345: TECHNICAL FAIL / CLOSED`
-`CHATTERBOX: FAIL / CLOSED`
-`ZONOS2: SUPERSEDED / NOT ACTIVE`
-`QWEN 0.6B CUSTOMVOICE MODEL: ACTIVE`
+`QWEN PYTORCH/MPS: TECHNICAL FAIL / CLOSED / TEST DIR CLEANED`
 `ACTIVE RUNTIME: MLX-AUDIO v0.4.5 @ 04151c6abb74b886f879a4457ccdc96761f10102`
 `ACTIVE MODEL: mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16`
-`RUSSIAN: SUPPORTED`
-`PRESET SPEAKERS: 9`
-`VOICE CLONING: NO`
-`AUDIOBOOK INSTRUCT: ENABLED IN THIS MLX PATH`
-`MLX SCRIPT: READY`
-`MLX RUNNER: READY`
-`NEXT ACTION: EXECUTE 19-QWEN3-TTS-MLX-AUDIO-M1-CODEX-TASK.md`
-`FULL BOOK: HOLD UNTIL HUMAN PASS + LONG TEST`
+`STAGE A: PASS 9/9`
+`ALL 9 PRESET SPEAKERS: PRESERVED`
+`CURRENT BOOK FINALIST: VIVIAN`
+`VIVIAN STAGE B SCRIPT: READY / 19 SEGMENTS`
+`NEXT ACTION: EXECUTE 22-QWEN3-TTS-VIVIAN-STAGE-B-CODEX-TASK.md`
+`FULL BOOK: HOLD UNTIL VIVIAN STAGE B HUMAN PASS`
