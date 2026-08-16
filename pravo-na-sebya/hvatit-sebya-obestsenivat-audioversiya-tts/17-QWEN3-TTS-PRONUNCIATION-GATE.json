@@ -1,0 +1,19 @@
+{
+  "purpose": "Хранить ожидаемое произношение отдельно от мастер-текста и отдельно от неподдерживаемой TTS-разметки.",
+  "policy": {
+    "modify_master": false,
+    "inject_unverified_stress_markup": false,
+    "apply_replacement_only_after_real_error_is_heard": true,
+    "replacement_scope": "TTS working copy only"
+  },
+  "known_items": [
+    {
+      "source": "Елена Дилон",
+      "expected_pronunciation_human": "Елена ДИлон",
+      "status": "CHECK_IN_STAGE_B",
+      "tts_replacement": null,
+      "notes": "Не менять заранее: сначала проверить естественное произношение Qwen. Если ударение ошибочно, подобрать и проверить отдельную TTS-safe замену на одном коротком title sample."
+    }
+  ],
+  "detected_after_listening": []
+}
