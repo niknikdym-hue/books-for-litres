@@ -1,176 +1,202 @@
-# Qwen3-TTS 0.6B CustomVoice — актуальный выбор для SHORT TEST
+# Qwen3-TTS 0.6B CustomVoice — текущий выбор и runtime gate
 
-Дата проверки: 2026-08-16
+Дата актуализации: 2026-08-16
 
-## Решение
+## Главный вывод
 
-Активный кандидат для следующего локального теста аудиокниги:
+Qwen3-TTS 0.6B CustomVoice **не закрыт как модель для аудиокниги**.
 
+Закрыты два конкретных прежних пути:
+
+1. `Qwen3-TTS 0.6B + MLX + voice cloning` — плохой клонированный звук («звуковая каша»), cloning для книги больше не использовать.
+2. `Qwen3-TTS 0.6B CustomVoice + upstream PR #345 + PyTorch MPS/float16` — технический FAIL до первого WAV на MacBook Air M1 / 8 GB.
+
+Активный следующий путь:
+
+`Qwen3-TTS 0.6B CustomVoice + Blaizzy/mlx-audio v0.4.5 + MLX bf16 model`
+
+Точный model id:
+`mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16`
+
+Это по-прежнему **без voice cloning**.
+
+---
+
+## Что подтверждено по Qwen
+
+Оригинальная модель Qwen:
 `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`
 
-Важно: это **НЕ прежний voice-cloning pipeline**.
+Подтверждено разработчиком Qwen:
+- русский входит в 10 поддерживаемых языков;
+- есть 9 preset premium timbres;
+- каждый preset speaker может говорить на любом поддерживаемом языке, в том числе по-русски;
+- для лучшего качества Qwen рекомендует native language speaker, но Russian не запрещён;
+- cloning для CustomVoice не нужен;
+- лицензия Apache-2.0.
 
-Ранее забракован именно путь Qwen3-TTS 0.6B + MLX + voice cloning: он дал плохой клонированный звук («звуковая каша») и оказался слишком тяжёлым по настройке. Этот FAIL нельзя переносить на `CustomVoice` с готовыми встроенными дикторами.
+9 speaker:
+- Vivian
+- Serena
+- Uncle_Fu
+- Dylan
+- Eric
+- Ryan
+- Aiden
+- Ono_Anna
+- Sohee
 
-## Что подтверждено официально
+Нативного русского speaker среди них нет. Поэтому пригодность определяется только реальным русским книжным WAV.
 
-Официальный model card Qwen:
-`https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`
+---
 
-Официальный репозиторий:
-`https://github.com/QwenLM/Qwen3-TTS`
+## PyTorch/MPS PR #345 — ПРОВЕРЕН И ЗАКРЫТ
 
-Подтверждено:
-
-- русский входит в 10 официально поддерживаемых языков;
-- модель имеет 9 готовых premium timbres;
-- официальный README прямо указывает, что каждый готовый speaker может говорить на любом поддерживаемом моделью языке;
-- для лучшего качества Qwen рекомендует native language конкретного speaker, но русский синтез для этих speaker поддерживается;
-- voice cloning для `CustomVoice` не нужен;
-- вызов: `generate_custom_voice(text=..., language="Russian", speaker=...)`;
-- модель и Python package опубликованы под Apache-2.0;
-- репозиторий модели занимает примерно 2.5 GB, основной `model.safetensors` около 1.81 GB;
-- модель существенно легче 1.7B-вариантов и поэтому является первым разумным кандидатом для MacBook Air M1 / 8 GB.
-
-## КРИТИЧЕСКАЯ ПОПРАВКА: 0.6B И STYLE INSTRUCT
-
-Model card описывает CustomVoice как модель со style control, однако текущая реализация `generate_custom_voice()` в официальном `main` содержит специальное условие для модели 0.6B:
-
-`if self.model.tts_model_size in "0b6": instruct = None`
-
-То есть на актуальном коде Qwen **0.6B CustomVoice фактически игнорирует `instruct`**.
-
-Следствие:
-- 0.6B не считать управляемым «режиссёрским» голосом;
-- оценивать его собственную естественную просодию без словесных инструкций;
-- не пытаться лечить плоское чтение prompt-инструкциями — для 0.6B они не применятся;
-- если голос/русский хороши, но нужна именно управляемая книжная подача, следующим отдельным кандидатом может стать `1.7B-CustomVoice`, где `instruct` не отключается этим условием;
-- 1.7B не устанавливать до отдельного решения, потому что M1/8 GB — более тяжёлый аппаратный gate.
-
-## Готовые голоса
-
-Все 9 должны быть прослушаны на одном и том же коротком русском фрагменте, потому что по описанию нельзя надёжно предсказать русский акцент и книжную естественность.
-
-1. `Vivian` — bright young female; native Chinese.
-2. `Serena` — warm, gentle young female; native Chinese.
-3. `Uncle_Fu` — seasoned low/mellow male; native Chinese.
-4. `Dylan` — youthful clear male; native Chinese / Beijing.
-5. `Eric` — lively slightly husky male; native Chinese / Sichuan.
-6. `Ryan` — dynamic rhythmic male; native English.
-7. `Aiden` — sunny clear-midrange male; native English.
-8. `Ono_Anna` — playful female; native Japanese.
-9. `Sohee` — warm female; native Korean.
-
-Нативного русского speaker в штатной девятке нет. Поэтому gate — только реальное прослушивание русского WAV.
-
-## Apple Silicon / M1
-
-Официальный `main` Qwen всё ещё содержит CUDA-ориентированные примеры. На 2026-08-16 Apple Silicon support ещё не смержен.
-
-Но в официальном репозитории открыт PR:
-`https://github.com/QwenLM/Qwen3-TTS/pull/345`
-
-PR #345: `Add MLX / Apple Silicon (MPS) backend support`.
-
-Проверенный на 2026-08-16 head SHA:
+Pinned head:
 `26a5dacbc1644772df13f34966838e601a59c03c`
 
-Автор PR сообщает, что на Apple Silicon / MPS успешно прошли все четыре example scripts, включая `test_model_12hz_custom_voice.py`.
+Фактический запуск на MacBook Air M1 / 8 GB:
+- model load: `282.01 s`;
+- device/dtype: `mps / float16`;
+- первый speaker: Serena;
+- до первого WAV:
+  `torch.AcceleratorError: probability tensor contains either inf, nan or element < 0`;
+- WAV: `0`;
+- swap вырос примерно с `1211.69 MB` до `2431.75 MB`.
 
-Из PR:
-- MPS auto-detection;
-- `bfloat16` -> `float16` fallback on MPS;
-- FlashAttention2 отключается вне CUDA;
-- CustomVoice example реально прогнан на Apple Silicon.
+Это технический FAIL runtime, не оценка голоса.
 
-Статус PR на 2026-08-16: OPEN, не merged.
+Подробно:
+`18-QWEN3-TTS-MPS-TECHNICAL-FAIL-2026-08-16.md`
 
-Поэтому этот путь считается **проверяемым, но не production-stable upstream**. Работать только в отдельном каталоге, pinned к указанному head SHA. Старую Qwen-среду не трогать.
+Решение:
+`PYTORCH/MPS PR #345: CLOSED FOR THIS PROJECT`
 
-## Python
+Не чинить sampling, не уходить в CPU/float32 и не тюнить параметры ради технического WAV.
 
-Официальный `pyproject.toml` поддерживает Python `>=3.9`, включая 3.11.
+---
 
-На Mac уже сохранён Homebrew Python 3.11.16:
-`/opt/homebrew/Cellar/python@3.11/3.11.16`
+## Новый runtime: MLX-Audio
 
-Новый Python устанавливать не нужно. Для теста создаётся отдельный venv внутри нового тестового каталога.
+Проект:
+`https://github.com/Blaizzy/mlx-audio`
 
-## Реальный риск: русский язык
+Pinned release:
+`v0.4.5`
 
-В официальных GitHub Discussions Qwen есть открытые сообщения о неправильных русских ударениях и отсутствии надёжного штатного stress-control.
+Pinned commit:
+`04151c6abb74b886f879a4457ccdc96761f10102`
 
-Основная дискуссия:
-`https://github.com/QwenLM/Qwen3-TTS/discussions/185`
+Почему этот runtime выбран:
+- специально построен на Apple MLX для Apple Silicon;
+- MIT license;
+- Qwen3-TTS поддерживается штатно;
+- есть прямой `0.6B-CustomVoice-bf16` model path;
+- WAV не требует ffmpeg;
+- в проект уже merged отдельный PR #444: `[Qwen3-TTS] Fix some Custom Voices producing silence with 0.6B`;
+- в коде используется MLX-native categorical sampling;
+- model repo `mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16` около 2.5 GB, `model.safetensors` около 1.81 GB, license Apache-2.0;
+- текущая MLX-Audio реализация перечисляет все 9 нужных CustomVoice speaker.
 
-Это не причина заранее закрывать модель, но это обязательный HUMAN GATE.
+Это не возврат к прежнему cloning test. Теперь используется только preset CustomVoice.
 
-Поэтому тест оценивает отдельно:
-- общий русский акцент;
-- естественность фразовой интонации;
-- правильность ударений;
-- стабильность тембра;
-- пригодность для длинного книжного чтения.
+---
 
-Никакие знаки ударения не добавлять в мастер книги. Если впоследствии потребуется техническая preprocessing-копия — она должна быть отдельной.
+## Важное различие по `instruct`
 
-## Правильный порядок теста
+Официальный PyTorch Qwen-код для 0.6B содержит условие, которое зануляет `instruct`.
 
-### Stage A — технический smoke
+Однако MLX-Audio после merged PR #444 имеет отдельную реализацию: для `tts_model_size == "0b6"` instruct отключается только когда model type **не** `custom_voice`. Для `0.6B CustomVoice` instruction path сохраняется.
 
-Один speaker: `Serena`.
-Один короткий русский фрагмент.
-Без `instruct`.
+Поэтому:
+- на закрытом PyTorch/MPS пути считать 0.6B instruct недоступным;
+- в новом MLX-Audio audition использовать один фиксированный audiobook instruct;
+- instruct передаётся отдельным control argument и **не является произносимым текстом**;
+- Qwen получает как речь только поле `text`.
 
-Цель: доказать, что 0.6B CustomVoice реально грузится и даёт WAV на M1 / 8 GB без OOM и без ремонта старых TTS.
+Это runtime-specific поведение MLX-Audio; не переносить его автоматически на официальный PyTorch backend.
 
-Если Stage A технически проходит — Stage B.
+---
 
-### Stage B — blind voice audition
+## Книжный, а не лабораторный audition
 
-Один и тот же короткий фрагмент генерируется всеми 9 speaker.
+Новый сценарий:
+`20-QWEN3-TTS-MLX-BOOK-AUDITION-SCRIPT.json`
 
-- язык: `Russian`;
-- `instruct=None`;
-- одинаковый текст;
+Runner:
+`21-QWEN3-TTS-MLX-AUDIOBOOK-RUNNER.py`
+
+Принцип:
+- настоящий фрагмент вступления книги;
+- все 9 голосов читают один и тот же текст;
+- одинаковый audiobook instruct;
 - одинаковые generation settings;
-- одинаковый seed перед каждым speaker;
-- никакого cloning;
-- никакой SSML или технических ударений.
+- паузы добавляются runner после синтеза цифровой тишиной;
+- модель не видит служебные комментарии, названия пауз, SSML или stress markup;
+- master книги не меняется.
 
-Пользователь слушает все 9 и выбирает максимум 2 финалистов.
+Audiobook instruct задаёт:
+- native-sounding Russian;
+- тёплую, умную, камерную подачу одному слушателю;
+- естественную русскую фразировку и смысловые акценты;
+- умеренный неторопливый темп;
+- тонкую сухую иронию только там, где она заложена текстом;
+- запрет newsreader/commercial/announcer/voice-assistant/synthetic manner;
+- запрет переигрывания, шёпота, пения и добавления слов.
 
-### Stage C — только для финалистов 0.6B
+---
 
-- титульная строка;
-- отдельный русский stress/accuracy diagnostic;
-- более длинный книжный фрагмент.
+## Ударения
 
-Если финалист звучит живо без instruct — можно переходить к LONG TEST.
+Русский stress-control у Qwen остаётся реальным риском.
 
-Если русский/тембр нравятся, но подача слишком плоская — 0.6B не «лечить». Отдельно решить, стоит ли тестировать `1.7B-CustomVoice` с настоящим instruction control.
+Не добавлять заранее:
+- `+`;
+- acute accents;
+- апострофы;
+- SSML;
+- выдуманный pronunciation syntax.
 
-## STOP-условия
+Сначала получить настоящий книжный WAV. Затем фиксировать только реально ошибочные слова в отдельной TTS-copy / pronunciation override.
 
-Сразу остановить этот путь, если:
+Известное ожидание:
+**Елена ДИлон**.
 
-- M1/8 GB не может загрузить модель без OOM / тяжёлого swap;
-- Apple-Silicon PR требует каскада сторонних фиксов;
-- все 9 голосов звучат по-русски с явно иностранным акцентом;
-- системные ошибки ударений слишком часты для книжного текста;
-- речь снова воспринимается как авточтец;
-- для приемлемого результата требуется возвращаться к voice cloning.
+Файл:
+`17-QWEN3-TTS-PRONUNCIATION-GATE.json`
 
-## Текущий статус
+---
 
-`QWEN CLONING PATH: FAIL / CLOSED`
-`QWEN 0.6B CUSTOMVOICE: SELECTED FOR SHORT TEST`
-`RUSSIAN: OFFICIALLY SUPPORTED`
+## Следующий gate
+
+Точное задание Codex:
+`19-QWEN3-TTS-MLX-AUDIO-M1-CODEX-TASK.md`
+
+Порядок:
+1. новый изолированный test dir;
+2. isolated venv;
+3. isolated HF cache;
+4. pinned `mlx-audio v0.4.5`;
+5. только bf16 0.6B CustomVoice;
+6. Serena / первый книжный сегмент — technical smoke;
+7. если WAV получен — сразу Stage A для всех 9;
+8. после 9 WAV STOP и пользовательское прослушивание.
+
+Автоматические fallback на 8bit/6bit/1.7B запрещены.
+
+---
+
+## STATUS
+
+`QWEN VOICE CLONING: FAIL / CLOSED`
+`QWEN PYTORCH/MPS PR #345: TECHNICAL FAIL / CLOSED`
+`QWEN 0.6B CUSTOMVOICE MODEL: STILL ACTIVE`
+`ACTIVE RUNTIME: MLX-AUDIO v0.4.5`
+`ACTIVE MODEL: mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16`
+`RUSSIAN: SUPPORTED`
 `PRESET SPEAKERS: 9`
-`NATIVE RUSSIAN PRESET SPEAKER: NO`
-`CLONING REQUIRED: NO`
-`0.6B INSTRUCT CONTROL: DISABLED IN CURRENT OFFICIAL CODE`
-`MODEL LICENSE: APACHE-2.0`
-`MAC APPLE SILICON: PR #345 / TESTED BY PR AUTHOR / NOT MERGED`
-`M1 8GB: TO BE PROVEN BY REAL SHORT TEST`
-`FULL BOOK: HOLD`
+`VOICE CLONING: NO`
+`MLX-AUDIO AUDIOBOOK INSTRUCT: ENABLED FOR THIS TEST`
+`MASTER: LOCKED / UNCHANGED`
+`NEXT ACTION: EXECUTE 19-QWEN3-TTS-MLX-AUDIO-M1-CODEX-TASK.md`
+`FULL BOOK: HOLD UNTIL HUMAN PASS + LONG TEST`
