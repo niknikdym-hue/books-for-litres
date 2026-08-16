@@ -31,8 +31,8 @@ end chosenIndex
 
 on run
 	try
-		do shell script "/usr/bin/test -x " & quoted form of pythonPath
-		do shell script "/usr/bin/test -f " & quoted form of (studioDir & "/studio_app_runner.py")
+		do shell script "/bin/test -x " & quoted form of pythonPath
+		do shell script "/bin/test -f " & quoted form of (studioDir & "/studio_app_runner.py")
 		
 		set bridge to studioDir & "/studio_app_runner.py"
 		set baseCmd to quoted form of pythonPath & " " & quoted form of bridge
