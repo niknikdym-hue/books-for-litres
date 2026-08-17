@@ -96,3 +96,13 @@ MLX-Audio:
 `INSTALL-STUDIO-CODEX-TASK.md`
 
 После его выполнения основной пользовательский интерфейс — только `Qwen Audiobook Studio.app`.
+
+## Архитектура дальнейшего развития
+
+Рабочая Qwen Studio сохраняется и становится локальным backend будущей универсальной **Audiobook Studio**. Вторым backend будет Yandex SpeechKit v3; общими для обоих движков станут TTS-подготовка, сегментация, словари произношений, очередь, cache/manifest, Resume, QA, Review, сборка, mastering и export.
+
+Основной архитектурный документ проекта:
+
+`docs/AUDIOBOOK-STUDIO-ARCHITECTURE.md`
+
+Он является source of truth для дальнейшей разработки и должен обновляться при изменении базовых архитектурных решений.
