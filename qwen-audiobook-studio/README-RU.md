@@ -106,3 +106,25 @@ MLX-Audio:
 `docs/AUDIOBOOK-STUDIO-ARCHITECTURE.md`
 
 Он является source of truth для дальнейшей разработки и должен обновляться при изменении базовых архитектурных решений.
+
+## Текущая Yandex SpeechKit checkpoint
+
+Yandex SpeechKit v3 подключён и smoke test завершён успешно.
+
+Утверждённый текущий Yandex-профиль:
+
+```text
+voice: lera
+role: neutral
+speed: 1.04
+```
+
+Полная фиксация профиля:
+
+`docs/YANDEX-SPEECHKIT-CURRENT-PROFILE.md`
+
+Точка безопасного продолжения после перерыва:
+
+`docs/HANDOFF-2026-08-18-YANDEX.md`
+
+Перед продолжением Yandex-части сначала читать handoff; заново создавать Yandex Cloud, сервисный аккаунт, роли или API key не требуется.
