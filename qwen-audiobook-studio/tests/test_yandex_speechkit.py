@@ -12,6 +12,14 @@ sys.path.insert(0, str(ROOT))
 from backends import yandex_speechkit as module
 
 
+def write_test_wav(path: Path, *, rate: int = 22050, frames: int = 2205) -> None:
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(b"\x00\x00" * frames)
+
+
 class YandexBackendTests(unittest.TestCase):
     def test_duplicate_key_is_rejected(self):
         key = "A" * 40
@@ -46,11 +54,7 @@ class YandexBackendTests(unittest.TestCase):
     def test_wav_info_accepts_mono_pcm16(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "ok.wav"
-            with wave.open(str(path), "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(22050)
-                wf.writeframes(b"\x00\x00" * 2205)
+            write_test_wav(path)
             duration, rate, channels, width = module._wav_info(path)
             self.assertAlmostEqual(duration, 0.1, places=2)
             self.assertEqual((rate, channels, width), (22050, 1, 2))
@@ -64,6 +68,32 @@ class YandexBackendTests(unittest.TestCase):
     def test_pathological_long_token_is_split(self):
         segments = module.segment_text("A" * 501, max_chars=100, max_words=10)
         self.assertTrue(all(len(s.text) <= 100 for s in segments))
+
+    def test_streaming_join_preserves_duration_and_pause(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            a = root / "a.wav"
+            b = root / "b.wav"
+            joined = root / "joined.wav"
+            write_test_wav(a, frames=2205)
+            write_test_wav(b, frames=2205)
+            module.join_wavs_with_pauses([(a, 100), (b, 0)], joined)
+            duration, rate, channels, width = module._wav_info(joined)
+            self.assertAlmostEqual(duration, 0.3, places=2)
+            self.assertEqual((rate, channels, width), (22050, 1, 2))
+
+    def test_streaming_join_rejects_mismatched_sample_rate(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            a = root / "a.wav"
+            b = root / "b.wav"
+            joined = root / "joined.wav"
+            write_test_wav(a, rate=22050)
+            write_test_wav(b, rate=44100)
+            with self.assertRaises(module.YandexSpeechKitError) as ctx:
+                module.join_wavs_with_pauses([(a, 0), (b, 0)], joined)
+            self.assertEqual(ctx.exception.category, "audio_integrity")
+            self.assertFalse(joined.exists())
 
     def test_inflight_without_local_artifact_becomes_ambiguous(self):
         with tempfile.TemporaryDirectory() as td:
@@ -113,11 +143,7 @@ class YandexBackendTests(unittest.TestCase):
             segment_dir = job_dir / "segments"
             segment_dir.mkdir(parents=True)
             wav_path = segment_dir / f"{seg.segment_id}__{fp[:12]}.wav"
-            with wave.open(str(wav_path), "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(22050)
-                wf.writeframes(b"\x00\x00" * 2205)
+            write_test_wav(wav_path)
             manifest = {
                 "schema_version": 1,
                 "engine": module.ENGINE_ID,
