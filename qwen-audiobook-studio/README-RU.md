@@ -75,7 +75,7 @@
 
 `books/BOOK-TEMPLATE.json`
 
-## Рабочий движок
+## Рабочий движок Qwen
 
 Студия использует уже проверенную среду:
 
@@ -99,7 +99,7 @@ MLX-Audio:
 
 ## Архитектура дальнейшего развития
 
-Рабочая Qwen Studio сохраняется и становится локальным backend будущей универсальной **Audiobook Studio**. Вторым backend будет Yandex SpeechKit v3; общими для обоих движков станут TTS-подготовка, сегментация, словари произношений, очередь, cache/manifest, Resume, QA, Review, сборка, mastering и export.
+Рабочая Qwen Studio сохраняется и становится локальным backend универсальной **Audiobook Studio**. Второй backend — Yandex SpeechKit v3; общими для обоих движков должны стать TTS-подготовка, сегментация, словари произношений, очередь, cache/manifest, Resume, QA, Review, сборка, mastering и export.
 
 Основной архитектурный документ проекта:
 
@@ -107,13 +107,11 @@ MLX-Audio:
 
 Он является source of truth для архитектурных принципов и должен обновляться при изменении базовых архитектурных решений.
 
-Для текущего оперативного состояния Yandex использовать два файла ниже. Если датированная контрольная точка в архитектурном документе расходится с ними, приоритет имеет более свежий handoff/profile.
+## Yandex SpeechKit v3 — текущий статус
 
-## Текущая Yandex SpeechKit checkpoint
+Yandex Cloud / IAM / API key уже настроены; прежний ручной smoke test SpeechKit v3 завершён HTTP 200.
 
-Yandex SpeechKit v3 подключён и smoke test завершён успешно.
-
-Утверждённый текущий Yandex-профиль:
+Утверждённый профиль:
 
 ```text
 voice: lera
@@ -125,8 +123,48 @@ speed: 1.04
 
 `docs/YANDEX-SPEECHKIT-CURRENT-PROFILE.md`
 
-Точка безопасного продолжения после перерыва:
+Исторический handoff после настройки Yandex:
 
 `docs/HANDOFF-2026-08-18-YANDEX.md`
 
-Перед продолжением Yandex-части сначала читать handoff; заново создавать Yandex Cloud, сервисный аккаунт, роли или API key не требуется.
+### Repo-side backend реализован
+
+В репозитории уже добавлен отдельный Yandex backend, не изменяющий рабочие Qwen-файлы:
+
+```text
+backends/__init__.py
+backends/yandex_types.py
+backends/yandex_segmenter.py
+backends/yandex_client.py
+backends/yandex_speechkit.py
+yandex-config.json
+yandex_backend_runner.py
+tests/test_yandex_speechkit.py
+```
+
+Backend включает Keychain credentials, профиль Lera/neutral/1.04, безопасную сегментацию, `x-client-request-id`, `x-data-logging-enabled: false`, WAV validation, fingerprint cache, persistent manifest и Resume с защитой от автоматической повторной оплаты неоднозначного `IN_FLIGHT` запроса.
+
+Repo-side offline test suite:
+
+```text
+Ran 9 tests
+OK
+```
+
+На текущей контрольной точке новый backend **ещё не синхронизирован в постоянную локальную папку Studio на Mac и ещё не подключён к `.app`**.
+
+### Актуальная точка продолжения
+
+Сначала читать:
+
+`docs/HANDOFF-2026-08-18-YANDEX-BACKEND.md`
+
+Следующая безопасная задача для Codex:
+
+`SYNC-YANDEX-BACKEND-CODEX-TASK.md`
+
+Она должна перенести только новые Yandex-файлы в локальную Studio, выполнить offline tests и `yandex_backend_runner.py --check` без TTS API request, без WAV и без изменения рабочего Qwen/`.app`.
+
+Только после PASS этой локальной проверки переходить к отдельному этапу подключения выбора backend в пользовательский `.app`.
+
+Заново создавать Yandex Cloud, сервисный аккаунт, роли или API key не требуется.
