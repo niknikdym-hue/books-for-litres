@@ -354,38 +354,72 @@ class YandexSpeechKitBackend:
         return joined
 
 
+def _write_silence_stream(out: wave.Wave_write, *, frames: int, channels: int, width: int) -> None:
+    remaining = frames
+    frames_per_chunk = 65536
+    zero_frame = b"\x00" * channels * width
+    while remaining > 0:
+        count = min(remaining, frames_per_chunk)
+        out.writeframesraw(zero_frame * count)
+        remaining -= count
+
+
+def _copy_wav_frames(source: Path, out: wave.Wave_write, expected: tuple[int, int, int]) -> None:
+    with wave.open(str(source), "rb") as wf:
+        current = (wf.getnchannels(), wf.getsampwidth(), wf.getframerate())
+        if current != expected:
+            raise YandexSpeechKitError(
+                f"Нельзя собрать WAV с разными параметрами: {source.name}",
+                category="audio_integrity",
+            )
+        while True:
+            chunk = wf.readframes(65536)
+            if not chunk:
+                break
+            out.writeframesraw(chunk)
+
+
 def join_wavs_with_pauses(items: Iterable[tuple[Path, int]], output_path: Path) -> None:
-    params: tuple[int, int, int] | None = None
-    chunks: list[bytes] = []
-    for path, pause_ms in items:
-        with wave.open(str(path), "rb") as wf:
-            current = (wf.getnchannels(), wf.getsampwidth(), wf.getframerate())
-            if params is None:
-                params = current
-            elif current != params:
-                raise YandexSpeechKitError(
-                    f"Нельзя собрать WAV с разными параметрами: {path.name}",
-                    category="audio_integrity",
-                )
-            chunks.append(wf.readframes(wf.getnframes()))
-            if pause_ms > 0:
-                channels, width, rate = current
-                frames = int(round(rate * pause_ms / 1000.0))
-                chunks.append(b"\x00" * frames * channels * width)
+    """Stream segments into a joined WAV without holding audiobook audio in RAM."""
+    iterator = iter(items)
+    try:
+        first_path, first_pause_ms = next(iterator)
+    except StopIteration as e:
+        raise YandexSpeechKitError("Нет WAV для сборки.", category="audio_integrity") from e
 
-    if params is None:
-        raise YandexSpeechKitError("Нет WAV для сборки.", category="audio_integrity")
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    first_path = Path(first_path)
+    with wave.open(str(first_path), "rb") as first:
+        params = (first.getnchannels(), first.getsampwidth(), first.getframerate())
     channels, width, rate = params
+    if channels != 1 or width != 2 or rate <= 0:
+        raise YandexSpeechKitError(
+            f"Некорректные параметры WAV для сборки: channels={channels}, width={width}, rate={rate}",
+            category="audio_integrity",
+        )
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = output_path.with_suffix(output_path.suffix + ".part")
+
+    def write_one(out: wave.Wave_write, path: Path, pause_ms: int) -> None:
+        _copy_wav_frames(Path(path), out, params)
+        if pause_ms > 0:
+            silence_frames = int(round(rate * pause_ms / 1000.0))
+            _write_silence_stream(
+                out,
+                frames=silence_frames,
+                channels=channels,
+                width=width,
+            )
+
     try:
         with wave.open(str(tmp), "wb") as out:
             out.setnchannels(channels)
             out.setsampwidth(width)
             out.setframerate(rate)
-            for chunk in chunks:
-                out.writeframes(chunk)
+            write_one(out, first_path, first_pause_ms)
+            for path, pause_ms in iterator:
+                write_one(out, Path(path), pause_ms)
         wav_info(tmp)
         os.replace(tmp, output_path)
     finally:
