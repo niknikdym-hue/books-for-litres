@@ -1,0 +1,20 @@
+{
+  "engine": "yandex_speechkit_v3",
+  "endpoint": "https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis",
+  "keychain_service": "AudiobookStudio-YandexSpeechKit",
+  "keychain_account": "elenadymova",
+  "output_root": "/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio/renders-yandex",
+  "default_profile": {
+    "voice": "lera",
+    "role": "neutral",
+    "speed": "1.04",
+    "output_container": "WAV",
+    "loudness_normalization": "LUFS"
+  },
+  "segmentation": {
+    "max_chars": 220,
+    "max_words": 34,
+    "sentence_pause_ms": 380,
+    "paragraph_pause_ms": 700
+  }
+}
