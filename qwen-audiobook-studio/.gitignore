@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Runtime audio and temporary files
+*.wav
+*.mp3
+*.m4b
+*.part
+renders/
+renders-yandex/
+runtime-data/
+
+# Runtime manifests/logs should stay with local jobs, not source control
+MANIFEST.json
+RUN-REPORT.json
+*.log
+
+# Secrets / local credentials
+.env
+.env.*
+*.key
+secrets*.json
+credentials*.json
