@@ -144,12 +144,9 @@ tests/test_yandex_speechkit.py
 
 Backend включает Keychain credentials, профиль Lera/neutral/1.04, безопасную сегментацию, `x-client-request-id`, `x-data-logging-enabled: false`, WAV validation, fingerprint cache, persistent manifest и Resume с защитой от автоматической повторной оплаты неоднозначного `IN_FLIGHT` запроса.
 
-Repo-side offline test suite:
+Сборка joined WAV выполняется потоково, сегмент за сегментом, без загрузки аудиокниги целиком в RAM.
 
-```text
-Ran 9 tests
-OK
-```
+Базовый suite до этой доработки прошёл `9/9 OK`; после перехода на потоковую сборку добавлены ещё два теста. Текущий suite содержит **11 тестов**, и полный `11/11 OK` должен быть подтверждён на пользовательском Mac во время следующей безопасной sync-проверки.
 
 На текущей контрольной точке новый backend **ещё не синхронизирован в постоянную локальную папку Studio на Mac и ещё не подключён к `.app`**.
 
@@ -163,7 +160,7 @@ OK
 
 `SYNC-YANDEX-BACKEND-CODEX-TASK.md`
 
-Она должна перенести только новые Yandex-файлы в локальную Studio, выполнить offline tests и `yandex_backend_runner.py --check` без TTS API request, без WAV и без изменения рабочего Qwen/`.app`.
+Она должна перенести только новые Yandex-файлы в локальную Studio, выполнить compile check, получить `Ran 11 tests / OK` и выполнить `yandex_backend_runner.py --check` без TTS API request, без пользовательских WAV и без изменения рабочего Qwen/`.app`.
 
 Только после PASS этой локальной проверки переходить к отдельному этапу подключения выбора backend в пользовательский `.app`.
 
