@@ -1,0 +1,13 @@
+{
+  "engine": "yandex_speechkit_v3",
+  "currency": "RUB",
+  "unit": "billing_unit",
+  "unit_price": "0.21146666",
+  "pricing_model": "per_250_chars_or_request_unit",
+  "source_region": "published_ruble_rate",
+  "verified_at": "2026-08-20",
+  "source_url": "https://yandex.cloud/ru-kz/docs/speechkit/pricing",
+  "max_age_days": 30,
+  "hard_limit_rub": null,
+  "demo_hard_limit_rub": "1.00"
+}

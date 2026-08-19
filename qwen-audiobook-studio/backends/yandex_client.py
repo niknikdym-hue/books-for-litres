@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .yandex_segmenter import segment_text
+from .yandex_pricing import YandexPricingConfig, price_estimate
 from .yandex_types import (
     ENGINE_ID,
     SynthesisResult,
@@ -87,16 +88,88 @@ class YandexSpeechKitBackend:
             paragraph_pause_ms=self.config.paragraph_pause_ms,
         )
 
-    def estimate(self, text: str) -> dict[str, Any]:
+    def _cached_segment_ids(self, segments: list[TextSegment], job_dir: Path | None) -> set[str]:
+        """Find only integrity-checked cache/Resume hits; never create audio."""
+        cached: set[str] = set()
+        entries: dict[str, Any] = {}
+        if job_dir is not None:
+            manifest_path = Path(job_dir) / "MANIFEST.json"
+            if manifest_path.exists():
+                try:
+                    with manifest_path.open("r", encoding="utf-8") as source:
+                        entries = dict(json.load(source).get("segments", {}))
+                except (OSError, ValueError, TypeError):
+                    entries = {}
+
+        cache_root = self.config.output_root / "_cache" / ENGINE_ID
+        for segment in segments:
+            fingerprint = make_fingerprint(segment.text, self.profile)
+            entry = entries.get(segment.segment_id, {})
+            candidates: list[Path] = [cache_root / f"{fingerprint}.wav"]
+            if (
+                job_dir is not None
+                and entry.get("fingerprint") == fingerprint
+                and entry.get("status") in {"DONE", "CACHED"}
+                and isinstance(entry.get("wav"), str)
+            ):
+                candidates.insert(0, Path(job_dir) / "segments" / entry["wav"])
+            for candidate in candidates:
+                if not candidate.exists():
+                    continue
+                try:
+                    wav_info(candidate)
+                except YandexSpeechKitError:
+                    continue
+                cached.add(segment.segment_id)
+                break
+        return cached
+
+    def estimate(
+        self,
+        text: str,
+        *,
+        pricing: YandexPricingConfig | None = None,
+        job_dir: Path | None = None,
+        scope: str = "book",
+    ) -> dict[str, Any]:
         segments = self.segment(text)
         units = sum(max(1, math.ceil(len(seg.text) / 250)) for seg in segments)
-        return {
+        cached_ids = self._cached_segment_ids(segments, job_dir)
+        remaining_units = sum(
+            max(1, math.ceil(len(segment.text) / 250))
+            for segment in segments
+            if segment.segment_id not in cached_ids
+        )
+        result = {
             "engine": ENGINE_ID,
             "characters": sum(len(seg.text) for seg in segments),
             "segments": len(segments),
             "estimated_billing_units": units,
-            "unit_price": None,
+            "cached_segments": len(cached_ids),
         }
+        if pricing is None:
+            result["unit_price"] = None
+            return result
+        result.update(price_estimate(
+            total_units=units,
+            billable_remaining_units=remaining_units,
+            pricing=pricing,
+            scope=scope,
+        ))
+        return result
+
+    @staticmethod
+    def require_allowed_to_start(estimate: dict[str, Any]) -> None:
+        if estimate.get("allowed_to_start"):
+            return
+        reason = estimate.get("blocked_reason", "pricing")
+        messages = {
+            "missing_tariff": "Тариф не настроен. Обновите тариф перед запуском.",
+            "stale_tariff": "Тариф требует проверки. Обновите тариф перед запуском.",
+            "missing_hard_limit": "Задайте максимальную стоимость одной задачи в Настройках.",
+            "hard_limit_exceeded": "Оценка превышает лимит задачи. Измените лимит в Настройках.",
+        }
+        raise YandexSpeechKitError(messages.get(reason, "Запуск заблокирован pricing policy."), category="pricing_gate")
 
     def _get_api_key(self) -> str:
         if self._api_key is None:
@@ -231,7 +304,18 @@ class YandexSpeechKitBackend:
             duration, sr, channels, width, fingerprint, False,
         )
 
-    def run_text_job(self, text: str, job_dir: Path, *, job_id: str = "yandex-text-job") -> Path:
+    def run_text_job(
+        self,
+        text: str,
+        job_dir: Path,
+        *,
+        job_id: str = "yandex-text-job",
+        pricing: YandexPricingConfig,
+        scope: str = "book",
+    ) -> Path:
+        self.require_allowed_to_start(
+            self.estimate(text, pricing=pricing, job_dir=job_dir, scope=scope)
+        )
         segments = self.segment(text)
         if not segments:
             raise YandexSpeechKitError("После сегментации нет текста.", category="input")

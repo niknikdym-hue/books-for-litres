@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +18,8 @@ STUDIO_DIR = Path(__file__).resolve().parent
 QWEN_RUNNER = STUDIO_DIR / "studio_app_runner.py"
 YANDEX_RUNNER = STUDIO_DIR / "yandex_backend_runner.py"
 YANDEX_CONFIG = STUDIO_DIR / "yandex-config.json"
+YANDEX_PRICING_CONFIG = STUDIO_DIR / "yandex-pricing.json"
+USER_PRICING_CONFIG = Path.home() / "Library/Application Support/Audiobook Studio/yandex-pricing.local.json"
 
 ENGINES = (
     ("qwen", "Qwen — локально"),
@@ -33,12 +37,16 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--default-speaker", action="store_true")
     mode.add_argument("--yandex-check", action="store_true")
     mode.add_argument("--yandex-estimate-demo", action="store_true")
+    mode.add_argument("--ui-snapshot", action="store_true")
+    mode.add_argument("--yandex-local-health", action="store_true")
+    mode.add_argument("--set-yandex-hard-limit", action="store_true")
     mode.add_argument("--run-qwen", action="store_true")
     mode.add_argument("--run-yandex-demo", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--job", default="")
     parser.add_argument("--speaker", default="")
+    parser.add_argument("--hard-limit-rub", default="")
     parser.add_argument("--format", dest="output_format", choices=("json", "tsv"), default="json")
     return parser
 
@@ -58,18 +66,98 @@ def _require(value: str, option: str) -> str:
     return value
 
 
-def _load_yandex_offline() -> tuple[Any, str]:
+def _load_yandex_offline() -> tuple[Any, Any, str]:
     # Imports stay inside the Yandex branch so a failure in one engine cannot
     # prevent the other engine's catalog commands from starting.
-    from backends.yandex_speechkit import YandexSpeechKitBackend, load_backend_config
+    from backends.yandex_speechkit import (
+        YandexSpeechKitBackend,
+        load_backend_config,
+        YandexPricingConfig,
+        load_pricing_config,
+    )
     from yandex_backend_runner import DEMO_TEXT
 
     config = load_backend_config(YANDEX_CONFIG)
-    return YandexSpeechKitBackend(config), DEMO_TEXT
+    base = json.loads(YANDEX_PRICING_CONFIG.read_text(encoding="utf-8"))
+    if USER_PRICING_CONFIG.exists():
+        try:
+            override = json.loads(USER_PRICING_CONFIG.read_text(encoding="utf-8"))
+            if isinstance(override, dict):
+                base["hard_limit_rub"] = override.get("hard_limit_rub")
+        except (OSError, ValueError):
+            pass
+    # Keep the load helper as the canonical validator for the repository file;
+    # constructing the merged mapping avoids copying pricing rules into UI code.
+    _ = load_pricing_config(YANDEX_PRICING_CONFIG)
+    return YandexSpeechKitBackend(config), YandexPricingConfig.from_mapping(base), DEMO_TEXT
+
+
+def _load_qwen_catalog() -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    spec = importlib.util.spec_from_file_location("audiobook_studio_qwen_catalog", STUDIO_DIR / "studio.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Не удалось загрузить каталог книг Qwen.")
+    studio = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(studio)
+    books = []
+    for path in studio.list_book_profiles():
+        book = studio.load_book(path)
+        books.append({
+            "id": path.name,
+            "title": str(book.get("title", path.stem)),
+            "author": str(book.get("author", "")),
+        })
+    voices = [{"id": str(voice["id"]), "label": str(voice["id"])} for voice in studio.load_voices()]
+    return books, voices
+
+
+def ui_snapshot() -> dict[str, Any]:
+    books, qwen_voices = _load_qwen_catalog()
+    estimate = yandex_demo_estimate()
+    _, pricing, _ = _load_yandex_offline()
+    return {
+        "books": books,
+        "qwen_voices": qwen_voices,
+        "yandex_profile": {
+            "voice": estimate["voice_display"],
+            "role": estimate["role"],
+            "speed": estimate["speed"],
+        },
+        "yandex_estimate": estimate,
+        "yandex_settings": {"hard_limit_rub": str(pricing.hard_limit_rub) if pricing.hard_limit_rub is not None else None},
+        "remote_request_sent": False,
+    }
+
+
+def yandex_local_health() -> dict[str, Any]:
+    backend, _, _ = _load_yandex_offline()
+    result = backend.healthcheck(remote=False)
+    result["remote_request_sent"] = False
+    return result
+
+
+def set_yandex_hard_limit(value: str) -> dict[str, Any]:
+    from decimal import Decimal, InvalidOperation
+
+    normalized: str | None
+    if not value.strip():
+        normalized = None
+    else:
+        try:
+            amount = Decimal(value)
+        except InvalidOperation as error:
+            raise RuntimeError("Лимит должен быть числом в рублях.") from error
+        if amount < 0:
+            raise RuntimeError("Лимит не может быть отрицательным.")
+        normalized = format(amount, "f")
+    USER_PRICING_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    tmp = USER_PRICING_CONFIG.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"hard_limit_rub": normalized}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, USER_PRICING_CONFIG)
+    return {"hard_limit_rub": normalized, "remote_request_sent": False}
 
 
 def yandex_offline_check() -> dict[str, Any]:
-    backend, _ = _load_yandex_offline()
+    backend, _, _ = _load_yandex_offline()
     result = backend.validate_config(resolve_credentials=False)
     result["backend_config_ok"] = bool(result.pop("ok", False))
     result["keychain_check"] = "not_attempted_offline"
@@ -78,9 +166,9 @@ def yandex_offline_check() -> dict[str, Any]:
 
 
 def yandex_demo_estimate() -> dict[str, Any]:
-    backend, demo_text = _load_yandex_offline()
+    backend, pricing, demo_text = _load_yandex_offline()
     config_status = backend.validate_config(resolve_credentials=False)
-    estimate = backend.estimate(demo_text)
+    estimate = backend.estimate(demo_text, pricing=pricing, scope="demo")
     return {
         "backend_config_ok": bool(config_status["ok"]),
         "engine": estimate["engine"],
@@ -92,6 +180,19 @@ def yandex_demo_estimate() -> dict[str, Any]:
         "characters": estimate["characters"],
         "segments": estimate["segments"],
         "estimated_billing_units": estimate["estimated_billing_units"],
+        "cached_segments": estimate["cached_segments"],
+        "total_billing_units": estimate["total_billing_units"],
+        "billable_remaining_units": estimate["billable_remaining_units"],
+        "currency": estimate["currency"],
+        "unit_price": estimate["unit_price"],
+        "estimated_total_cost": estimate["estimated_total_cost"],
+        "estimated_remaining_cost": estimate["estimated_remaining_cost"],
+        "price_verified_at": estimate["price_verified_at"],
+        "price_stale": estimate["price_stale"],
+        "price_source": estimate["price_source"],
+        "hard_limit_rub": estimate["hard_limit_rub"],
+        "allowed_to_start": estimate["allowed_to_start"],
+        "blocked_reason": estimate["blocked_reason"],
         "keychain_check": "not_attempted_offline",
         "remote_request_sent": False,
     }
@@ -140,6 +241,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.yandex_estimate_demo:
         _print_yandex_estimate(yandex_demo_estimate(), args.output_format)
+        return 0
+
+    if args.ui_snapshot:
+        print(json.dumps(ui_snapshot(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.yandex_local_health:
+        print(json.dumps(yandex_local_health(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.set_yandex_hard_limit:
+        print(json.dumps(set_yandex_hard_limit(args.hard_limit_rub), ensure_ascii=False, indent=2))
         return 0
 
     if args.run_qwen:

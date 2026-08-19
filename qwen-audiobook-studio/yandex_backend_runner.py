@@ -9,9 +9,11 @@ from datetime import datetime
 from pathlib import Path
 
 from backends.yandex_speechkit import YandexSpeechKitBackend, load_backend_config
+from backends.yandex_speechkit import load_pricing_config
 
 STUDIO_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = STUDIO_DIR / "yandex-config.json"
+PRICING_CONFIG_PATH = STUDIO_DIR / "yandex-pricing.json"
 
 DEMO_TEXT = (
     "Иногда перемены начинаются тихо. В какой-то момент человек просто замечает: "
@@ -30,11 +32,12 @@ def main() -> int:
     args = parser.parse_args()
 
     cfg = load_backend_config(CONFIG_PATH)
+    pricing = load_pricing_config(PRICING_CONFIG_PATH)
     backend = YandexSpeechKitBackend(cfg)
 
     if args.check:
         print(json.dumps(backend.healthcheck(remote=False), ensure_ascii=False, indent=2))
-        print(json.dumps(backend.estimate(DEMO_TEXT), ensure_ascii=False, indent=2))
+        print(json.dumps(backend.estimate(DEMO_TEXT, pricing=pricing, scope="demo"), ensure_ascii=False, indent=2))
         return 0
 
     if args.demo:
@@ -43,7 +46,13 @@ def main() -> int:
         else:
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             job_dir = cfg.output_root / "demo" / stamp
-        joined = backend.run_text_job(DEMO_TEXT, job_dir, job_id="speechkit-demo")
+        joined = backend.run_text_job(
+            DEMO_TEXT,
+            job_dir,
+            job_id="speechkit-demo",
+            pricing=pricing,
+            scope="demo",
+        )
         print(joined)
         return 0
 

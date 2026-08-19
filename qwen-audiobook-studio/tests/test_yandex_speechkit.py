@@ -20,6 +20,18 @@ def write_test_wav(path: Path, *, rate: int = 22050, frames: int = 2205) -> None
         wf.writeframes(b"\x00\x00" * frames)
 
 
+def demo_pricing() -> module.YandexPricingConfig:
+    return module.YandexPricingConfig.from_mapping({
+        "engine": "yandex_speechkit_v3",
+        "currency": "RUB",
+        "unit_price": "0.21146666",
+        "verified_at": "2026-08-20",
+        "source_url": "https://yandex.cloud/ru-kz/docs/speechkit/pricing",
+        "max_age_days": 30,
+        "demo_hard_limit_rub": "1.00",
+    })
+
+
 class YandexBackendTests(unittest.TestCase):
     def test_duplicate_key_is_rejected(self):
         key = "A" * 40
@@ -125,7 +137,7 @@ class YandexBackendTests(unittest.TestCase):
             }
             (job_dir / "MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaises(module.YandexSpeechKitError) as ctx:
-                backend.run_text_job(text, job_dir, job_id="test")
+                backend.run_text_job(text, job_dir, job_id="test", pricing=demo_pricing(), scope="demo")
             self.assertEqual(ctx.exception.category, "resume_ambiguous")
 
     def test_inflight_with_complete_job_wav_recovers_without_network(self):
@@ -160,7 +172,7 @@ class YandexBackendTests(unittest.TestCase):
                 },
             }
             (job_dir / "MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
-            joined = backend.run_text_job(text, job_dir, job_id="test")
+            joined = backend.run_text_job(text, job_dir, job_id="test", pricing=demo_pricing(), scope="demo")
             self.assertTrue(joined.exists())
             updated = json.loads((job_dir / "MANIFEST.json").read_text(encoding="utf-8"))
             self.assertEqual(updated["segments"][seg.segment_id]["status"], "DONE")

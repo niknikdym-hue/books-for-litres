@@ -1,6 +1,7 @@
 """Public compatibility facade for the Yandex SpeechKit v3 backend."""
 
 from .yandex_client import YandexSpeechKitBackend, join_wavs_with_pauses
+from .yandex_pricing import YandexPricingConfig, load_pricing_config, price_estimate
 from .yandex_segmenter import segment_text
 from .yandex_types import (
     ENGINE_ID,
@@ -28,11 +29,14 @@ __all__ = [
     "TextSegment",
     "YandexBackendConfig",
     "YandexSpeechKitBackend",
+    "YandexPricingConfig",
     "YandexSpeechKitError",
     "YandexVoiceProfile",
     "join_wavs_with_pauses",
+    "load_pricing_config",
     "load_backend_config",
     "make_fingerprint",
+    "price_estimate",
     "read_api_key_from_keychain",
     "segment_text",
     "utc_now_iso",
