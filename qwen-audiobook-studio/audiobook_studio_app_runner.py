@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+from voice_library import load_voice_library, normalize_qwen_profiles
+
 STUDIO_DIR = Path(__file__).resolve().parent
 QWEN_RUNNER = STUDIO_DIR / "studio_app_runner.py"
 YANDEX_RUNNER = STUDIO_DIR / "yandex_backend_runner.py"
@@ -24,6 +26,7 @@ USER_PRICING_CONFIG = Path.home() / "Library/Application Support/Audiobook Studi
 ENGINES = (
     ("qwen", "Qwen — локально"),
     ("yandex", "Yandex SpeechKit — Lera neutral 1.04"),
+    ("openai", "OpenAI TTS — Onyx / Cedar"),
 )
 
 
@@ -42,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--set-yandex-hard-limit", action="store_true")
     mode.add_argument("--run-qwen", action="store_true")
     mode.add_argument("--run-yandex-demo", action="store_true")
-    parser.add_argument("--engine", choices=("qwen", "yandex"), default="")
+    parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--job", default="")
     parser.add_argument("--speaker", default="")
@@ -92,7 +95,7 @@ def _load_yandex_offline() -> tuple[Any, Any, str]:
     return YandexSpeechKitBackend(config), YandexPricingConfig.from_mapping(base), DEMO_TEXT
 
 
-def _load_qwen_catalog() -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+def _load_qwen_runtime_catalog() -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
     spec = importlib.util.spec_from_file_location("audiobook_studio_qwen_catalog", STUDIO_DIR / "studio.py")
     if spec is None or spec.loader is None:
         raise RuntimeError("Не удалось загрузить каталог книг Qwen.")
@@ -106,17 +109,43 @@ def _load_qwen_catalog() -> tuple[list[dict[str, str]], list[dict[str, str]]]:
             "title": str(book.get("title", path.stem)),
             "author": str(book.get("author", "")),
         })
-    voices = [{"id": str(voice["id"]), "label": str(voice["id"])} for voice in studio.load_voices()]
-    return books, voices
+    return books, list(studio.load_voices())
+
+
+def voice_library_listing(engine: str) -> dict[str, Any]:
+    if engine == "qwen":
+        _, raw_qwen_voices = _load_qwen_runtime_catalog()
+        profiles = normalize_qwen_profiles(raw_qwen_voices)
+    else:
+        profiles = load_voice_library(provider=engine)
+    return {
+        "engine": engine,
+        "voices": profiles,
+        "remote_request_sent": False,
+    }
+
+
+def _print_voice_listing(result: dict[str, Any], output_format: str) -> None:
+    if output_format == "tsv":
+        for profile in result["voices"]:
+            print(f"{profile['profile_id']}\t{profile['label']}")
+        return
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 def ui_snapshot() -> dict[str, Any]:
-    books, qwen_voices = _load_qwen_catalog()
+    books, raw_qwen_voices = _load_qwen_runtime_catalog()
+    qwen_voices = [{"id": str(voice["id"]), "label": str(voice["id"])} for voice in raw_qwen_voices]
+    profiles = load_voice_library(qwen_loader=lambda: raw_qwen_voices)
     estimate = yandex_demo_estimate()
     _, pricing, _ = _load_yandex_offline()
     return {
         "books": books,
         "qwen_voices": qwen_voices,
+        "voice_library": {
+            engine: [profile for profile in profiles if profile["provider"] == engine]
+            for engine in ("qwen", "yandex", "openai")
+        },
         "yandex_profile": {
             "voice": estimate["voice_display"],
             "role": estimate["role"],
@@ -228,9 +257,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _delegate(QWEN_RUNNER, "--list-jobs", "--book", _require(args.book, "--book"))
 
     if args.list_voices:
-        if args.engine != "qwen":
-            raise RuntimeError("--list-voices currently requires --engine qwen")
-        return _delegate(QWEN_RUNNER, "--list-voices")
+        engine = _require(args.engine, "--engine")
+        _print_voice_listing(voice_library_listing(engine), args.output_format)
+        return 0
 
     if args.default_speaker:
         return _delegate(QWEN_RUNNER, "--default-speaker", "--book", _require(args.book, "--book"))

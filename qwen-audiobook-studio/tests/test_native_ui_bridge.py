@@ -34,6 +34,10 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertEqual(snapshot["yandex_profile"], {"voice": "Lera", "role": "neutral", "speed": "1.04"})
         self.assertTrue(snapshot["books"])
         self.assertTrue(snapshot["qwen_voices"])
+        self.assertEqual(set(snapshot["voice_library"]), {"qwen", "yandex", "openai"})
+        self.assertEqual(len(snapshot["voice_library"]["qwen"]), 9)
+        self.assertEqual(len(snapshot["voice_library"]["yandex"]), 4)
+        self.assertEqual(len(snapshot["voice_library"]["openai"]), 2)
 
     def test_ui_snapshot_cli_is_machine_readable(self):
         completed = run_script("--ui-snapshot")

@@ -17,8 +17,8 @@ Audiobook Studio
 ├── Yandex SpeechKit v3
 │   └── Lera / neutral / 1.04   [FROZEN / APPROVED]
 └── OpenAI TTS
-    ├── OpenAI Female           [после кастинга]
-    ├── OpenAI Male             [после кастинга]
+    ├── Onyx                    [BUILTIN / APPROVED]
+    ├── Cedar                   [BUILTIN / APPROVED]
     └── Custom Voice            [DEFERRED, не реализовывать сейчас]
 ```
 
@@ -119,16 +119,21 @@ cedar
 
 OpenAI рекомендует `marin` и `cedar` как варианты с лучшим качеством, но это не заменяет русский книжный кастинг.
 
-Документация не должна использоваться как authority для маркировки голоса «женский» или «мужской». Пол и пригодность для аудиокниги определяются только после прослушивания русских контрольных WAV.
+Документация не должна использоваться как authority для маркировки голоса «женский» или «мужской». Утверждение профиля определяется прослушиванием русских контрольных WAV, а не обязательной gender-категорией.
 
-Итоговый production contract после кастинга должен содержать ровно два утверждённых built-in профиля:
+Текущие утверждённые built-in профили хранятся в общей Voice Library Studio:
 
 ```text
-openai_female
-openai_male
+openai_onyx
+voice: onyx
+status: APPROVED
+
+openai_cedar
+voice: cedar
+status: APPROVED
 ```
 
-с фактическим `voice` каждого победителя.
+Оба профиля равноправны: они не маркируются как primary/backup. Женского OpenAI-профиля сейчас нет. Production contract использует массив `approved_profiles[]` и не требует фиксированного количества или гендерных слотов.
 
 ## 5. Custom Voice — только архитектурный резерв
 
@@ -143,7 +148,7 @@ Custom Voice сейчас НЕ создавать и НЕ подключать.
   "engine": "openai_tts",
   "voice_source": "builtin",
   "voice": "<approved voice>",
-  "profile_id": "openai_female"
+  "profile_id": "<approved_profile_id>"
 }
 ```
 
@@ -174,9 +179,9 @@ Custom Voice сейчас НЕ создавать и НЕ подключать.
 
 ```json
 {
-  "profile_id": "openai_female",
+  "profile_id": "openai_onyx",
   "model": "gpt-4o-mini-tts",
-  "voice": "...",
+  "voice": "onyx",
   "instructions": "...",
   "response_format": "wav",
   "language": "ru"
@@ -276,14 +281,14 @@ Production estimate должен быть cache-aware: cache hit не счита
 [ OpenAI — облако ]
 ```
 
-При выборе OpenAI показывать только утверждённые после кастинга профили:
+При выборе OpenAI показывать только утверждённые профили из общей Voice Library:
 
 ```text
-Женский — <voice display name>
-Мужской — <voice display name>
+Onyx
+Cedar
 ```
 
-Не показывать пользователю все 13 голосов в обычном production UI после завершения кастинга.
+Не создавать отсутствующий женский placeholder и не показывать пользователю все 13 голосов в обычном production UI после завершения кастинга.
 
 Custom Voice не показывать до отдельного этапа.
 
@@ -299,7 +304,7 @@ OpenAI требует ясно сообщать конечным пользов�
 
 ### Stage OAI-1 — Voice Casting
 
-Цель: выбрать один женский и один мужской built-in voice.
+Результат: утверждены два равноправных built-in профиля `openai_onyx` и `openai_cedar`; женский профиль отсутствует.
 
 Разрешено:
 
@@ -318,7 +323,7 @@ OpenAI требует ясно сообщать конечным пользов�
 
 ### Stage OAI-2 — Backend
 
-Только после утверждения двух голосов:
+Поверх утверждённых профилей общей Voice Library:
 
 - `openai_client`;
 - `openai_tts` adapter;
@@ -332,7 +337,7 @@ OpenAI требует ясно сообщать конечным пользов�
 Только после backend PASS:
 
 - третий engine в общем UI;
-- два approved profiles;
+- approved profiles из общей Voice Library;
 - estimate/cost/hard limit;
 - progress/Resume/result;
 - один controlled integration smoke test.

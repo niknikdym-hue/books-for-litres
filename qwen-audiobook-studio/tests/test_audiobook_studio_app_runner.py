@@ -23,11 +23,12 @@ def run_script(script: Path, *arguments: str) -> subprocess.CompletedProcess[str
 
 
 class UniversalBridgeTests(unittest.TestCase):
-    def test_engine_catalog_contains_qwen_and_yandex(self):
+    def test_engine_catalog_contains_qwen_yandex_and_openai(self):
         completed = run_script(ROOT / "audiobook_studio_app_runner.py", "--list-engines")
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("qwen\tQwen — локально", completed.stdout)
         self.assertIn("yandex\tYandex SpeechKit — Lera neutral 1.04", completed.stdout)
+        self.assertIn("openai\tOpenAI TTS — Onyx / Cedar", completed.stdout)
 
     def test_qwen_catalog_commands_preserve_delegate_output(self):
         universal = ROOT / "audiobook_studio_app_runner.py"
@@ -36,7 +37,6 @@ class UniversalBridgeTests(unittest.TestCase):
             (("--list-books",), ("--list-books",)),
             (("--list-jobs", "--book", "hvatit-sebya-obestsenivat.json"),
              ("--list-jobs", "--book", "hvatit-sebya-obestsenivat.json")),
-            (("--list-voices", "--engine", "qwen"), ("--list-voices",)),
             (("--default-speaker", "--book", "hvatit-sebya-obestsenivat.json"),
              ("--default-speaker", "--book", "hvatit-sebya-obestsenivat.json")),
         )

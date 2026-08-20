@@ -4,7 +4,7 @@
 **Версия:** 1.0  
 **Дата фиксации:** 2026-08-17  
 **Текущий проект:** `qwen-audiobook-studio/`  
-**Целевая система:** универсальная **Audiobook Studio** с локальным Qwen/MLX и облачным Yandex SpeechKit v3.
+**Целевая система:** универсальная **Audiobook Studio** с локальным Qwen/MLX и облачными Yandex SpeechKit v3 и OpenAI TTS.
 
 ---
 
@@ -17,7 +17,7 @@
 - что уже работает и не должно быть сломано;
 - целевую архитектуру студии;
 - общий производственный конвейер аудиокниги;
-- требования к Qwen Local и Yandex SpeechKit v3;
+- требования к Qwen Local, Yandex SpeechKit v3 и OpenAI TTS;
 - правила хранения текста, сегментов, WAV, манифестов и экспортов;
 - требования к кэшу, возобновлению, QA и контролю расходов;
 - требования к пользовательскому приложению без Terminal;
@@ -35,6 +35,7 @@
 
 1. **Qwen / MLX — Local** — работает на Mac локально.
 2. **Yandex SpeechKit v3 — Cloud** — синтезирует речь в облаке через API.
+3. **OpenAI TTS — Cloud** — третий сменный backend поверх общей инфраструктуры Studio.
 
 Весь остальной процесс должен быть общим:
 
@@ -49,7 +50,8 @@ TTS-подготовка текста
         ↓
 Выбор движка
    ├── Qwen / MLX Local
-   └── Yandex SpeechKit v3 Cloud
+   ├── Yandex SpeechKit v3 Cloud
+   └── OpenAI TTS Cloud
         ↓
 WAV-сегменты
         ↓
@@ -64,7 +66,17 @@ WAV-сегменты
 WAV master → MP3 / M4B
 ```
 
-Qwen и Yandex — не два разных проекта, а два backend одного приложения.
+Qwen, Yandex и OpenAI — не отдельные проекты, а сменные backend одного приложения.
+
+Выбор для каждой книги имеет общий вид:
+
+```text
+Book
+→ selected backend
+→ selected voice profile from Voice Library
+```
+
+Backend и voice profile сохраняются в профиле конкретной книги, а не как одна глобальная настройка Studio. Поэтому разные книги могут независимо использовать Lera, Ermil, Kirill, Anton, Onyx, Cedar или любой доступный Qwen-профиль.
 
 ---
 
@@ -423,34 +435,22 @@ bounded retries + exponential backoff + jitter
 
 ## 11. Voice Library
 
-Нужна единая библиотека дикторов независимо от движка.
+Studio использует единую нормализованную библиотеку дикторов независимо от движка. Канонический tracked registry `voice-library.json` хранит утверждённые cloud-профили, а существующий Qwen-каталог подключается динамически через `studio.load_voices()` и не копируется во второй JSON.
 
-Для каждого voice profile хранить:
+Обязательный общий contract профиля:
 
-- `voice_id`;
-- display name;
-- engine;
-- язык;
-- тип/описание голоса;
-- role/style;
-- рекомендуемую скорость;
-- pitch;
-- тестовый текст;
-- sample WAV;
-- заметки по качеству;
-- дату последней проверки.
+- `profile_id`;
+- `provider`;
+- `engine`;
+- `label`;
+- `voice_source`;
+- `voice`;
+- `language`;
+- `status`.
 
-Пример:
+Engine-specific metadata остаются опциональными: Yandex использует `role` и `speed`; OpenAI — `model`, `instructions` и `response_format`. `gender` не является обязательным identity dimension. Будущий OpenAI Custom Voice подключается через `voice_source: custom`, но остаётся `DEFERRED` до отдельного этапа.
 
-```text
-Vivian
-engine: qwen_local
-
-Yandex <voice>
-engine: yandex_speechkit_v3
-role: ...
-speed: ...
-```
+Выбранный `profile_id` хранится на уровне книги вместе с выбранным backend. Он не является глобальным диктором для всей Studio.
 
 ---
 
@@ -1114,6 +1114,6 @@ Yandex backend считается пригодным к реальной кни�
 
 **Audiobook Studio — единый производственный конвейер аудиокниг с подключаемыми TTS backend.**
 
-Qwen/MLX остаётся локальным backend. Yandex SpeechKit v3 добавляется как облачный backend. Текстовая подготовка, сегментация, словари, manifest, cache, очередь, Resume, QA, Review, сборка, mastering и export являются общей инфраструктурой и не дублируются по движкам.
+Qwen/MLX остаётся локальным backend. Yandex SpeechKit v3 и OpenAI TTS являются облачными backend. Текстовая подготовка, сегментация, словари, Voice Library, manifest, cache, очередь, Resume, QA, Review, сборка, mastering и export являются общей инфраструктурой и не дублируются по движкам.
 
 Это направление считается базовой архитектурой дальнейшей разработки проекта.

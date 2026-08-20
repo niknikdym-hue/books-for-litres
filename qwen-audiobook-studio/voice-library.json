@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "profile_id": "yandex_lera",
+      "provider": "yandex",
+      "engine": "yandex_speechkit_v3",
+      "label": "Lera",
+      "voice_source": "builtin",
+      "voice": "lera",
+      "language": "ru",
+      "status": "approved",
+      "role": "neutral",
+      "speed": "1.04",
+      "frozen": true
+    },
+    {
+      "profile_id": "yandex_ermil",
+      "provider": "yandex",
+      "engine": "yandex_speechkit_v3",
+      "label": "Ermil",
+      "voice_source": "builtin",
+      "voice": "ermil",
+      "language": "ru",
+      "status": "approved",
+      "role": "neutral",
+      "speed": "1.0"
+    },
+    {
+      "profile_id": "yandex_kirill",
+      "provider": "yandex",
+      "engine": "yandex_speechkit_v3",
+      "label": "Kirill",
+      "voice_source": "builtin",
+      "voice": "kirill",
+      "language": "ru",
+      "status": "approved",
+      "role": "neutral",
+      "speed": "1.0"
+    },
+    {
+      "profile_id": "yandex_anton",
+      "provider": "yandex",
+      "engine": "yandex_speechkit_v3",
+      "label": "Anton",
+      "voice_source": "builtin",
+      "voice": "anton",
+      "language": "ru",
+      "status": "approved",
+      "role": "neutral",
+      "speed": "1.0"
+    },
+    {
+      "profile_id": "openai_onyx",
+      "provider": "openai",
+      "engine": "openai_tts",
+      "label": "Onyx",
+      "voice_source": "builtin",
+      "voice": "onyx",
+      "language": "ru",
+      "status": "approved",
+      "model": "gpt-4o-mini-tts",
+      "response_format": "wav"
+    },
+    {
+      "profile_id": "openai_cedar",
+      "provider": "openai",
+      "engine": "openai_tts",
+      "label": "Cedar",
+      "voice_source": "builtin",
+      "voice": "cedar",
+      "language": "ru",
+      "status": "approved",
+      "model": "gpt-4o-mini-tts",
+      "response_format": "wav"
+    }
+  ]
+}
