@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import codecs
 import http.client
 import json
 import math
@@ -34,6 +35,143 @@ from .yandex_types import (
     validate_api_key,
     wav_info,
 )
+
+
+_REST_STREAM_READ_SIZE = 64 * 1024
+
+
+def _response_error(
+    message: str,
+    *,
+    request_id: str,
+    response_request_id: str | None,
+    server_trace_id: str | None,
+) -> YandexSpeechKitError:
+    return YandexSpeechKitError(
+        message,
+        category="response",
+        request_id=request_id,
+        response_request_id=response_request_id,
+        server_trace_id=server_trace_id,
+    )
+
+
+def _read_rest_v3_audio_stream(
+    response: Any,
+    *,
+    request_id: str,
+    response_request_id: str | None,
+    server_trace_id: str | None,
+) -> bytes:
+    """Incrementally decode the REST v3 sequence of JSON response objects."""
+    json_decoder = json.JSONDecoder()
+    utf8_decoder = codecs.getincrementaldecoder("utf-8")()
+    json_buffer = ""
+    audio = bytearray()
+    audio_chunks = 0
+
+    def consume_complete_objects() -> None:
+        nonlocal json_buffer, audio_chunks
+        while True:
+            json_buffer = json_buffer.lstrip()
+            if not json_buffer:
+                return
+            try:
+                data, end = json_decoder.raw_decode(json_buffer)
+            except json.JSONDecodeError:
+                # The current object may be split across network reads. Its
+                # validity can be decided only after a normal HTTP EOF.
+                return
+            json_buffer = json_buffer[end:]
+            if not isinstance(data, dict):
+                raise _response_error(
+                    "Ответ SpeechKit содержит JSON value вместо response object.",
+                    request_id=request_id,
+                    response_request_id=response_request_id,
+                    server_trace_id=server_trace_id,
+                )
+            try:
+                payload = response_payload(data)
+            except YandexSpeechKitError as e:
+                raise _response_error(
+                    "Ответ SpeechKit содержит некорректную response structure.",
+                    request_id=request_id,
+                    response_request_id=response_request_id,
+                    server_trace_id=server_trace_id,
+                ) from e
+            audio_chunk = payload.get("audioChunk")
+            if audio_chunk is None:
+                continue
+            if not isinstance(audio_chunk, dict) or not isinstance(audio_chunk.get("data"), str):
+                raise _response_error(
+                    "Ответ SpeechKit содержит некорректный audioChunk.data.",
+                    request_id=request_id,
+                    response_request_id=response_request_id,
+                    server_trace_id=server_trace_id,
+                )
+            try:
+                decoded = base64.b64decode(audio_chunk["data"], validate=True)
+            except (ValueError, TypeError) as e:
+                raise _response_error(
+                    "Ответ SpeechKit содержит некорректный Base64 audioChunk.data.",
+                    request_id=request_id,
+                    response_request_id=response_request_id,
+                    server_trace_id=server_trace_id,
+                ) from e
+            audio.extend(decoded)
+            audio_chunks += 1
+
+    try:
+        while True:
+            raw = response.read(_REST_STREAM_READ_SIZE)
+            if not raw:
+                try:
+                    json_buffer += utf8_decoder.decode(b"", final=True)
+                except UnicodeDecodeError as e:
+                    raise _response_error(
+                        "Ответ SpeechKit содержит некорректный UTF-8 JSON stream.",
+                        request_id=request_id,
+                        response_request_id=response_request_id,
+                        server_trace_id=server_trace_id,
+                    ) from e
+                consume_complete_objects()
+                break
+            try:
+                json_buffer += utf8_decoder.decode(raw, final=False)
+            except UnicodeDecodeError as e:
+                raise _response_error(
+                    "Ответ SpeechKit содержит некорректный UTF-8 JSON stream.",
+                    request_id=request_id,
+                    response_request_id=response_request_id,
+                    server_trace_id=server_trace_id,
+                ) from e
+            consume_complete_objects()
+    except (http.client.IncompleteRead, TimeoutError, socket.timeout, OSError) as e:
+        raise YandexSpeechKitError(
+            "Ответ SpeechKit оборвался после принятия запроса. "
+            "Состояние оплаты неоднозначно; автоматический повтор запрещён.",
+            category="network_ambiguous",
+            retryable=False,
+            request_id=request_id,
+            response_request_id=response_request_id,
+            server_trace_id=server_trace_id,
+        ) from e
+
+    if json_buffer.strip():
+        raise _response_error(
+            "Ответ SpeechKit содержит незавершённый или некорректный JSON stream.",
+            request_id=request_id,
+            response_request_id=response_request_id,
+            server_trace_id=server_trace_id,
+        )
+    if audio_chunks == 0:
+        raise _response_error(
+            "Ответ SpeechKit не содержит audioChunk.data.",
+            request_id=request_id,
+            response_request_id=response_request_id,
+            server_trace_id=server_trace_id,
+        )
+    return bytes(audio)
 
 
 class YandexSpeechKitBackend:
@@ -218,22 +356,16 @@ class YandexSpeechKitBackend:
         )
         try:
             with urllib.request.urlopen(req, timeout=60) as response:
-                try:
-                    raw = response.read()
-                except (http.client.IncompleteRead, TimeoutError, socket.timeout, OSError) as e:
-                    raise YandexSpeechKitError(
-                        "Ответ SpeechKit оборвался после принятия запроса. "
-                        "Состояние оплаты неоднозначно; автоматический повтор запрещён.",
-                        category="network_ambiguous",
-                        retryable=False,
-                        request_id=request_id,
-                        response_request_id=response.headers.get("x-request-id"),
-                        server_trace_id=response.headers.get("x-server-trace-id"),
-                    ) from e
                 headers = {
                     "x_request_id": response.headers.get("x-request-id"),
                     "x_server_trace_id": response.headers.get("x-server-trace-id"),
                 }
+                audio = _read_rest_v3_audio_stream(
+                    response,
+                    request_id=request_id,
+                    response_request_id=headers["x_request_id"],
+                    server_trace_id=headers["x_server_trace_id"],
+                )
         except urllib.error.HTTPError as e:
             category, retryable = classify_http(e.code)
             detail = e.read().decode("utf-8", errors="replace")[:1200]
@@ -254,18 +386,6 @@ class YandexSpeechKitBackend:
                 request_id=request_id,
             ) from e
 
-        try:
-            data = json.loads(raw.decode("utf-8"))
-            encoded = response_payload(data)["audioChunk"]["data"]
-            audio = base64.b64decode(encoded, validate=True)
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as e:
-            raise YandexSpeechKitError(
-                "Ответ SpeechKit не содержит корректный Base64 WAV audioChunk.data.",
-                category="response",
-                request_id=request_id,
-                response_request_id=headers.get("x_request_id"),
-                server_trace_id=headers.get("x_server_trace_id"),
-            ) from e
         return audio, headers
 
     def synthesize(

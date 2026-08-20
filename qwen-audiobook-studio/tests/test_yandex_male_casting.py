@@ -176,7 +176,7 @@ class YandexMaleCastingOfflineTests(unittest.TestCase):
             def __exit__(self, *args):
                 return False
 
-            def read(self):
+            def read(self, size=-1):
                 raise http.client.IncompleteRead(b"partial")
 
         with mock.patch("backends.yandex_client.urllib.request.urlopen", return_value=BrokenResponse()):

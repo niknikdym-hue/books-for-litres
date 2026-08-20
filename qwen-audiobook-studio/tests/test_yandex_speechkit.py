@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import base64
+import contextlib
+import http.client
+import io
 import json
+import socket
 import sys
 import tempfile
 import unittest
 import wave
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from backends import yandex_speechkit as module
+from backends import yandex_client
 
 
 def write_test_wav(path: Path, *, rate: int = 22050, frames: int = 2205) -> None:
@@ -30,6 +37,66 @@ def demo_pricing() -> module.YandexPricingConfig:
         "max_age_days": 30,
         "demo_hard_limit_rub": "1.00",
     })
+
+
+def wav_bytes(*, rate: int = 22050, frames: int = 2205) -> bytes:
+    output = io.BytesIO()
+    with wave.open(output, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(b"\x00\x00" * frames)
+    return output.getvalue()
+
+
+def response_object(audio: bytes, *, wrapped: bool = True) -> bytes:
+    payload = {"audioChunk": {"data": base64.b64encode(audio).decode("ascii")}}
+    data = {"result": payload} if wrapped else payload
+    return json.dumps(data, separators=(",", ":")).encode("utf-8")
+
+
+class FakeStreamingResponse:
+    def __init__(self, reads: list[bytes], *, terminal_error: BaseException | None = None) -> None:
+        self.reads = list(reads)
+        self.terminal_error = terminal_error
+        self.read_calls = 0
+        self.headers = {
+            "x-request-id": "response-request-test",
+            "x-server-trace-id": "trace-test",
+        }
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self, size: int = -1) -> bytes:
+        self.read_calls += 1
+        if self.reads:
+            chunk = self.reads.pop(0)
+            if size >= 0:
+                self.assert_read_size(size)
+            return chunk
+        if self.terminal_error is not None:
+            error = self.terminal_error
+            self.terminal_error = None
+            raise error
+        return b""
+
+    @staticmethod
+    def assert_read_size(size: int) -> None:
+        if size != yandex_client._REST_STREAM_READ_SIZE:
+            raise AssertionError(f"unexpected streaming read size: {size}")
+
+
+def read_stream(response: FakeStreamingResponse) -> bytes:
+    return yandex_client._read_rest_v3_audio_stream(
+        response,
+        request_id="client-request-test",
+        response_request_id=response.headers["x-request-id"],
+        server_trace_id=response.headers["x-server-trace-id"],
+    )
 
 
 class YandexBackendTests(unittest.TestCase):
@@ -62,6 +129,106 @@ class YandexBackendTests(unittest.TestCase):
         wrapped = {"result": direct}
         self.assertEqual(module._response_payload(direct), direct)
         self.assertEqual(module._response_payload(wrapped), direct)
+
+    def test_rest_stream_accepts_one_json_response_chunk(self):
+        audio = wav_bytes()
+        self.assertEqual(read_stream(FakeStreamingResponse([response_object(audio)])), audio)
+
+    def test_rest_stream_accepts_multiple_consecutive_response_objects(self):
+        body = response_object(b"first") + b"\n" + response_object(b"second")
+        self.assertEqual(read_stream(FakeStreamingResponse([body])), b"firstsecond")
+
+    def test_rest_stream_handles_json_object_split_across_network_reads(self):
+        body = response_object(b"split-boundary")
+        split = len(body) // 2
+        self.assertEqual(
+            read_stream(FakeStreamingResponse([body[:split], body[split:]])),
+            b"split-boundary",
+        )
+
+    def test_rest_stream_assembles_all_audio_chunks_into_valid_wav(self):
+        expected = wav_bytes(frames=4410)
+        boundaries = (37, 2048)
+        pieces = [
+            expected[:boundaries[0]],
+            expected[boundaries[0]:boundaries[1]],
+            expected[boundaries[1]:],
+        ]
+        body = b"\n".join(response_object(piece) for piece in pieces)
+        actual = read_stream(FakeStreamingResponse([body]))
+        self.assertEqual(actual, expected)
+        with wave.open(io.BytesIO(actual), "rb") as wf:
+            self.assertEqual(wf.getnframes(), 4410)
+            self.assertEqual(wf.getframerate(), 22050)
+
+    def test_rest_stream_normal_eof_after_all_chunks_is_success(self):
+        response = FakeStreamingResponse([response_object(b"complete")])
+        self.assertEqual(read_stream(response), b"complete")
+        self.assertEqual(response.read_calls, 2)
+
+    def test_rest_stream_incomplete_read_after_partial_is_ambiguous(self):
+        response = FakeStreamingResponse(
+            [response_object(b"partial")],
+            terminal_error=http.client.IncompleteRead(b"truncated"),
+        )
+        with self.assertRaises(module.YandexSpeechKitError) as context:
+            read_stream(response)
+        self.assertEqual(context.exception.category, "network_ambiguous")
+        self.assertFalse(context.exception.retryable)
+        self.assertEqual(context.exception.response_request_id, "response-request-test")
+
+    def test_rest_stream_socket_timeout_after_partial_is_ambiguous(self):
+        response = FakeStreamingResponse(
+            [response_object(b"partial")],
+            terminal_error=socket.timeout("timed out"),
+        )
+        with self.assertRaises(module.YandexSpeechKitError) as context:
+            read_stream(response)
+        self.assertEqual(context.exception.category, "network_ambiguous")
+        self.assertFalse(context.exception.retryable)
+
+    def test_rest_stream_rejects_corrupt_base64_as_response_error(self):
+        body = b'{"result":{"audioChunk":{"data":"not-base64!!!"}}}'
+        with self.assertRaises(module.YandexSpeechKitError) as context:
+            read_stream(FakeStreamingResponse([body]))
+        self.assertEqual(context.exception.category, "response")
+
+    def test_rest_stream_rejects_malformed_json_as_response_error(self):
+        body = response_object(b"partial") + b'\n{"result": broken}'
+        with self.assertRaises(module.YandexSpeechKitError) as context:
+            read_stream(FakeStreamingResponse([body]))
+        self.assertEqual(context.exception.category, "response")
+
+    def test_rest_stream_rejects_response_without_audio_chunks(self):
+        body = json.dumps({"result": {"textChunk": {"text": "Тест"}}}).encode("utf-8")
+        with self.assertRaises(module.YandexSpeechKitError) as context:
+            read_stream(FakeStreamingResponse([body]))
+        self.assertEqual(context.exception.category, "response")
+
+    def test_rest_stream_errors_and_output_do_not_expose_credentials(self):
+        secret = "offline-secret-api-key-value-1234567890"
+        backend = module.YandexSpeechKitBackend(
+            module.YandexBackendConfig.from_mapping({"output_root": "/tmp/yandex-offline"}),
+            api_key=secret,
+        )
+        response = FakeStreamingResponse([b'{"result": broken}'])
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with mock.patch("backends.yandex_client.urllib.request.urlopen", return_value=response):
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                with self.assertRaises(module.YandexSpeechKitError) as context:
+                    backend._request("Тест.", "client-request-test")
+        serialized_error = json.dumps(context.exception.to_dict(), ensure_ascii=False)
+        self.assertNotIn(secret, serialized_error)
+        self.assertNotIn(secret, stdout.getvalue())
+        self.assertNotIn(secret, stderr.getvalue())
+
+    def test_rest_stream_keeps_legacy_direct_single_chunk_contract(self):
+        audio = wav_bytes()
+        self.assertEqual(
+            read_stream(FakeStreamingResponse([response_object(audio, wrapped=False)])),
+            audio,
+        )
 
     def test_wav_info_accepts_mono_pcm16(self):
         with tempfile.TemporaryDirectory() as td:
