@@ -33,6 +33,7 @@ from backends.yandex_speechkit import (  # noqa: E402
     utc_now_iso,
 )
 from backends.yandex_types import atomic_write_json, wav_info  # noqa: E402
+from workspace_paths import load_workspace_paths  # noqa: E402
 
 
 EXPECTED_VOICES = [
@@ -185,6 +186,8 @@ def load_context(config_path: Path) -> tuple[
     dict[str, Any], str, Path, dict[str, Any], YandexPricingConfig, dict[str, Any]
 ]:
     casting = load_json(config_path)
+    paths = load_workspace_paths()
+    casting["output_root"] = str(paths.resolve(casting.get("output_root"), "casting/yandex/male"))
     if casting.get("engine") != ENGINE_ID or casting.get("provider") != "yandex":
         raise CastingConfigError("Unexpected casting provider or engine.")
     if casting.get("voices") != EXPECTED_VOICES:

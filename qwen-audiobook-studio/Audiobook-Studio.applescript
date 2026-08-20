@@ -1,5 +1,6 @@
-property studioDir : "/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio"
-property pythonPath : "/Users/elenadymova/Documents/New project/qwen3-tts-0.6b-customvoice-mlx-book-audition-2026-08-16/.venv/bin/python"
+property workspaceRelativePath : "Documents/New project/Audiobook-Studio"
+property studioDir : ""
+property pythonPath : ""
 
 on splitLine(theLine)
 	set oldTID to AppleScript's text item delimiters
@@ -110,6 +111,9 @@ end runYandex
 
 on run
 	try
+		set workspaceDir to (POSIX path of (path to home folder)) & workspaceRelativePath
+		set my studioDir to workspaceDir & "/runtime/studio-workspace"
+		set my pythonPath to workspaceDir & "/engines/qwen-mlx/.venv/bin/python"
 		do shell script "/bin/test -x " & quoted form of pythonPath
 		do shell script "/bin/test -f " & quoted form of (studioDir & "/audiobook_studio_app_runner.py")
 

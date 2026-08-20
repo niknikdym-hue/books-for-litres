@@ -54,6 +54,10 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('runBridgeText(["--run-yandex-demo"])', source)
         self.assertIn("confirmationDialog", source)
         self.assertIn("--ui-snapshot", source)
+        self.assertIn("AUDIOBOOK_STUDIO_HOME", source)
+        self.assertIn("settings/workspace-paths.json", source)
+        self.assertNotIn("qwen3-tts-0.6b-customvoice-mlx-book-audition", source)
+        self.assertNotIn("Qwen-Audiobook-Studio\")", source)
         self.assertNotIn("urlopen", source)
 
 

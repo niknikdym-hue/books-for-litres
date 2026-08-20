@@ -20,6 +20,13 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from workspace_paths import load_workspace_paths  # noqa: E402
+
+
 MAX_CASTING_COST_USD = Decimal("1.00")
 MAX_REQUESTS = 13
 EXPECTED_VOICES = [
@@ -144,6 +151,8 @@ def load_config(config_path: Path) -> dict[str, Any]:
 def load_and_validate(config_path: Path) -> tuple[dict[str, Any], str, Path]:
     config = load_config(config_path)
     validate_config(config)
+    paths = load_workspace_paths()
+    config["output_root"] = str(paths.resolve(config.get("output_root"), "casting/openai"))
     text_path = (config_path.parent / str(config["casting_text"])).resolve()
     text_bytes = text_path.read_bytes()
     actual_hash = sha256_bytes(text_bytes)

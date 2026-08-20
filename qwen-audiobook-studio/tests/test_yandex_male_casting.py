@@ -156,9 +156,12 @@ class YandexMaleCastingOfflineTests(unittest.TestCase):
 
     def test_15_generated_output_is_outside_repo_and_gitignored_fallback_exists(self):
         output_root = Path(self.casting["output_root"]).resolve()
-        self.assertFalse(output_root.is_relative_to(ROOT.parent.resolve()))
-        ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
-        self.assertIn("casting/yandex-male/output/", ignore_text)
+        workspace_root = module.load_workspace_paths().root.resolve()
+        self.assertTrue(output_root.is_relative_to(workspace_root))
+        ignore_path = ROOT / ".gitignore"
+        if ignore_path.exists():
+            self.assertFalse(output_root.is_relative_to(ROOT.parent.resolve()))
+            self.assertIn("casting/yandex-male/output/", ignore_path.read_text(encoding="utf-8"))
 
     def test_16_incomplete_http_response_is_ambiguous_and_not_retryable(self):
         production = module.YandexBackendConfig.from_mapping(self.production)

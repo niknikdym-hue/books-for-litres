@@ -1,8 +1,39 @@
 import AppKit
 import SwiftUI
 
-private let studioDirectory = URL(fileURLWithPath: "/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio")
-private let pythonExecutable = "/Users/elenadymova/Documents/New project/qwen3-tts-0.6b-customvoice-mlx-book-audition-2026-08-16/.venv/bin/python"
+private struct WorkspaceContract: Decodable {
+    let workspaceRoot: String
+    enum CodingKeys: String, CodingKey { case workspaceRoot = "workspace_root" }
+}
+
+private struct WorkspacePaths {
+    let root: URL
+    var runtimeRoot: URL { root.appendingPathComponent("runtime/studio-workspace", isDirectory: true) }
+    var qwenPython: URL { root.appendingPathComponent("engines/qwen-mlx/.venv/bin/python") }
+
+    static func load() -> WorkspacePaths {
+        let environment = ProcessInfo.processInfo.environment
+        if let override = environment["AUDIOBOOK_STUDIO_HOME"], !override.isEmpty {
+            return WorkspacePaths(root: URL(fileURLWithPath: override, isDirectory: true))
+        }
+
+        let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/New project/Audiobook-Studio", isDirectory: true)
+        let contractURL = environment["AUDIOBOOK_STUDIO_PATH_CONTRACT"]
+            .map { URL(fileURLWithPath: $0) }
+            ?? defaultRoot.appendingPathComponent("settings/workspace-paths.json")
+        if let data = try? Data(contentsOf: contractURL),
+           let contract = try? JSONDecoder().decode(WorkspaceContract.self, from: data),
+           !contract.workspaceRoot.isEmpty {
+            return WorkspacePaths(root: URL(fileURLWithPath: contract.workspaceRoot, isDirectory: true))
+        }
+        return WorkspacePaths(root: defaultRoot)
+    }
+}
+
+private let workspacePaths = WorkspacePaths.load()
+private let studioDirectory = workspacePaths.runtimeRoot
+private let pythonExecutable = workspacePaths.qwenPython.path
 
 struct Book: Codable, Identifiable, Hashable {
     let id: String

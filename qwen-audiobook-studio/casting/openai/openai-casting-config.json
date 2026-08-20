@@ -55,5 +55,5 @@
     "keychain_account": ""
   },
   "request_timeout_seconds": 180,
-  "output_root": "/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio/casting/openai"
+  "output_root": "casting/openai"
 }

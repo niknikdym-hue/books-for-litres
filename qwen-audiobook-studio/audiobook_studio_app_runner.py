@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from voice_library import load_voice_library, normalize_qwen_profiles
+from workspace_paths import load_workspace_paths
 
 STUDIO_DIR = Path(__file__).resolve().parent
 QWEN_RUNNER = STUDIO_DIR / "studio_app_runner.py"
@@ -22,6 +23,7 @@ YANDEX_RUNNER = STUDIO_DIR / "yandex_backend_runner.py"
 YANDEX_CONFIG = STUDIO_DIR / "yandex-config.json"
 YANDEX_PRICING_CONFIG = STUDIO_DIR / "yandex-pricing.json"
 USER_PRICING_CONFIG = Path.home() / "Library/Application Support/Audiobook Studio/yandex-pricing.local.json"
+WORKSPACE_PATHS = load_workspace_paths()
 
 ENGINES = (
     ("qwen", "Qwen — локально"),
@@ -140,6 +142,7 @@ def ui_snapshot() -> dict[str, Any]:
     estimate = yandex_demo_estimate()
     _, pricing, _ = _load_yandex_offline()
     return {
+        "workspace_root": str(WORKSPACE_PATHS.root),
         "books": books,
         "qwen_voices": qwen_voices,
         "voice_library": {

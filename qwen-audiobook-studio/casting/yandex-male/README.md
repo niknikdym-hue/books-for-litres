@@ -26,6 +26,6 @@ Paid run requires both explicit flags:
 python3 qwen-audiobook-studio/casting/yandex-male/run_yandex_male_casting.py --run --confirm-paid-casting
 ```
 
-Generated WAV, manifests, working segments, and summaries stay outside the repository under `/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio/casting/yandex-male/<timestamp>/`.
+Generated WAV, manifests, working segments, and summaries stay outside the repository under the canonical Audiobook Studio workspace at `casting/yandex/male/<timestamp>/`.
 
 Official voice reference: <https://yandex.cloud/ru-kz/docs/speechkit/tts/voices>

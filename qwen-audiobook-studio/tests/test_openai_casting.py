@@ -210,11 +210,17 @@ class OpenAICastingOfflineTests(unittest.TestCase):
 
     def test_19_output_root_is_outside_repository(self):
         output_root = Path(self.config["output_root"]).resolve()
-        self.assertFalse(output_root.is_relative_to(ROOT.parent.resolve()))
+        workspace_root = module.load_workspace_paths().root.resolve()
+        self.assertTrue(output_root.is_relative_to(workspace_root))
+        if (ROOT / ".gitignore").exists():
+            self.assertFalse(output_root.is_relative_to(ROOT.parent.resolve()))
 
     def test_20_repository_fallback_output_is_gitignored(self):
-        ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
-        self.assertIn("casting/openai/output/", ignore_text)
+        ignore_path = ROOT / ".gitignore"
+        if ignore_path.exists():
+            self.assertIn("casting/openai/output/", ignore_path.read_text(encoding="utf-8"))
+        else:
+            self.assertTrue(Path(self.config["output_root"]).resolve().is_relative_to(module.load_workspace_paths().root))
 
     def test_21_environment_credential_reports_only_source_type(self):
         credential = module.read_credential(

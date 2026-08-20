@@ -23,5 +23,5 @@
     "needs_review_below_seconds": 35,
     "needs_review_above_seconds": 120
   },
-  "output_root": "/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio/casting/yandex-male"
+  "output_root": "casting/yandex/male"
 }

@@ -19,8 +19,11 @@ from typing import Any
 
 import numpy as np
 
+from workspace_paths import load_workspace_paths
+
 STUDIO_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = STUDIO_DIR / "studio-config.json"
+WORKSPACE_PATHS = load_workspace_paths()
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -44,10 +47,15 @@ def safe_slug(value: str) -> str:
 
 def load_config() -> dict[str, Any]:
     cfg = read_json(CONFIG_PATH)
-    required = ["engine_root", "engine_python", "hf_home", "model", "output_root"]
+    required = ["model", "default_generation"]
     missing = [k for k in required if not cfg.get(k)]
     if missing:
         raise RuntimeError(f"studio-config.json: missing {missing}")
+    cfg["workspace_root"] = str(WORKSPACE_PATHS.root)
+    cfg["engine_root"] = str(WORKSPACE_PATHS.resolve(cfg.get("engine_root"), "engines/qwen-mlx"))
+    cfg["engine_python"] = str(WORKSPACE_PATHS.resolve(cfg.get("engine_python"), "engines/qwen-mlx/.venv/bin/python"))
+    cfg["hf_home"] = str(WORKSPACE_PATHS.resolve(cfg.get("hf_home"), "engines/qwen-mlx/hf-cache"))
+    cfg["output_root"] = str(WORKSPACE_PATHS.resolve(cfg.get("output_root"), "renders/studio"))
     return cfg
 
 
@@ -132,6 +140,7 @@ def validate_profile(book: dict[str, Any], voices: list[dict[str, Any]]) -> None
 def run_check(cfg: dict[str, Any]) -> int:
     print("Qwen Audiobook Studio — проверка")
     print(f"Studio: {STUDIO_DIR}")
+    print(f"Workspace: {cfg['workspace_root']}")
     print(f"Machine: {platform.machine()}")
     engine_root = Path(cfg["engine_root"])
     engine_python = Path(cfg["engine_python"])

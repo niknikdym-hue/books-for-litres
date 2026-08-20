@@ -25,7 +25,7 @@
 
 ## Где лежат результаты
 
-`/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio/renders/`
+`~/Documents/New project/Audiobook-Studio/renders/studio/`
 
 Для каждого запуска создаётся отдельная timestamp-папка. Старые рендеры не перезаписываются.
 
@@ -79,7 +79,7 @@
 
 Студия использует уже проверенную среду:
 
-`/Users/elenadymova/Documents/New project/qwen3-tts-0.6b-customvoice-mlx-book-audition-2026-08-16`
+`~/Documents/New project/Audiobook-Studio/engines/qwen-mlx`
 
 Модель:
 

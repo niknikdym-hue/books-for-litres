@@ -14,7 +14,7 @@ The same artificial Russian control text and the same instruction preset are sen
 - Ambiguous timeouts or interrupted responses are never retried.
 - Audio is retained only after RIFF/WAVE parsing succeeds.
 - API credentials are read from `OPENAI_API_KEY` or macOS Keychain service `AudiobookStudio-OpenAI`; their values are never written to output.
-- Generated WAV, manifest, summary, and logs stay outside the repository under `/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio/casting/openai/<timestamp>/`.
+- Generated WAV, manifest, summary, and logs stay outside the repository under the canonical Audiobook Studio workspace at `casting/openai/<timestamp>/`.
 
 ## Safe local checks
 

@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from workspace_paths import load_workspace_paths
+
 ENGINE_ID = "yandex_speechkit_v3"
 DEFAULT_ENDPOINT = "https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis"
 
@@ -124,7 +126,10 @@ class YandexBackendConfig:
 
 def load_backend_config(path: Path) -> YandexBackendConfig:
     with path.open("r", encoding="utf-8") as f:
-        return YandexBackendConfig.from_mapping(json.load(f))
+        data = json.load(f)
+    paths = load_workspace_paths()
+    data["output_root"] = str(paths.resolve(data.get("output_root"), "renders/yandex"))
+    return YandexBackendConfig.from_mapping(data)
 
 
 def utc_now_iso() -> str:

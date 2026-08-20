@@ -3,7 +3,7 @@
   "endpoint": "https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis",
   "keychain_service": "AudiobookStudio-YandexSpeechKit",
   "keychain_account": "elenadymova",
-  "output_root": "/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio/renders-yandex",
+  "output_root": "renders/yandex",
   "default_profile": {
     "voice": "lera",
     "role": "neutral",
