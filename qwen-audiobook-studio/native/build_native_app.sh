@@ -8,6 +8,7 @@ contents="$output_app/Contents"
 mkdir -p "$contents/MacOS" "$contents/Resources"
 cp "$script_dir/Info.plist" "$contents/Info.plist"
 xcrun swiftc "$script_dir/AudiobookStudioApp.swift" \
+  -parse-as-library \
   -o "$contents/MacOS/Audiobook Studio" \
   -framework SwiftUI \
   -framework AppKit

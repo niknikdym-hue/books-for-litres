@@ -38,7 +38,7 @@ struct YandexEstimate: Codable {
     let blockedReason: String?
 
     enum CodingKeys: String, CodingKey {
-        case characters, segments, currency, voice, role, speed
+        case characters, segments, currency
         case cachedSegments = "cached_segments"
         case totalBillingUnits = "total_billing_units"
         case billableRemainingUnits = "billable_remaining_units"
