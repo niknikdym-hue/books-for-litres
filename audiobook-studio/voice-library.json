@@ -60,6 +60,7 @@
       "language": "ru",
       "status": "approved",
       "model": "gpt-4o-mini-tts",
+      "instructions": "Read in natural modern Russian as a professional audiobook narrator. Calm, clear and expressive, but restrained. No advertising tone and no theatrical overacting. Preserve the exact text, punctuation, natural sentence rhythm, and paragraph pauses. Do not add or omit words.",
       "response_format": "wav"
     },
     {
@@ -72,6 +73,7 @@
       "language": "ru",
       "status": "approved",
       "model": "gpt-4o-mini-tts",
+      "instructions": "Read in natural modern Russian as a professional audiobook narrator. Calm, clear and expressive, but restrained. No advertising tone and no theatrical overacting. Preserve the exact text, punctuation, natural sentence rhythm, and paragraph pauses. Do not add or omit words.",
       "response_format": "wav"
     }
   ]

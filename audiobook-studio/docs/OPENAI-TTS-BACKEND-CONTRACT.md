@@ -1,6 +1,6 @@
 # Audiobook Studio — OpenAI TTS backend contract
 
-**Статус:** архитектурный контракт будущего третьего TTS-backend  
+**Статус:** **PRODUCTION BACKEND IMPLEMENTED OFFLINE**; **LIVE PAID SMOKE PENDING CLOUD BILLING GATE**
 **Дата:** 2026-08-20  
 **Проект:** `audiobook-studio/`
 **Система:** единая `Audiobook Studio`
@@ -323,7 +323,9 @@ OpenAI требует ясно сообщать конечным пользов�
 
 ### Stage OAI-2 — Backend
 
-Поверх утверждённых профилей общей Voice Library:
+Статус: `PASS / IMPLEMENTED OFFLINE`.
+
+Поверх утверждённых профилей общей Voice Library реализованы:
 
 - `openai_client`;
 - `openai_tts` adapter;
@@ -332,9 +334,13 @@ OpenAI требует ясно сообщать конечным пользов�
 - cache/manifest/Resume contract;
 - tests без реальных запросов.
 
+Production transport остаётся закрыт явным `paid_execution_enabled = false` до общего Cloud Billing / spending guard. Реальный OpenAI request и live paid smoke на этом этапе не выполнялись.
+
 ### Stage OAI-3 — Native Studio integration
 
-Только после backend PASS:
+Статус: `PENDING CLOUD BILLING GATE`; native Swift UI функционально не менялся в OAI-2.
+
+Только после отдельного разрешённого этапа:
 
 - третий engine в общем UI;
 - approved profiles из общей Voice Library;

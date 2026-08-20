@@ -41,6 +41,8 @@ class WorkspacePathContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             paths = load_workspace_paths(env={"AUDIOBOOK_STUDIO_HOME": directory})
             self.assertEqual(paths.resolve("renders/yandex", "unused"), Path(directory).resolve() / "renders/yandex")
+            self.assertEqual(paths.openai_cache_root, Path(directory).resolve() / "cache/openai")
+            self.assertEqual(paths.jobs_root, Path(directory).resolve() / "jobs")
 
     def test_absolute_test_paths_remain_supported(self):
         with tempfile.TemporaryDirectory() as directory:

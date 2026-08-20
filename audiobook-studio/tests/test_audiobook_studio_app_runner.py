@@ -101,6 +101,56 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertFalse(result["remote_request_sent"])
         self.assertEqual(result["engine_display"], "Yandex SpeechKit v3")
 
+    def test_openai_status_and_pricing_are_available_through_universal_bridge(self):
+        for mode in ("--openai-status", "--openai-pricing-status"):
+            with self.subTest(mode=mode):
+                completed = run_script(ROOT / "audiobook_studio_app_runner.py", mode)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                result = json.loads(completed.stdout)
+                self.assertFalse(result["remote_request_sent"])
+                self.assertEqual(result["engine"], "openai_tts")
+
+    def test_openai_preflight_is_cache_aware_and_offline_through_bridge(self):
+        completed = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--openai-preflight",
+            "--book", "demo-book.json",
+            "--job", "short-test",
+            "--profile-id", "openai_onyx",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertFalse(result["remote_request_sent"])
+        self.assertIn("segment_plan", result)
+        self.assertFalse(result["allowed_to_start"])
+
+    def test_openai_run_is_explicit_and_fail_closed_through_bridge(self):
+        completed = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--run-openai",
+            "--book", "demo-book.json",
+            "--job", "short-test",
+            "--profile-id", "openai_cedar",
+        )
+        self.assertEqual(completed.returncode, 2)
+        result = json.loads(completed.stderr)
+        self.assertEqual(result["error"], "paid_execution_gate")
+        self.assertFalse(result["remote_request_sent"])
+
+    def test_openai_bridge_passes_canonical_selection_only(self):
+        with mock.patch.object(bridge, "_delegate", return_value=0) as delegate:
+            self.assertEqual(bridge.main([
+                "--openai-preflight", "--book", "demo-book.json",
+                "--job", "short-test", "--profile-id", "openai_onyx",
+            ]), 0)
+        delegate.assert_called_once_with(
+            bridge.OPENAI_RUNNER,
+            "--preflight",
+            "--book", "demo-book.json",
+            "--job", "short-test",
+            "--profile-id", "openai_onyx",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

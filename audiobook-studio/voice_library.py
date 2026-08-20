@@ -81,7 +81,7 @@ def _validate_static_profile(profile: Any) -> dict[str, Any]:
         if any(field in profile for field in ("model", "instructions", "response_format")):
             raise VoiceLibraryError(f"OpenAI-only metadata found in Yandex profile {profile_id!r}.")
     elif provider == "openai":
-        for field in ("model", "response_format"):
+        for field in ("model", "instructions", "response_format"):
             _require_non_empty_string(profile, field)
         if any(field in profile for field in ("role", "speed")):
             raise VoiceLibraryError(f"Yandex-only metadata found in OpenAI profile {profile_id!r}.")

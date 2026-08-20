@@ -20,6 +20,7 @@ from workspace_paths import load_workspace_paths
 STUDIO_DIR = Path(__file__).resolve().parent
 QWEN_RUNNER = STUDIO_DIR / "studio_app_runner.py"
 YANDEX_RUNNER = STUDIO_DIR / "yandex_backend_runner.py"
+OPENAI_RUNNER = STUDIO_DIR / "openai_backend_runner.py"
 YANDEX_CONFIG = STUDIO_DIR / "yandex-config.json"
 YANDEX_PRICING_CONFIG = STUDIO_DIR / "yandex-pricing.json"
 USER_PRICING_CONFIG = Path.home() / "Library/Application Support/Audiobook Studio/yandex-pricing.local.json"
@@ -47,10 +48,16 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--set-yandex-hard-limit", action="store_true")
     mode.add_argument("--run-qwen", action="store_true")
     mode.add_argument("--run-yandex-demo", action="store_true")
+    mode.add_argument("--openai-status", action="store_true")
+    mode.add_argument("--openai-credential-status", action="store_true")
+    mode.add_argument("--openai-pricing-status", action="store_true")
+    mode.add_argument("--openai-preflight", action="store_true")
+    mode.add_argument("--run-openai", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--job", default="")
     parser.add_argument("--speaker", default="")
+    parser.add_argument("--profile-id", default="")
     parser.add_argument("--hard-limit-rub", default="")
     parser.add_argument("--format", dest="output_format", choices=("json", "tsv"), default="json")
     return parser
@@ -300,6 +307,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         # This is the only universal-bridge branch allowed to send SpeechKit
         # requests. Offline checks and tests never select it.
         return _delegate(YANDEX_RUNNER, "--demo")
+
+    if args.openai_status:
+        return _delegate(OPENAI_RUNNER, "--status")
+
+    if args.openai_credential_status:
+        return _delegate(OPENAI_RUNNER, "--credential-status")
+
+    if args.openai_pricing_status:
+        return _delegate(OPENAI_RUNNER, "--pricing-status")
+
+    if args.openai_preflight:
+        return _delegate(
+            OPENAI_RUNNER,
+            "--preflight",
+            "--book", _require(args.book, "--book"),
+            "--job", _require(args.job, "--job"),
+            "--profile-id", _require(args.profile_id, "--profile-id"),
+        )
+
+    if args.run_openai:
+        return _delegate(
+            OPENAI_RUNNER,
+            "--run",
+            "--book", _require(args.book, "--book"),
+            "--job", _require(args.job, "--job"),
+            "--profile-id", _require(args.profile_id, "--profile-id"),
+        )
 
     return 0
 

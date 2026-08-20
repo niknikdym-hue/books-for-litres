@@ -48,6 +48,18 @@ class WorkspacePaths:
         return self.root / "renders" / "yandex"
 
     @property
+    def cache_root(self) -> Path:
+        return self.root / "cache"
+
+    @property
+    def openai_cache_root(self) -> Path:
+        return self.cache_root / "openai"
+
+    @property
+    def jobs_root(self) -> Path:
+        return self.root / "jobs"
+
+    @property
     def openai_casting_root(self) -> Path:
         return self.root / "casting" / "openai"
 

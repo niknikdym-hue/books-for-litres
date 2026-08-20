@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Provider CLI for the production OpenAI TTS backend."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+from backends.openai_tts import (
+    OpenAITTSBackend,
+    OpenAITTSError,
+    PaidExecutionBlocked,
+    load_backend_config,
+    load_pricing_config,
+)
+
+
+STUDIO_DIR = Path(__file__).resolve().parent
+CONFIG_PATH = STUDIO_DIR / "openai-config.json"
+PRICING_PATH = STUDIO_DIR / "openai-pricing.json"
+BOOKS_DIR = STUDIO_DIR / "books"
+
+
+def load_book_job(book_name: str, job_id: str) -> tuple[dict[str, Any], str]:
+    path = BOOKS_DIR / Path(book_name).name
+    if not path.is_file() or path.name == "BOOK-TEMPLATE.json":
+        raise OpenAITTSError(f"Book profile not found: {book_name}.", category="book")
+    book = json.loads(path.read_text(encoding="utf-8"))
+    job = dict((book.get("jobs") or {}).get(job_id) or {})
+    segments = job.get("segments")
+    if not isinstance(segments, list) or not segments:
+        raise OpenAITTSError(f"Book job not found or empty: {job_id}.", category="book")
+    texts = []
+    for segment in segments:
+        value = segment.get("text") if isinstance(segment, dict) else None
+        if not isinstance(value, str) or not value.strip():
+            raise OpenAITTSError("Book job contains an invalid segment.", category="book")
+        texts.append(value.strip())
+    return book, "\n\n".join(texts)
+
+
+def job_directory(backend: OpenAITTSBackend, book: dict[str, Any], job_id: str, profile_id: str) -> Path:
+    slug = str(book.get("slug") or "book")
+    return backend.config.jobs_root / slug / job_id / "openai" / profile_id
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Audiobook Studio — production OpenAI TTS backend")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--status", action="store_true")
+    mode.add_argument("--credential-status", action="store_true")
+    mode.add_argument("--pricing-status", action="store_true")
+    mode.add_argument("--preflight", action="store_true")
+    mode.add_argument("--run", action="store_true")
+    parser.add_argument("--book", default="")
+    parser.add_argument("--job", default="")
+    parser.add_argument("--profile-id", default="")
+    return parser
+
+
+def _require(value: str, option: str) -> str:
+    if not value:
+        raise OpenAITTSError(f"{option} is required.", category="arguments")
+    return value
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        backend = OpenAITTSBackend(load_backend_config(CONFIG_PATH))
+        pricing = load_pricing_config(PRICING_PATH)
+        if args.status:
+            print(json.dumps(backend.status(check_credentials=False), ensure_ascii=False, indent=2))
+            return 0
+        if args.credential_status:
+            print(json.dumps({
+                "credential_available": backend.credential_available(),
+                "source_type": "macos_keychain",
+                "credential_value_exposed": False,
+                "remote_request_sent": False,
+            }))
+            return 0
+        if args.pricing_status:
+            print(json.dumps({
+                "engine": "openai_tts",
+                "model": pricing.model,
+                "currency": pricing.currency,
+                "verified_at": pricing.verified_at.isoformat(),
+                "source": pricing.source_url,
+                "stale": pricing.is_stale(),
+                "remote_request_sent": False,
+            }, indent=2))
+            return 0
+
+        book, text = load_book_job(
+            _require(args.book, "--book"),
+            _require(args.job, "--job"),
+        )
+        profile_id = _require(args.profile_id, "--profile-id")
+        job_dir = job_directory(backend, book, args.job, profile_id)
+        if args.preflight:
+            print(json.dumps(
+                backend.preflight(text, profile_id=profile_id, pricing=pricing, job_dir=job_dir),
+                ensure_ascii=False,
+                indent=2,
+            ))
+            return 0
+        if args.run:
+            # Fail before creating a manifest or resolving a credential while
+            # the production Cloud Billing gate is intentionally absent.
+            if not backend.config.paid_execution_enabled:
+                raise PaidExecutionBlocked()
+            manifest = backend.run_text_job(
+                text,
+                job_dir,
+                job_id=args.job,
+                profile_id=profile_id,
+                pricing=pricing,
+            )
+            print(json.dumps({"manifest": str(manifest), "remote_request_sent": True}))
+            return 0
+        return 0
+    except OpenAITTSError as error:
+        print(json.dumps({
+            "error": error.category,
+            "state": error.state,
+            "message": str(error),
+            "remote_request_sent": False,
+        }), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

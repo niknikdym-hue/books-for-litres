@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "engine": "openai_tts",
+  "model": "gpt-4o-mini-tts",
+  "currency": "USD",
+  "text_input_per_million_tokens": "0.60",
+  "audio_output_per_million_tokens": "12.00",
+  "verified_at": "2026-08-20",
+  "source_url": "https://developers.openai.com/api/docs/models/gpt-4o-mini-tts",
+  "max_age_days": 30,
+  "output_cost_estimate": "unavailable_without_calibration",
+  "actual_cost_source": "provider_billing"
+}

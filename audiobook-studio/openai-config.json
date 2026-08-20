@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "engine": "openai_tts",
+  "endpoint": "https://api.openai.com/v1/audio/speech",
+  "keychain_service": "AudiobookStudio-OpenAI",
+  "keychain_account": "",
+  "cache_root": "cache/openai",
+  "jobs_root": "jobs",
+  "request_timeout_seconds": 180,
+  "paid_execution_enabled": false,
+  "segmentation": {
+    "target_chars": 900,
+    "hard_chars": 1200,
+    "hard_utf8_bytes": 2000,
+    "api_max_input_tokens": 2000,
+    "sentence_pause_ms": 350,
+    "paragraph_pause_ms": 700
+  }
+}

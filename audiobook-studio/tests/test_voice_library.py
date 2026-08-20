@@ -130,6 +130,7 @@ class VoiceLibraryTests(unittest.TestCase):
             self.assertEqual(profile["model"], "gpt-4o-mini-tts")
             self.assertEqual(profile["voice_source"], "builtin")
             self.assertEqual(profile["response_format"], "wav")
+            self.assertIn("professional audiobook narrator", profile["instructions"])
 
     def test_14_provider_filtering(self):
         profiles = voice_library.load_voice_library(provider="yandex")

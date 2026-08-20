@@ -132,7 +132,9 @@ API keys Yandex и OpenAI не хранятся в книге, JSON-профил
 - Qwen / MLX runtime как локальный backend с 9 динамически загружаемыми голосами;
 - Yandex SpeechKit v3 backend с segmentation, streaming transport, WAV validation, fingerprint cache, manifest, Resume и pricing gate;
 - четыре approved Yandex profiles: Lera 1.04 (frozen), Ermil 1.0, Kirill 1.0 и Anton 1.0;
-- два равноправных approved OpenAI built-in profiles: Onyx и Cedar; production OpenAI backend ещё не реализован;
+- два равноправных approved OpenAI built-in profiles: Onyx и Cedar;
+- production OpenAI Speech backend реализован и полностью проверен offline: литературный safety segmenter, stable fingerprint, canonical cache, atomic WAV, manifest/Resume, AMBIGUOUS safety, pricing/preflight и Keychain credential contract;
+- OpenAI paid execution закрыт по умолчанию до отдельного Cloud Billing gate; live paid smoke не выполнялся;
 - единая Voice Library schema v1 без обязательного `gender`; OpenAI Custom Voice остаётся `DEFERRED`;
 - native parse, typecheck и arm64 staging build на Swift 6.3.3 / macOS SDK 26.5 / minimum target macOS 14;
 - version-keyed isolated Swift module cache, исключающий повторное использование stale SDK modules.
@@ -986,8 +988,11 @@ Production entry points имеют разные обязанности и не �
 - `audiobook_studio_app_runner.py` — общий offline-first bridge для native UI;
 - `studio_app_runner.py` — Qwen-specific catalog/run adapter;
 - `yandex_backend_runner.py` — provider CLI для Yandex health/demo boundary;
+- `openai_backend_runner.py` — provider CLI для OpenAI status, credential fact, pricing, cache-aware preflight и fail-closed production run boundary;
 - `voice_library.py` — единственный нормализатор общей Voice Library;
 - `workspace_paths.py` — единственный resolver локального workspace.
+
+Provider-neutral atomic JSON и PCM WAV integrity helpers находятся в `backends/common.py`. OpenAI использует общие Studio book/job/profile semantics и canonical workspace (`cache/openai`, `jobs`), не создавая отдельной библиотеки книг, QA, mastering или export pipeline.
 
 AppleScript launchers больше не входят в production contour: canonical UI реализован в `native/AudiobookStudioApp.swift`.
 

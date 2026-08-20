@@ -5,14 +5,12 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
-import wave
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from workspace_paths import load_workspace_paths
+from .common import WavValidationError, atomic_write_json, inspect_pcm_wav, utc_now_iso
 
 ENGINE_ID = "yandex_speechkit_v3"
 DEFAULT_ENDPOINT = "https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis"
@@ -132,23 +130,6 @@ def load_backend_config(path: Path) -> YandexBackendConfig:
     return YandexBackendConfig.from_mapping(data)
 
 
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def atomic_write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.write("\n")
-        os.replace(tmp_name, path)
-    finally:
-        if os.path.exists(tmp_name):
-            os.unlink(tmp_name)
-
-
 def validate_api_key(api_key: str) -> None:
     if not api_key:
         raise YandexSpeechKitError("API key пустой. Проверьте запись в macOS Keychain.", category="credentials")
@@ -221,23 +202,25 @@ def response_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 def wav_info(path: Path) -> tuple[float, int, int, int]:
     try:
-        with wave.open(str(path), "rb") as wf:
-            channels = wf.getnchannels()
-            sample_width = wf.getsampwidth()
-            sample_rate = wf.getframerate()
-            frames = wf.getnframes()
-    except (wave.Error, EOFError) as e:
+        metadata = inspect_pcm_wav(path)
+    except WavValidationError as e:
         raise YandexSpeechKitError(f"Некорректный WAV: {path}", category="audio_integrity") from e
-    if channels != 1:
-        raise YandexSpeechKitError(f"Ожидался mono WAV, получено каналов: {channels}", category="audio_integrity")
-    if sample_width != 2:
+    if metadata.channels != 1:
         raise YandexSpeechKitError(
-            f"Ожидался 16-bit PCM WAV, sample width={sample_width}",
+            f"Ожидался mono WAV, получено каналов: {metadata.channels}",
             category="audio_integrity",
         )
-    if sample_rate <= 0 or frames <= 0:
-        raise YandexSpeechKitError("WAV пустой или имеет некорректный sample rate.", category="audio_integrity")
-    return frames / sample_rate, sample_rate, channels, sample_width
+    if metadata.sample_width_bytes != 2:
+        raise YandexSpeechKitError(
+            f"Ожидался 16-bit PCM WAV, sample width={metadata.sample_width_bytes}",
+            category="audio_integrity",
+        )
+    return (
+        metadata.duration_seconds,
+        metadata.sample_rate_hz,
+        metadata.channels,
+        metadata.sample_width_bytes,
+    )
 
 
 def materialize_cached(cache_path: Path, output_path: Path) -> None:
