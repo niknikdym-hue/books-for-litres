@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import importlib.util
 import json
 import os
@@ -16,7 +17,7 @@ from typing import Any, Sequence
 
 from voice_library import load_voice_library, normalize_qwen_profiles
 from workspace_paths import load_workspace_paths
-from cloud_billing import CloudBillingService, decimal_value
+from cloud_billing import CloudBillingService, decimal_text, decimal_value, save_settings
 
 STUDIO_DIR = Path(__file__).resolve().parent
 QWEN_RUNNER = STUDIO_DIR / "studio_app_runner.py"
@@ -30,8 +31,8 @@ BOOKS_DIR = STUDIO_DIR / "books"
 
 ENGINES = (
     ("qwen", "Qwen — локально"),
-    ("yandex", "Yandex SpeechKit — Lera neutral 1.04"),
-    ("openai", "OpenAI TTS — Onyx / Cedar"),
+    ("yandex", "Yandex SpeechKit — облако"),
+    ("openai", "OpenAI TTS — облако"),
 )
 
 
@@ -57,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--run-openai", action="store_true")
     mode.add_argument("--billing-status", action="store_true")
     mode.add_argument("--billing-preflight", action="store_true")
+    mode.add_argument("--set-billing-setting", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--job", default="")
@@ -64,6 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profile-id", default="")
     parser.add_argument("--provider", choices=("yandex", "openai"), default="")
     parser.add_argument("--refresh", action="store_true")
+    parser.add_argument("--setting", choices=("hard_limit",), default="")
+    parser.add_argument("--value", default="")
     parser.add_argument("--hard-limit-rub", default="")
     parser.add_argument("--format", dest="output_format", choices=("json", "tsv"), default="json")
     return parser
@@ -110,7 +114,12 @@ def _load_book_job_text(book_name: str, job_id: str) -> tuple[dict[str, Any], st
     return book, "\n\n".join(texts)
 
 
-def billing_status(*, provider: str = "", refresh: bool = False) -> dict[str, Any]:
+def billing_status(
+    *,
+    provider: str = "",
+    refresh: bool = False,
+    current_job_estimates: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     service = _billing_service()
     _, yandex_pricing, _ = _load_yandex_offline()
     hard_limits = {
@@ -119,9 +128,13 @@ def billing_status(*, provider: str = "", refresh: bool = False) -> dict[str, An
     }
 
     def one(name: str) -> dict[str, Any]:
+        value = (current_job_estimates or {}).get(name)
+        estimate = decimal_value(value, f"{name}.current_job_estimate") if value is not None else None
         return service.status(
             name,
             refresh=refresh,
+            current_job_estimate=estimate,
+            current_job_estimate_source="local_estimate" if estimate is not None else "unavailable",
             hard_limit=hard_limits[name],
             paid_execution_enabled=False if name == "openai" else True,
         )
@@ -133,6 +146,24 @@ def billing_status(*, provider: str = "", refresh: bool = False) -> dict[str, An
         "schema_version": 1,
         "providers": results,
         "remote_request_sent": any(result["remote_request_sent"] for result in results.values()),
+    }
+
+
+def set_billing_setting(*, provider: str, setting: str, value: str) -> dict[str, Any]:
+    """Atomically update an explicitly supported local-only billing setting."""
+    if provider != "openai" or setting != "hard_limit":
+        raise RuntimeError("Unsupported Cloud Billing setting.")
+    amount = decimal_value(value.strip(), "openai.hard_limit_usd")
+    service = _billing_service()
+    updated = replace(service.settings, openai_hard_limit_usd=amount)
+    save_settings(service.settings_path, updated)
+    return {
+        "schema_version": 1,
+        "provider": provider,
+        "setting": setting,
+        "value": decimal_text(amount),
+        "currency": "USD",
+        "remote_request_sent": False,
     }
 
 
@@ -246,8 +277,15 @@ def ui_snapshot() -> dict[str, Any]:
     profiles = load_voice_library(qwen_loader=lambda: raw_qwen_voices)
     estimate = yandex_demo_estimate()
     _, pricing, _ = _load_yandex_offline()
+    cloud_billing = billing_status(current_job_estimates={
+        "yandex": estimate.get("estimated_remaining_cost"),
+    })
     return {
         "workspace_root": str(WORKSPACE_PATHS.root),
+        "engines": [
+            {"id": engine_id, "label": label, "kind": "local" if engine_id == "qwen" else "cloud"}
+            for engine_id, label in ENGINES
+        ],
         "books": books,
         "qwen_voices": qwen_voices,
         "voice_library": {
@@ -261,7 +299,7 @@ def ui_snapshot() -> dict[str, Any]:
         },
         "yandex_estimate": estimate,
         "yandex_settings": {"hard_limit_rub": str(pricing.hard_limit_rub) if pricing.hard_limit_rub is not None else None},
-        "cloud_billing": billing_status(refresh=False),
+        "cloud_billing": cloud_billing,
         "remote_request_sent": False,
     }
 
@@ -449,6 +487,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 book_name=_require(args.book, "--book"),
                 job_id=_require(args.job, "--job"),
                 profile_id=args.profile_id,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if args.set_billing_setting:
+        print(json.dumps(
+            set_billing_setting(
+                provider=_require(args.provider, "--provider"),
+                setting=_require(args.setting, "--setting"),
+                value=_require(args.value, "--value"),
             ),
             ensure_ascii=False,
             indent=2,

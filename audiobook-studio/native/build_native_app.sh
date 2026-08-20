@@ -20,7 +20,7 @@ print -u2 -- "macOS SDK: $sdk_path ($sdk_version)"
 print -u2 -- "Module cache: $module_cache"
 CLANG_MODULE_CACHE_PATH="$module_cache/clang" \
 SWIFT_MODULECACHE_PATH="$module_cache/swift" \
-xcrun swiftc "$script_dir/AudiobookStudioApp.swift" \
+xcrun swiftc "$script_dir/StudioContracts.swift" "$script_dir/AudiobookStudioApp.swift" \
   -parse-as-library \
   -target "$target_arch-apple-macosx$deployment_target" \
   -sdk "$sdk_path" \

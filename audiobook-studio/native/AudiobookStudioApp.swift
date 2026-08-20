@@ -35,94 +35,15 @@ private let workspacePaths = WorkspacePaths.load()
 private let studioDirectory = workspacePaths.runtimeRoot
 private let pythonExecutable = workspacePaths.qwenPython.path
 
-struct Book: Codable, Identifiable, Hashable {
-    let id: String
-    let title: String
-    let author: String
-}
-
-struct Voice: Codable, Identifiable, Hashable {
-    let id: String
-    let label: String
-}
-
-struct YandexProfile: Codable {
-    let voice: String
-    let role: String
-    let speed: String
-}
-
-struct YandexEstimate: Codable {
-    let characters: Int
-    let segments: Int
-    let cachedSegments: Int
-    let totalBillingUnits: Int
-    let billableRemainingUnits: Int
-    let currency: String
-    let unitPrice: String?
-    let estimatedTotalCost: String?
-    let estimatedRemainingCost: String?
-    let priceVerifiedAt: String?
-    let priceStale: Bool
-    let hardLimitRub: String?
-    let allowedToStart: Bool
-    let blockedReason: String?
-
-    enum CodingKeys: String, CodingKey {
-        case characters, segments, currency
-        case cachedSegments = "cached_segments"
-        case totalBillingUnits = "total_billing_units"
-        case billableRemainingUnits = "billable_remaining_units"
-        case unitPrice = "unit_price"
-        case estimatedTotalCost = "estimated_total_cost"
-        case estimatedRemainingCost = "estimated_remaining_cost"
-        case priceVerifiedAt = "price_verified_at"
-        case priceStale = "price_stale"
-        case hardLimitRub = "hard_limit_rub"
-        case allowedToStart = "allowed_to_start"
-        case blockedReason = "blocked_reason"
-    }
-}
-
-struct StudioSnapshot: Codable {
-    let books: [Book]
-    let qwenVoices: [Voice]
-    let yandexProfile: YandexProfile
-    let yandexEstimate: YandexEstimate
-    let yandexSettings: YandexSettings
-    let remoteRequestSent: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case books
-        case qwenVoices = "qwen_voices"
-        case yandexProfile = "yandex_profile"
-        case yandexEstimate = "yandex_estimate"
-        case yandexSettings = "yandex_settings"
-        case remoteRequestSent = "remote_request_sent"
-    }
-}
-
-struct YandexSettings: Codable {
-    let hardLimitRub: String?
-    enum CodingKeys: String, CodingKey { case hardLimitRub = "hard_limit_rub" }
-}
-
-enum Engine: String, CaseIterable, Identifiable {
-    case qwen
-    case yandex
-
-    var id: String { rawValue }
-    var title: String { self == .qwen ? "Qwen — локально" : "Yandex SpeechKit — облако" }
-}
-
 @MainActor
 final class StudioModel: ObservableObject {
     @Published var books: [Book] = []
-    @Published var voices: [Voice] = []
+    @Published var voiceLibrary = VoiceLibrarySnapshot(qwen: [], yandex: [], openai: [])
     @Published var profile = YandexProfile(voice: "Lera", role: "neutral", speed: "1.04")
     @Published var estimate: YandexEstimate?
+    @Published var cloudBilling: CloudBillingEnvelope?
     @Published var selectedBookID = ""
-    @Published var selectedVoiceID = "Vivian"
+    @Published var selectedProfileID = ""
     @Published var engine: Engine = .yandex
     @Published var isLoading = true
     @Published var isRunning = false
@@ -130,14 +51,23 @@ final class StudioModel: ObservableObject {
     @Published var completedOutput: URL?
     @Published var showConfirmation = false
     @Published var hardLimitText = ""
+    @Published var openAIHardLimitText = "1.00"
     @Published var localHealthText = ""
+    @Published var billingRefreshText = ""
     @Published var technicalDetails: String?
 
     init() {
+        if let requested = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_ENGINE"],
+           let initialEngine = Engine(rawValue: requested) {
+            engine = initialEngine
+        }
         Task { await reload() }
     }
 
     var selectedBook: Book? { books.first { $0.id == selectedBookID } }
+    var availableProfiles: [VoiceProfile] { voiceLibrary.profiles(for: engine) }
+    var selectedProfile: VoiceProfile? { availableProfiles.first { $0.profileID == selectedProfileID } }
+    var selectedBilling: CloudBillingSnapshot? { cloudBilling?.providers[engine] }
 
     func reload() async {
         isLoading = true
@@ -145,12 +75,18 @@ final class StudioModel: ObservableObject {
         do {
             let snapshot: StudioSnapshot = try await runBridgeJSON(["--ui-snapshot"])
             books = snapshot.books
-            voices = snapshot.qwenVoices
+            voiceLibrary = snapshot.voiceLibrary
             profile = snapshot.yandexProfile
             estimate = snapshot.yandexEstimate
+            cloudBilling = snapshot.cloudBilling
             selectedBookID = books.first?.id ?? ""
-            selectedVoiceID = voices.first(where: { $0.id == "Vivian" })?.id ?? voices.first?.id ?? ""
+            selectDefaultProfile()
+            if let requestedProfile = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_PROFILE"],
+               availableProfiles.contains(where: { $0.profileID == requestedProfile }) {
+                selectedProfileID = requestedProfile
+            }
             hardLimitText = snapshot.yandexSettings.hardLimitRub ?? ""
+            openAIHardLimitText = snapshot.cloudBilling.providers.openai.hardLimit ?? "1.00"
             errorMessage = nil
         } catch {
             showError(error)
@@ -158,6 +94,7 @@ final class StudioModel: ObservableObject {
     }
 
     func begin() {
+        if engine == .openai { return }
         guard engine == .yandex else {
             errorMessage = "Для Qwen выберите подготовленную задачу. Автоматический запуск литературного master-а отключён."
             return
@@ -167,6 +104,33 @@ final class StudioModel: ObservableObject {
             return
         }
         showConfirmation = true
+    }
+
+    func selectDefaultProfile() {
+        let preferred: String
+        switch engine {
+        case .qwen: preferred = "qwen_vivian"
+        case .yandex: preferred = "yandex_lera"
+        case .openai: preferred = "openai_onyx"
+        }
+        selectedProfileID = availableProfiles.first(where: { $0.profileID == preferred })?.profileID
+            ?? availableProfiles.first?.profileID ?? ""
+    }
+
+    func refreshBilling(_ provider: Engine) {
+        guard provider.isCloud else { return }
+        Task {
+            do {
+                let _: CloudBillingSnapshot = try await runBridgeJSON([
+                    "--billing-status", "--provider", provider.rawValue, "--refresh",
+                ])
+                billingRefreshText = "Статус обновлён. Недоступные provider-данные не считаются ошибкой Studio."
+                await reload()
+            } catch {
+                billingRefreshText = "Не удалось выполнить read-only обновление billing."
+                technicalDetails = error.localizedDescription
+            }
+        }
     }
 
     func confirmYandexDemo() {
@@ -203,6 +167,20 @@ final class StudioModel: ObservableObject {
         Task {
             do {
                 let _: LimitResult = try await runBridgeJSON(["--set-yandex-hard-limit", "--hard-limit-rub", hardLimitText])
+                await reload()
+            } catch {
+                showError(error)
+            }
+        }
+    }
+
+    func saveOpenAIHardLimit() {
+        Task {
+            do {
+                let _: BillingSettingResult = try await runBridgeJSON([
+                    "--set-billing-setting", "--provider", "openai",
+                    "--setting", "hard_limit", "--value", openAIHardLimitText,
+                ])
                 await reload()
             } catch {
                 showError(error)
@@ -253,6 +231,11 @@ final class StudioModel: ObservableObject {
 
 private struct LocalHealth: Decodable { let ok: Bool }
 private struct LimitResult: Decodable { let hardLimitRub: String?; enum CodingKeys: String, CodingKey { case hardLimitRub = "hard_limit_rub" } }
+private struct BillingSettingResult: Decodable {
+    let value: String
+    let remoteRequestSent: Bool
+    enum CodingKeys: String, CodingKey { case value; case remoteRequestSent = "remote_request_sent" }
+}
 private enum BridgeError: LocalizedError { case message(String); var errorDescription: String? { if case let .message(text) = self { return text }; return nil } }
 
 @main
@@ -274,6 +257,8 @@ struct AudiobookStudioApp: App {
 
 struct StudioView: View {
     @ObservedObject var model: StudioModel
+    @Environment(\.openSettings) private var openSettings
+    @State private var openedDiagnosticSettings = false
 
     var body: some View {
         NavigationSplitView {
@@ -303,17 +288,32 @@ struct StudioView: View {
                             ForEach(Engine.allCases) { engine in Text(engine.title).tag(engine) }
                         }
                         .pickerStyle(.segmented)
+                        .onChange(of: model.engine) { _, _ in model.selectDefaultProfile() }
 
                         if model.engine == .qwen {
-                            Picker("Голос", selection: $model.selectedVoiceID) {
-                                ForEach(model.voices) { Text($0.label).tag($0.id) }
+                            Picker("Голос", selection: $model.selectedProfileID) {
+                                ForEach(model.availableProfiles) { Text($0.label).tag($0.profileID) }
                             }
-                            Text("Локально · без тарификации API")
+                        } else if model.engine == .yandex {
+                            Picker("Голос", selection: $model.selectedProfileID) {
+                                ForEach(model.availableProfiles) { Text($0.label).tag($0.profileID) }
+                            }
+                            .disabled(true)
+                            LabeledContent("Стиль", value: model.selectedProfile?.role ?? model.profile.role)
+                            LabeledContent("Скорость", value: model.selectedProfile?.speed ?? model.profile.speed)
+                            Text("Текущий production-профиль Lera зафиксирован; остальные approved-профили доступны в Voice Library.")
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
-                            LabeledContent("Голос", value: model.profile.voice)
-                            LabeledContent("Стиль", value: model.profile.role)
-                            LabeledContent("Скорость", value: model.profile.speed)
+                            Picker("Голос", selection: $model.selectedProfileID) {
+                                ForEach(model.availableProfiles) { Text($0.label).tag($0.profileID) }
+                            }
+                            LabeledContent("Модель", value: model.selectedProfile?.model ?? "gpt-4o-mini-tts")
+                            LabeledContent("Формат", value: (model.selectedProfile?.responseFormat ?? "wav").uppercased())
+                            LabeledContent("Статус", value: "Production backend готов")
+                            Label("Платный запуск пока заблокирован до контрольной проверки.", systemImage: "lock.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
                         }
                     }
 
@@ -331,22 +331,65 @@ struct StudioView: View {
                     }
 
                     if model.engine == .yandex, let estimate = model.estimate {
-                        Section("Оценка") {
+                        Section("Параметры задачи") {
                             Text("\(estimate.characters.formatted()) символов · \(estimate.segments) сегмента")
                             if estimate.cachedSegments > 0 {
                                 Text("Уже готово: \(estimate.cachedSegments) · осталось отправить: \(estimate.billableRemainingUnits)")
                             }
-                            Text("Дополнительная стоимость: \(rubles(estimate.estimatedRemainingCost))")
-                                .font(.title3.weight(.semibold))
-                            Text("Всего при новом запуске: \(rubles(estimate.estimatedTotalCost))")
-                                .foregroundStyle(.secondary)
                             Text(estimate.priceStale ? "Тариф требует проверки" : "Тариф проверен: \(russianDate(estimate.priceVerifiedAt))")
                                 .foregroundStyle(estimate.priceStale ? .orange : .secondary)
-                            Text("Лимит задачи: \(estimate.hardLimitRub.map { rubles($0) } ?? "не задан")")
-                                .foregroundStyle(.secondary)
                             DisclosureGroup("Подробности") {
                                 Text("Единицы тарификации: \(estimate.totalBillingUnits)")
                                 Text("Цена единицы: \(estimate.unitPrice ?? "не настроена") ₽")
+                            }
+                        }
+                    }
+
+                    if model.engine == .qwen {
+                        Section("Расходы и лимиты") {
+                            Label("Локальный движок · расходы API отсутствуют", systemImage: "laptopcomputer")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if let billing = model.selectedBilling {
+                        Section("Расходы и лимиты") {
+                            BillingValueLine(
+                                title: "Израсходовано",
+                                value: formattedMoney(billing.spent, currency: billing.currency, source: billing.spentSource),
+                                detail: provenanceLabel(billing.spentSource)
+                            )
+                            BillingValueLine(
+                                title: "Остаток",
+                                value: formattedMoney(billing.remaining, currency: billing.currency, source: billing.remainingSource),
+                                detail: billingAvailabilityReason(billing) ?? provenanceLabel(billing.remainingSource)
+                            )
+                            BillingValueLine(
+                                title: "Текущая задача",
+                                value: formattedMoney(billing.currentJobEstimate, currency: billing.currency, source: billing.currentJobEstimateSource),
+                                detail: billing.provider == "openai" && billing.currentJobEstimate == nil
+                                    ? "Точная стоимость будущего аудио заранее неизвестна"
+                                    : provenanceLabel(billing.currentJobEstimateSource)
+                            )
+                            BillingValueLine(
+                                title: "После запуска",
+                                value: formattedMoney(billing.projectedRemaining, currency: billing.currency, source: billing.projectedRemainingSource),
+                                detail: provenanceLabel(billing.projectedRemainingSource)
+                            )
+                            BillingValueLine(
+                                title: "Лимит задачи",
+                                value: formattedMoney(billing.hardLimit, currency: billing.currency, source: "local_actual"),
+                                detail: "Локальный защитный лимит"
+                            )
+                            HStack {
+                                Text(freshnessLabel(billing))
+                                    .font(.caption)
+                                    .foregroundStyle(billing.freshness == "stale" ? .orange : .secondary)
+                                Spacer()
+                                Button("Обновить") { model.refreshBilling(model.engine) }
+                            }
+                            ForEach(billing.warnings.filter { $0 != "remaining_unavailable" }, id: \.self) { warning in
+                                Label(billingWarningLabel(warning), systemImage: "exclamationmark.triangle")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -363,6 +406,9 @@ struct StudioView: View {
                             Text(output.lastPathComponent).foregroundStyle(.secondary)
                         } else if model.engine == .qwen {
                             Text("Выберите подготовленную задачу для Qwen.").foregroundStyle(.secondary)
+                        } else if model.engine == .openai {
+                            Text("OpenAI готов. Платный запуск будет разрешён после контрольной проверки.")
+                                .foregroundStyle(.secondary)
                         } else {
                             Text("Тестовый фрагмент · Lera · neutral · 1.04").foregroundStyle(.secondary)
                         }
@@ -372,9 +418,12 @@ struct StudioView: View {
                         Button("Прослушать") { NSWorkspace.shared.open(output) }
                         Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
                     }
-                    Button(model.isRunning ? "Выполняется…" : "Начать озвучку") { model.begin() }
+                    Button(
+                        model.engine == .openai ? "Платный запуск заблокирован" :
+                            (model.isRunning ? "Выполняется…" : "Начать озвучку")
+                    ) { model.begin() }
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.isRunning || model.isLoading)
+                        .disabled(model.isRunning || model.isLoading || model.engine == .openai)
                 }
                 .padding()
                 if let details = model.technicalDetails {
@@ -389,6 +438,14 @@ struct StudioView: View {
             }
             .navigationTitle(model.selectedBook?.title ?? "Audiobook Studio")
             .toolbar { ToolbarItem { SettingsLink { Label("Настройки", systemImage: "gearshape") } } }
+            .task {
+                if ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_OPEN_SETTINGS_ON_LAUNCH"] == "1",
+                   !openedDiagnosticSettings {
+                    openedDiagnosticSettings = true
+                    try? await Task.sleep(for: .milliseconds(400))
+                    openSettings()
+                }
+            }
             .alert("Audiobook Studio", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
                 Button("OK", role: .cancel) { model.errorMessage = nil }
             } message: { Text(model.errorMessage ?? "") }
@@ -396,7 +453,22 @@ struct StudioView: View {
                 Button("Начать озвучку") { model.confirmYandexDemo() }
                 Button("Отмена", role: .cancel) {}
             } message: {
-                Text("Yandex SpeechKit\n\(model.profile.voice) · \(model.profile.role) · \(model.profile.speed)\n\(model.estimate?.segments ?? 0) сегмента\n\(rubles(model.estimate?.estimatedRemainingCost))")
+                Text("Yandex SpeechKit\n\(model.profile.voice) · \(model.profile.role) · \(model.profile.speed)\n\(model.estimate?.segments ?? 0) сегмента\n\(formattedMoney(model.estimate?.estimatedRemainingCost, currency: "RUB", source: "local_estimate"))")
+            }
+        }
+    }
+}
+
+private struct BillingValueLine: View {
+    let title: String
+    let value: String
+    let detail: String
+
+    var body: some View {
+        LabeledContent(title) {
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value).font(.body.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -408,44 +480,70 @@ struct SettingsView: View {
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
     var body: some View {
-        Form {
-            Section("Общие") {
-                Toggle("Открывать Finder после завершения", isOn: $openFinderAfterCompletion)
-                Toggle("Показывать уведомления", isOn: $notificationsEnabled)
-                LabeledContent("Папка результатов", value: "Выбирается backend-ом")
-            }
-            Section("Qwen") {
-                LabeledContent("Статус", value: "Локальный backend")
-                Button("Проверить") { Task { await model.reload() } }
-            }
-            Section("Yandex SpeechKit") {
-                LabeledContent("Профиль", value: "Lera · neutral · 1.04")
-                HStack {
-                    TextField("Максимальная стоимость задачи, ₽", text: $model.hardLimitText)
-                    Button("Сохранить") { model.saveHardLimit() }
+        ScrollViewReader { proxy in
+            Form {
+                Section("Общие") {
+                    Toggle("Открывать Finder после завершения", isOn: $openFinderAfterCompletion)
+                    Toggle("Показывать уведомления", isOn: $notificationsEnabled)
+                    LabeledContent("Папка результатов", value: "Выбирается backend-ом")
                 }
-                Text("Без лимита запуск полной книги блокируется.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("Проверить подключение") { model.checkYandexLocally() }
-                if !model.localHealthText.isEmpty {
-                    Text(model.localHealthText).font(.caption).foregroundStyle(.secondary)
+                Section("Qwen") {
+                    LabeledContent("Статус", value: "Локальный backend")
+                    Button("Проверить") { Task { await model.reload() } }
+                }
+                Section("Yandex SpeechKit") {
+                    LabeledContent("Профиль", value: "Lera · neutral · 1.04")
+                    HStack {
+                        TextField("Максимальная стоимость задачи, ₽", text: $model.hardLimitText)
+                        Button("Сохранить") { model.saveHardLimit() }
+                    }
+                    Text("Без лимита запуск полной книги блокируется.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Проверить подключение") { model.checkYandexLocally() }
+                    if !model.localHealthText.isEmpty {
+                        Text(model.localHealthText).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Section("OpenAI TTS") {
+                    LabeledContent("Backend", value: "Production готов · paid run заблокирован")
+                    HStack {
+                        TextField("Максимальная стоимость задачи, $", text: $model.openAIHardLimitText)
+                        Button("Сохранить") { model.saveOpenAIHardLimit() }
+                    }
+                    Text("Локальный лимит одной задачи; это не остаток на счёте.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .id("openai-settings")
+                Section("Cloud Billing") {
+                    LabeledContent("Yandex", value: billingSettingsStatus(model.cloudBilling?.providers.yandex))
+                    LabeledContent("OpenAI", value: billingSettingsStatus(model.cloudBilling?.providers.openai))
+                    HStack {
+                        Button("Обновить Yandex") { model.refreshBilling(.yandex) }
+                        Button("Обновить OpenAI") { model.refreshBilling(.openai) }
+                    }
+                    if !model.billingRefreshText.isEmpty {
+                        Text(model.billingRefreshText).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .task {
+                if ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_SETTINGS_FOCUS"] == "openai" {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    proxy.scrollTo("openai-settings", anchor: .top)
                 }
             }
         }
-        .formStyle(.grouped)
         .padding()
     }
 }
 
-private func rubles(_ value: String?) -> String {
-    guard let value, let amount = Decimal(string: value) else { return "тариф не настроен" }
-    let formatter = NumberFormatter()
-    formatter.locale = Locale(identifier: "ru_RU")
-    formatter.numberStyle = .decimal
-    formatter.minimumFractionDigits = 2
-    formatter.maximumFractionDigits = 2
-    return "~\(formatter.string(from: amount as NSDecimalNumber) ?? value) ₽"
+private func billingSettingsStatus(_ billing: CloudBillingSnapshot?) -> String {
+    guard let billing else { return "Нет данных" }
+    if billing.remaining == nil { return "Остаток недоступен" }
+    return freshnessLabel(billing)
 }
 
 private func russianDate(_ date: String?) -> String {

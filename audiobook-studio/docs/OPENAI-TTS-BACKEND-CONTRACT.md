@@ -1,7 +1,7 @@
 # Audiobook Studio — OpenAI TTS backend contract
 
-**Статус:** **PRODUCTION BACKEND IMPLEMENTED OFFLINE**; **LIVE PAID SMOKE PENDING CLOUD BILLING GATE**
-**Дата:** 2026-08-20  
+**Статус:** **PRODUCTION BACKEND + NATIVE UI IMPLEMENTED OFFLINE**; **LIVE PAID SMOKE PENDING CONTROLLED CHECKPOINT**
+**Дата:** 2026-08-21
 **Проект:** `audiobook-studio/`
 **Система:** единая `Audiobook Studio`
 
@@ -338,14 +338,12 @@ OpenAI требует ясно сообщать конечным пользов�
 
 ### Stage OAI-3 — Native Studio integration
 
-Статус: `PENDING CONTROLLED SMOKE CHECKPOINT`; полный Cloud Billing Swift UI функционально не реализован.
+Статус: `PASS / IMPLEMENTED OFFLINE`; controlled paid smoke остаётся `PENDING`.
 
-Только после отдельного разрешённого этапа:
+Единый native UI теперь показывает третий engine OpenAI, approved Onyx/Cedar из canonical Voice Library, model/WAV/status и общий Cloud Billing contract. Exact OpenAI remaining и future audio charge не фабрикуются: UI показывает `Недоступно`; local USD hard limit редактируется через atomic Python bridge. OpenAI production action видим, но disabled, и не имеет hidden override.
 
-- третий engine в общем UI;
-- approved profiles из общей Voice Library;
-- estimate/cost/hard limit;
-- progress/Resume/result;
+Только после отдельного разрешённого этапа можно выполнить:
+
 - один controlled integration smoke test.
 
 ## 15. Acceptance principle

@@ -1,7 +1,7 @@
 # Audiobook Studio — архитектура и производственный регламент
 
 **Статус:** основной архитектурный документ проекта  
-**Версия:** 1.2
+**Версия:** 1.3
 **Дата фиксации:** 2026-08-21
 **Текущий проект:** `audiobook-studio/`
 **Целевая система:** универсальная **Audiobook Studio** с локальным Qwen/MLX и облачными Yandex SpeechKit v3 и OpenAI TTS.
@@ -136,6 +136,7 @@ API keys Yandex и OpenAI не хранятся в книге, JSON-профил
 - production OpenAI Speech backend реализован и полностью проверен offline: литературный safety segmenter, stable fingerprint, canonical cache, atomic WAV, manifest/Resume, AMBIGUOUS safety, pricing/preflight и Keychain credential contract;
 - OpenAI paid execution закрыт по умолчанию до отдельного Cloud Billing gate; live paid smoke не выполнялся;
 - единый provider-neutral Cloud Billing data layer реализован для Yandex и OpenAI: Decimal money, обязательный provenance, local settings, idempotent ledger, stale cache и offline/read-only bridge;
+- native Swift UI декодирует canonical Voice Library и Cloud Billing snapshot для всех трёх engine, отображает RUB/USD без FX, сохраняет `null` как «Недоступно», показывает provenance/freshness/warnings и не предоставляет OpenAI paid-run override;
 - единая Voice Library schema v1 без обязательного `gender`; OpenAI Custom Voice остаётся `DEFERRED`;
 - native parse, typecheck и arm64 staging build на Swift 6.3.3 / macOS SDK 26.5 / minimum target macOS 14;
 - version-keyed isolated Swift module cache, исключающий повторное использование stale SDK modules.
@@ -1143,6 +1144,14 @@ BALANCE_UNKNOWN
 ```
 
 Projected remaining вычисляется только при известных remaining и current-job estimate и всегда маркируется `local_estimate`.
+
+### 31.5. Native UI integration
+
+Native `Audiobook Studio` использует один engine selector: Qwen, Yandex и OpenAI. Голоса загружаются только из `voice_library` canonical UI snapshot: 9 Qwen, 4 Yandex и approved OpenAI Onyx/Cedar. Yandex production-default остаётся Lera / neutral / 1.04; OpenAI показывает model `gpt-4o-mini-tts`, WAV и явный blocked paid status.
+
+Cloud backend получает компактную секцию «Расходы и лимиты» с `spent`, `remaining`, `current_job_estimate`, `projected_remaining`, provenance, freshness, warnings и hard limit. `null` никогда не форматируется как ноль. RUB и USD имеют разные formatter, а `local_estimate` визуально маркируется `≈`. Qwen вместо billing показывает отсутствие API-расходов.
+
+Кнопка refresh вызывает только `--billing-status --provider <provider> --refresh`. Нормальное отсутствие account ID, IAM/Admin credential или документированного OpenAI prepaid balance остаётся inline unavailable state, а не fatal UI error. OpenAI hard limit изменяется только через атомарный provider-neutral bridge command `--set-billing-setting`; Swift не пишет Cloud Billing JSON напрямую.
 
 ---
 

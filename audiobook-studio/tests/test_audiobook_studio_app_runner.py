@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -27,8 +28,8 @@ class UniversalBridgeTests(unittest.TestCase):
         completed = run_script(ROOT / "audiobook_studio_app_runner.py", "--list-engines")
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("qwen\tQwen — локально", completed.stdout)
-        self.assertIn("yandex\tYandex SpeechKit — Lera neutral 1.04", completed.stdout)
-        self.assertIn("openai\tOpenAI TTS — Onyx / Cedar", completed.stdout)
+        self.assertIn("yandex\tYandex SpeechKit — облако", completed.stdout)
+        self.assertIn("openai\tOpenAI TTS — облако", completed.stdout)
 
     def test_qwen_catalog_commands_preserve_delegate_output(self):
         universal = ROOT / "audiobook_studio_app_runner.py"
@@ -192,6 +193,7 @@ class UniversalBridgeTests(unittest.TestCase):
 
     def test_ui_snapshot_contains_cloud_billing_data_contract(self):
         snapshot = bridge.ui_snapshot()
+        self.assertEqual([engine["id"] for engine in snapshot["engines"]], ["qwen", "yandex", "openai"])
         self.assertIn("cloud_billing", snapshot)
         billing = snapshot["cloud_billing"]
         self.assertEqual(set(billing["providers"]), {"yandex", "openai"})
@@ -203,6 +205,34 @@ class UniversalBridgeTests(unittest.TestCase):
             ):
                 self.assertIn(field, provider)
         self.assertFalse(billing["remote_request_sent"])
+
+    def test_openai_hard_limit_setter_is_atomic_local_and_preserves_schema(self):
+        from workspace_paths import load_workspace_paths
+
+        with tempfile.TemporaryDirectory() as directory:
+            paths = load_workspace_paths(env={"AUDIOBOOK_STUDIO_HOME": directory})
+            with mock.patch.object(bridge, "WORKSPACE_PATHS", paths):
+                result = bridge.set_billing_setting(
+                    provider="openai", setting="hard_limit", value="2.75"
+                )
+                saved = json.loads(paths.cloud_billing_settings.read_text(encoding="utf-8"))
+        self.assertEqual(result["value"], "2.75")
+        self.assertFalse(result["remote_request_sent"])
+        self.assertEqual(saved["schema_version"], 1)
+        self.assertEqual(saved["openai"]["hard_limit_usd"], "2.75")
+        self.assertNotIn("credential", json.dumps(saved).lower())
+
+    def test_openai_hard_limit_setter_rejects_negative_without_writing(self):
+        from workspace_paths import load_workspace_paths
+
+        with tempfile.TemporaryDirectory() as directory:
+            paths = load_workspace_paths(env={"AUDIOBOOK_STUDIO_HOME": directory})
+            with mock.patch.object(bridge, "WORKSPACE_PATHS", paths):
+                with self.assertRaises(Exception):
+                    bridge.set_billing_setting(
+                        provider="openai", setting="hard_limit", value="-0.01"
+                    )
+            self.assertFalse(paths.cloud_billing_settings.exists())
 
 
 if __name__ == "__main__":
