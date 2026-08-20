@@ -308,6 +308,17 @@ def collect_request_ids(job_manifest_path: Path) -> list[str]:
     return result
 
 
+def collect_round_request_ids(work_root: Path) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for manifest_path in sorted(work_root.glob("*/MANIFEST.json")):
+        for request_id in collect_request_ids(manifest_path):
+            if request_id not in seen:
+                result.append(request_id)
+                seen.add(request_id)
+    return result
+
+
 def write_summary(output_dir: Path, manifest: Mapping[str, Any]) -> None:
     lines = [
         "Yandex Russian male voice casting — round 1",
@@ -344,24 +355,50 @@ def run_casting(
     production: dict[str, Any],
     pricing: YandexPricingConfig,
     plan: dict[str, Any],
+    *,
+    resume_output: Path | None = None,
 ) -> Path:
     output_root = Path(str(casting["output_root"])).expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
-    output_dir = output_root / timestamp_slug()
-    output_dir.mkdir(parents=False, exist_ok=False)
-    work_root = output_dir / "work"
-    work_root.mkdir()
+    if resume_output is None:
+        output_dir = output_root / timestamp_slug()
+        output_dir.mkdir(parents=False, exist_ok=False)
+        work_root = output_dir / "work"
+        work_root.mkdir()
+    else:
+        output_dir = resume_output.expanduser().resolve()
+        if output_dir.parent != output_root or not output_dir.is_dir():
+            raise CastingConfigError("Resume output must be an existing direct child of casting output_root.")
+        work_root = output_dir / "work"
+        if not work_root.is_dir():
+            raise CastingConfigError("Resume work directory is missing.")
     manifest_path = output_dir / "CASTING-MANIFEST.json"
-    manifest = initial_manifest(casting, text_path, output_dir, plan)
-    atomic_write_json(manifest_path, manifest)
+    if resume_output is None:
+        manifest = initial_manifest(casting, text_path, output_dir, plan)
+        atomic_write_json(manifest_path, manifest)
+    else:
+        manifest = load_json(manifest_path)
+        if (
+            manifest.get("source_text_sha256") != casting["source_text_sha256"]
+            or manifest.get("voice_profiles") != casting["voices"]
+            or manifest.get("speed") != casting["speed"]
+        ):
+            raise CastingConfigError("Resume manifest does not match the approved casting contract.")
 
     if pricing.unit_price is None:
         raise CastingConfigError("Pricing unit is missing after pricing gate.")
+    known_request_ids = collect_round_request_ids(work_root)
     ledger = RequestLedger(
         unit_price=pricing.unit_price,
         hard_limit_rub=TASK_HARD_LIMIT_RUB,
         max_attempts=int(plan["maximum_network_attempts_under_cap"]),
+        attempts=max(int(manifest.get("actual_requests", 0)), len(known_request_ids)),
     )
+    manifest["actual_requests"] = ledger.attempts
+    manifest["actual_estimated_cost_rub"] = decimal_text(ledger.estimated_cost_rub)
+    if resume_output is not None:
+        manifest["resumed_at"] = utc_now_iso()
+    atomic_write_json(manifest_path, manifest)
     scoped_pricing = task_pricing(pricing, TASK_HARD_LIMIT_RUB)
     production_backend = YandexBackendConfig.from_mapping(production)
     api_key = read_api_key_from_keychain(
@@ -370,7 +407,8 @@ def run_casting(
     )
 
     for sample, profile in zip(manifest["samples"], casting["voices"]):
-        before_requests = ledger.attempts
+        if sample.get("status") in {"DONE", "NEEDS_REVIEW", "FAILED", "AMBIGUOUS"}:
+            continue
         voice_job_dir = work_root / f"{sample['ordinal']:02d}-{sample['voice']}"
         backend_config = profile_config(production, profile, casting["speed"], output_root)
         backend = CountingYandexBackend(backend_config, api_key=api_key, ledger=ledger)
@@ -398,7 +436,7 @@ def run_casting(
                 break
             except YandexSpeechKitError as error:
                 errors.append(error.to_dict())
-                if error.category == "network_ambiguous":
+                if error.category in {"network_ambiguous", "resume_ambiguous"}:
                     sample["status"] = "AMBIGUOUS"
                     sample["error"] = errors
                     break
@@ -412,10 +450,11 @@ def run_casting(
                 sample["error"] = errors
                 break
 
-        sample["billing_units"] = ledger.attempts - before_requests
-        sample["estimated_cost_rub"] = decimal_text(pricing.unit_price * sample["billing_units"])
         sample["request_ids"] = collect_request_ids(voice_job_dir / "MANIFEST.json")
-        manifest["actual_requests"] = ledger.attempts
+        sample["billing_units"] = len(sample["request_ids"])
+        sample["estimated_cost_rub"] = decimal_text(pricing.unit_price * sample["billing_units"])
+        round_request_count = len(collect_round_request_ids(work_root))
+        manifest["actual_requests"] = max(ledger.attempts, round_request_count)
         manifest["actual_estimated_cost_rub"] = decimal_text(ledger.estimated_cost_rub)
         atomic_write_json(manifest_path, manifest)
 
@@ -437,6 +476,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--check", action="store_true", help="Offline config/text/pricing gate only.")
     parser.add_argument("--run", action="store_true", help="Run the paid bounded casting round.")
     parser.add_argument("--confirm-paid-casting", action="store_true")
+    parser.add_argument(
+        "--resume-output",
+        type=Path,
+        help="Resume only the named existing runtime folder without repeating terminal samples.",
+    )
     return parser.parse_args(argv)
 
 
@@ -455,7 +499,15 @@ def main(argv: list[str] | None = None) -> int:
                 "estimated_cost_rub": plan["estimated_remaining_cost"],
                 "hard_limit_rub": plan["task_scoped_hard_limit_rub"],
             }))
-            output = run_casting(casting, text, text_path, production, pricing, plan)
+            output = run_casting(
+                casting,
+                text,
+                text_path,
+                production,
+                pricing,
+                plan,
+                resume_output=args.resume_output,
+            )
             print(json.dumps({"casting_complete": True, "output_folder": str(output)}))
             return 0
         print(json.dumps({

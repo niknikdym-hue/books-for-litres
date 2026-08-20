@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import math
 import os
 import shutil
+import socket
 import urllib.error
 import urllib.request
 import uuid
@@ -216,7 +218,18 @@ class YandexSpeechKitBackend:
         )
         try:
             with urllib.request.urlopen(req, timeout=60) as response:
-                raw = response.read()
+                try:
+                    raw = response.read()
+                except (http.client.IncompleteRead, TimeoutError, socket.timeout, OSError) as e:
+                    raise YandexSpeechKitError(
+                        "Ответ SpeechKit оборвался после принятия запроса. "
+                        "Состояние оплаты неоднозначно; автоматический повтор запрещён.",
+                        category="network_ambiguous",
+                        retryable=False,
+                        request_id=request_id,
+                        response_request_id=response.headers.get("x-request-id"),
+                        server_trace_id=response.headers.get("x-server-trace-id"),
+                    ) from e
                 headers = {
                     "x_request_id": response.headers.get("x-request-id"),
                     "x_server_trace_id": response.headers.get("x-server-trace-id"),

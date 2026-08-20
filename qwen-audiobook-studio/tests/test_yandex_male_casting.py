@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import http.client
 import json
 import sys
 import tempfile
@@ -8,6 +9,7 @@ import unittest
 import wave
 from decimal import Decimal
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -157,6 +159,47 @@ class YandexMaleCastingOfflineTests(unittest.TestCase):
         self.assertFalse(output_root.is_relative_to(ROOT.parent.resolve()))
         ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("casting/yandex-male/output/", ignore_text)
+
+    def test_16_incomplete_http_response_is_ambiguous_and_not_retryable(self):
+        production = module.YandexBackendConfig.from_mapping(self.production)
+        backend = module.YandexSpeechKitBackend(
+            production,
+            api_key="offline-placeholder-key-123456",
+        )
+
+        class BrokenResponse:
+            headers: dict[str, str] = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                raise http.client.IncompleteRead(b"partial")
+
+        with mock.patch("backends.yandex_client.urllib.request.urlopen", return_value=BrokenResponse()):
+            with self.assertRaises(module.YandexSpeechKitError) as context:
+                backend._request("Тест.", "request-test")
+        self.assertEqual(context.exception.category, "network_ambiguous")
+        self.assertFalse(context.exception.retryable)
+
+    def test_17_round_request_ids_include_inflight_resume_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            job = work / "01-test"
+            job.mkdir()
+            (job / "MANIFEST.json").write_text(
+                json.dumps({
+                    "segments": {
+                        "s0001": {"status": "DONE", "request_id": "one"},
+                        "s0002": {"status": "IN_FLIGHT", "request_id": "two"},
+                    }
+                }),
+                encoding="utf-8",
+            )
+            self.assertEqual(module.collect_round_request_ids(work), ["one", "two"])
 
 
 if __name__ == "__main__":
