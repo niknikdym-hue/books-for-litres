@@ -357,7 +357,33 @@ def validate_wav_bytes(data: bytes, duration_config: Mapping[str, Any]) -> dict[
         raise CastingError("WAV parser rejected the response.") from error
     if sample_rate <= 0 or channels <= 0 or sample_width <= 0 or frames <= 0:
         raise CastingError("WAV contains invalid or empty audio properties.")
-    duration = frames / sample_rate
+
+    data_offset = 12
+    audio_data_bytes: int | None = None
+    streaming_size_sentinel = False
+    while data_offset + 8 <= len(data):
+        chunk_id = data[data_offset : data_offset + 4]
+        declared_size = int.from_bytes(data[data_offset + 4 : data_offset + 8], "little")
+        chunk_start = data_offset + 8
+        if chunk_id == b"data":
+            available_size = len(data) - chunk_start
+            streaming_size_sentinel = declared_size == 0xFFFFFFFF
+            audio_data_bytes = (
+                available_size
+                if streaming_size_sentinel or declared_size > available_size
+                else declared_size
+            )
+            break
+        if declared_size == 0xFFFFFFFF:
+            break
+        data_offset = chunk_start + declared_size + (declared_size % 2)
+    if audio_data_bytes is None:
+        raise CastingError("WAV data chunk was not found.")
+    block_align = channels * sample_width
+    actual_frames = audio_data_bytes // block_align
+    if actual_frames <= 0:
+        raise CastingError("WAV data chunk contains no complete audio frames.")
+    duration = actual_frames / sample_rate
     if duration <= 0:
         raise CastingError("WAV duration is zero.")
     needs_review = (
@@ -373,6 +399,8 @@ def validate_wav_bytes(data: bytes, duration_config: Mapping[str, Any]) -> dict[
         "channels": channels,
         "sample_width_bytes": sample_width,
         "compression_type": compression_type,
+        "audio_data_bytes": audio_data_bytes,
+        "streaming_size_sentinel": streaming_size_sentinel,
         "expected_duration_seconds": [
             duration_config["expected_min_seconds"],
             duration_config["expected_max_seconds"],

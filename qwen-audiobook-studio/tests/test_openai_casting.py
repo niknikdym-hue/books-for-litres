@@ -148,13 +148,19 @@ class OpenAICastingOfflineTests(unittest.TestCase):
         )
 
     def test_13_wav_validation_records_required_properties(self):
-        validation = module.validate_wav_bytes(wav_bytes(seconds=45), self.config["duration_review"])
+        streaming_wav = bytearray(wav_bytes(seconds=2))
+        streaming_wav[4:8] = (0xFFFFFFFF).to_bytes(4, "little")
+        data_chunk = streaming_wav.index(b"data")
+        streaming_wav[data_chunk + 4 : data_chunk + 8] = (0xFFFFFFFF).to_bytes(4, "little")
+        validation = module.validate_wav_bytes(bytes(streaming_wav), self.config["duration_review"])
         self.assertTrue(validation["valid"])
         self.assertEqual(validation["container"], "RIFF/WAVE")
         self.assertEqual(validation["parser"], "python-wave")
+        self.assertEqual(validation["duration_seconds"], 2.0)
         self.assertEqual(validation["sample_rate_hz"], 24000)
         self.assertEqual(validation["channels"], 1)
         self.assertEqual(validation["sample_width_bytes"], 2)
+        self.assertTrue(validation["streaming_size_sentinel"])
 
     def test_14_invalid_audio_creates_no_wav(self):
         with tempfile.TemporaryDirectory() as directory:
