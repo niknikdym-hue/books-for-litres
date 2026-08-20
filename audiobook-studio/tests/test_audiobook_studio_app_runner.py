@@ -35,10 +35,10 @@ class UniversalBridgeTests(unittest.TestCase):
         qwen = ROOT / "studio_app_runner.py"
         cases = (
             (("--list-books",), ("--list-books",)),
-            (("--list-jobs", "--book", "hvatit-sebya-obestsenivat.json"),
-             ("--list-jobs", "--book", "hvatit-sebya-obestsenivat.json")),
-            (("--default-speaker", "--book", "hvatit-sebya-obestsenivat.json"),
-             ("--default-speaker", "--book", "hvatit-sebya-obestsenivat.json")),
+            (("--list-jobs", "--book", "demo-book.json"),
+             ("--list-jobs", "--book", "demo-book.json")),
+            (("--default-speaker", "--book", "demo-book.json"),
+             ("--default-speaker", "--book", "demo-book.json")),
         )
         for universal_args, qwen_args in cases:
             with self.subTest(command=universal_args[0]):

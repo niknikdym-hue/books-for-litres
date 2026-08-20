@@ -115,7 +115,7 @@ class YandexBackendConfig:
             endpoint=str(data.get("endpoint") or DEFAULT_ENDPOINT),
             keychain_service=str(data.get("keychain_service") or "AudiobookStudio-YandexSpeechKit"),
             keychain_account=str(data.get("keychain_account") or ""),
-            output_root=Path(str(data.get("output_root") or "~/Audiobook-Studio-Yandex")).expanduser(),
+            output_root=Path(str(data.get("output_root") or "renders/yandex")).expanduser(),
             max_chars=int(seg.get("max_chars", 220)),
             max_words=int(seg.get("max_words", 34)),
             sentence_pause_ms=int(seg.get("sentence_pause_ms", 380)),

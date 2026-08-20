@@ -1,8 +1,8 @@
 # Audiobook Studio — архитектура и производственный регламент
 
 **Статус:** основной архитектурный документ проекта  
-**Версия:** 1.0  
-**Дата фиксации:** 2026-08-17  
+**Версия:** 1.1
+**Дата фиксации:** 2026-08-20
 **Текущий проект:** `audiobook-studio/`
 **Целевая система:** универсальная **Audiobook Studio** с локальным Qwen/MLX и облачными Yandex SpeechKit v3 и OpenAI TTS.
 
@@ -84,7 +84,7 @@ Backend и voice profile сохраняются в профиле конкрет
 
 ### 3.1. Не ломать рабочий Qwen
 
-Существующая рабочая версия Qwen Audiobook Studio не удаляется и не переписывается ради подключения Яндекса.
+Существующий Qwen / MLX backend не удаляется и не переписывается ради подключения других providers.
 
 Yandex добавляется отдельным adapter/backend.
 
@@ -110,11 +110,11 @@ Terminal допустим только для разработки, диагно
 
 ### 3.6. Для облачного движка цена известна до запуска
 
-Перед стартом Yandex Studio обязана показать расчёт ожидаемой стоимости и применить локальный hard limit.
+Перед стартом облачного job Audiobook Studio обязана показать расчёт ожидаемой стоимости и применить provider-specific local hard limit.
 
 ### 3.7. Ключи и секреты не попадают в GitHub
 
-API key Yandex не хранится в книге, JSON-профиле, исходниках или репозитории.
+API keys Yandex и OpenAI не хранятся в книге, JSON-профиле, исходниках или репозитории.
 
 ### 3.8. Качество важнее скорости генерации
 
@@ -124,15 +124,18 @@ API key Yandex не хранится в книге, JSON-профиле, исх�
 
 ## 4. Текущая контрольная точка проекта
 
-На дату фиксации документа:
+Текущий repository source contour — `audiobook-studio/`. Канонический локальный workspace — `~/Documents/New project/Audiobook-Studio`, а установленное пользовательское приложение называется `Audiobook Studio.app`.
 
-- `Qwen Audiobook Studio.app` исправлена и запускается без Terminal;
-- MLX-Qwen рабочий;
-- сохранены 9 встроенных дикторов;
-- для книги **«Хватит себя обесценивать»** выбран диктор **Vivian**;
-- незавершённый тест с 7 WAV удалён;
-- ближайшая контрольная точка локального движка — вручную выполнить полный **Stage B Vivian** и получить **19/19 сегментов + объединённый WAV**;
-- подключение Yandex не должно мешать завершению этой контрольной точки.
+Подтверждены:
+
+- единый native Swift UI для Qwen, Yandex и OpenAI catalog/profile selection;
+- Qwen / MLX runtime как локальный backend с 9 динамически загружаемыми голосами;
+- Yandex SpeechKit v3 backend с segmentation, streaming transport, WAV validation, fingerprint cache, manifest, Resume и pricing gate;
+- четыре approved Yandex profiles: Lera 1.04 (frozen), Ermil 1.0, Kirill 1.0 и Anton 1.0;
+- два равноправных approved OpenAI built-in profiles: Onyx и Cedar; production OpenAI backend ещё не реализован;
+- единая Voice Library schema v1 без обязательного `gender`; OpenAI Custom Voice остаётся `DEFERRED`;
+- native parse, typecheck и arm64 staging build на Swift 6.3.3 / macOS SDK 26.5 / minimum target macOS 14;
+- version-keyed isolated Swift module cache, исключающий повторное использование stale SDK modules.
 
 Текущие 9 дикторов Qwen:
 
@@ -305,16 +308,16 @@ healthcheck()
 
 ### Уже существующая база
 
-- Qwen Audiobook Studio.app;
+- общий native `Audiobook Studio.app`;
 - MLX-Qwen;
-- книга-профиль в `books/`;
+- локальные book profiles в canonical workspace;
 - `voices.json`;
 - 9 дикторов;
-- Vivian как текущий выбранный голос для «Хватит себя обесценивать».
+- динамический Qwen voice catalog через `studio.load_voices()`.
 
 ### Требования к дальнейшей интеграции
 
-- не ломать существующий launcher;
+- не ломать общий native launcher/bridge;
 - не скачивать модель заново для каждой книги;
 - не копировать модель в проект книги;
 - поддержать общий manifest;
@@ -451,6 +454,14 @@ Studio использует единую нормализованную библ
 Engine-specific metadata остаются опциональными: Yandex использует `role` и `speed`; OpenAI — `model`, `instructions` и `response_format`. `gender` не является обязательным identity dimension. Будущий OpenAI Custom Voice подключается через `voice_source: custom`, но остаётся `DEFERRED` до отдельного этапа.
 
 Выбранный `profile_id` хранится на уровне книги вместе с выбранным backend. Он не является глобальным диктором для всей Studio.
+
+Текущий approved set:
+
+- Yandex: `yandex_lera`, `yandex_ermil`, `yandex_kirill`, `yandex_anton`;
+- OpenAI: `openai_onyx`, `openai_cedar`;
+- Qwen: 9 runtime profiles, динамически нормализуемых из `studio.load_voices()`.
+
+Synthetic slots `openai_female` / `openai_male` не существуют. Onyx и Cedar равноправны.
 
 ---
 
@@ -966,81 +977,19 @@ MAX_JOB_COST_RUB=1000
 
 ---
 
-## 27. Порядок реализации
+## 27. Текущий implementation contour
 
-### Фаза 0 — сохранить рабочую точку Qwen
+Repository хранит provider-neutral production source, tests и contracts. Локальный workspace хранит пользовательские книги, runtime, audio artifacts, manifests, cache, builds и exports.
 
-- не менять рабочую Qwen Studio при настройке Yandex;
-- завершить Stage B Vivian отдельно: 19/19 + merged WAV;
-- зафиксировать результат как baseline Qwen.
+Production entry points имеют разные обязанности и не являются дубликатами:
 
-### Фаза 1 — Yandex Cloud smoke test
+- `audiobook_studio_app_runner.py` — общий offline-first bridge для native UI;
+- `studio_app_runner.py` — Qwen-specific catalog/run adapter;
+- `yandex_backend_runner.py` — provider CLI для Yandex health/demo boundary;
+- `voice_library.py` — единственный нормализатор общей Voice Library;
+- `workspace_paths.py` — единственный resolver локального workspace.
 
-- платёжный аккаунт;
-- отдельный каталог проекта;
-- сервисный аккаунт;
-- роль `ai.speechkit-tts.user`;
-- API key;
-- ключ только локально;
-- один короткий API v3 synthesis;
-- сохранить request ID и WAV;
-- проверить отсутствие секретов в логах.
-
-### Фаза 2 — Yandex audition
-
-- получить актуальный список подходящих русских голосов;
-- выбрать 3–5 кандидатов;
-- один и тот же контрольный книжный текст;
-- несколько voice/role/speed profiles;
-- сравнить с Vivian.
-
-### Фаза 3 — Yandex adapter
-
-- единый `TTSEngine` contract;
-- estimate;
-- synthesize;
-- retries;
-- manifest;
-- cost guard;
-- data logging disabled;
-- request IDs;
-- WAV normalization.
-
-### Фаза 4 — общий Segmenter + cache + Resume
-
-- стабильные IDs;
-- hashes/fingerprints;
-- persistent queue;
-- точечная инвалидация;
-- resume.
-
-### Фаза 5 — QA + Review
-
-- автоматическая проверка;
-- очередь брака;
-- player;
-- точечная перегенерация.
-
-### Фаза 6 — Assemble + Export
-
-- главы;
-- паузы;
-- mastering;
-- WAV master;
-- MP3;
-- M4B позже.
-
-### Фаза 7 — единый GUI
-
-Только после устойчивой работы обоих backend объединить их в пользовательском интерфейсе как:
-
-```text
-Engine:
-○ Qwen Local
-○ Yandex SpeechKit v3
-```
-
-До этого не переименовывать и не ломать рабочую `.app` только ради косметики.
+AppleScript launchers больше не входят в production contour: canonical UI реализован в `native/AudiobookStudioApp.swift`.
 
 ---
 
@@ -1067,30 +1016,34 @@ Yandex backend считается пригодным к реальной кни�
 
 ## 29. Что сознательно НЕ делаем сейчас
 
-- не удаляем Qwen;
-- не переписываем рабочую Studio с нуля;
-- не запускаем полную книгу через Yandex до voice audition;
+- не создаём отдельные provider-specific приложения и production contours;
+- не удаляем и не переписываем рабочий Qwen backend;
+- не реализуем OpenAI Custom Voice;
+- не создаём synthetic voice slots или обязательное gender-измерение;
 - не хардкодим цену SpeechKit навечно;
 - не хардкодим один размер сегмента без тестов;
-- не складываем API key в JSON;
+- не складываем API keys в JSON;
+- не храним пользовательские книги и runtime audio в repository;
 - не генерируем всю книгу заново после правки одной фразы;
 - не используем MP3 как единственный master;
 - не заставляем пользователя управлять книгой через Terminal.
 
 ---
 
-## 30. Ближайшие действия
+## 30. Workspace и native build contracts
 
-Текущий фокус — Yandex, при этом Qwen baseline сохраняется нетронутым.
+Canonical workspace resolver: `workspace_paths.py`.
 
-1. Настроить Yandex Cloud и SpeechKit v3.
-2. Создать минимально привилегированный сервисный аккаунт.
-3. Выполнить безопасный API smoke test.
-4. Подобрать 3–5 русских голосов для литературной озвучки.
-5. Сделать одинаковые voice tests.
-6. Сравнить Yandex с Vivian.
-7. После выбора профилей реализовать Yandex backend по этому документу.
-8. Затем общий cache/manifest/Resume/QA/assembler/export.
+```text
+default: ~/Documents/New project/Audiobook-Studio
+environment override: AUDIOBOOK_STUDIO_HOME
+contract override: AUDIOBOOK_STUDIO_PATH_CONTRACT
+default local contract: Audiobook-Studio/settings/workspace-paths.json
+```
+
+Provider-specific paths всегда выводятся из единого корня. Второй независимый resolver или machine-specific absolute paths в production source не допускаются.
+
+Native staging build создаётся `native/build_native_app.sh` в `Audiobook-Studio/builds/native-staging/Audiobook Studio.app`. Build использует minimum target macOS 14 и изолированный module cache, ключ которого включает версию Swift compiler и macOS SDK. Staging build не заменяет Desktop app автоматически.
 
 ---
 

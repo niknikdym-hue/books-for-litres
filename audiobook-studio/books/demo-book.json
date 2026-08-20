@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "slug": "demo-book",
+  "title": "Демонстрационная книга",
+  "author": "Audiobook Studio",
+  "language": "Russian",
+  "default_speaker": "Vivian",
+  "seed": 20260820,
+  "audiobook_instruct": "Read this short Russian demo as a calm professional audiobook narrator. Do not add words.",
+  "pronunciation_overrides": {},
+  "jobs": {
+    "short-test": {
+      "label": "Безопасный короткий тест",
+      "segments": [
+        {
+          "id": "t01",
+          "text": "Это демонстрационный текст Audiobook Studio для проверки каталога без пользовательской книги.",
+          "pause_after_ms": 0
+        }
+      ]
+    }
+  }
+}

@@ -9,13 +9,33 @@ __pycache__/
 *.wav
 *.mp3
 *.m4b
+*.flac
+*.aac
 *.part
+runtime/
+cache/
+logs/
 renders/
 renders-yandex/
 runtime-data/
 casting/openai/output/
-casting/yandex-male/output/
 native/build/
+native/.build/
+build/
+builds/
+.build/
+DerivedData/
+
+# User book library (keep only repository fixtures)
+books/*.json
+!books/BOOK-TEMPLATE.json
+!books/demo-book.json
+
+# Model weights and caches
+*.safetensors
+*.ckpt
+*.gguf
+*.onnx
 
 # Runtime manifests/logs should stay with local jobs, not source control
 MANIFEST.json
@@ -26,5 +46,9 @@ RUN-REPORT.json
 .env
 .env.*
 *.key
+*.pem
+*.p12
+*.token
 secrets*.json
 credentials*.json
+settings/workspace-paths.json

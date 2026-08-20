@@ -80,9 +80,9 @@ def main() -> int:
         try:
             out = studio.run_generation(cfg, book_path, book, args.job, args.speaker)
         except Exception as e:
-            notify("Qwen Audiobook Studio — ошибка", f"{title}: {type(e).__name__}: {e}")
+            notify("Audiobook Studio — Qwen — ошибка", f"{title}: {type(e).__name__}: {e}")
             raise
-        notify("Qwen Audiobook Studio", f"Готово: {title}, диктор {args.speaker}")
+        notify("Audiobook Studio — Qwen", f"Готово: {title}, диктор {args.speaker}")
         print(out)
         return 0
 

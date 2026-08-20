@@ -138,7 +138,7 @@ def validate_profile(book: dict[str, Any], voices: list[dict[str, Any]]) -> None
 
 
 def run_check(cfg: dict[str, Any]) -> int:
-    print("Qwen Audiobook Studio — проверка")
+    print("Audiobook Studio — Qwen backend — проверка")
     print(f"Studio: {STUDIO_DIR}")
     print(f"Workspace: {cfg['workspace_root']}")
     print(f"Machine: {platform.machine()}")
@@ -443,7 +443,7 @@ def interactive(cfg: dict[str, Any]) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Qwen Audiobook Studio")
+    parser = argparse.ArgumentParser(description="Audiobook Studio — Qwen backend")
     parser.add_argument("--check", action="store_true", help="Проверить студию без загрузки модели")
     args = parser.parse_args()
 
