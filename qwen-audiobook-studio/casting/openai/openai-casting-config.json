@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "stage": "OAI-1",
+  "provider": "openai",
+  "endpoint": "https://api.openai.com/v1/audio/speech",
+  "model": "gpt-4o-mini-tts",
+  "voices": [
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "fable",
+    "nova",
+    "onyx",
+    "sage",
+    "shimmer",
+    "verse",
+    "marin",
+    "cedar"
+  ],
+  "response_format": "wav",
+  "instructions": "Read in natural modern Russian as a professional audiobook narrator. Calm, clear and expressive, but restrained. No advertising tone and no theatrical overacting. Preserve the exact text, punctuation, natural sentence rhythm, and paragraph pauses. Do not add or omit words.",
+  "casting_text": "openai-russian-casting-text.txt",
+  "text_sha256": "8ae8f545b187ddf8b8363d9703a0f2408b771d7c6f019020b90c4a09cb9faa2e",
+  "pricing": {
+    "currency": "USD",
+    "text_input_per_million_tokens": "0.60",
+    "audio_output_per_million_tokens": "12.00",
+    "estimated_audio_tokens_per_minute": 1250,
+    "estimate_note": "Planning assumption equivalent to about USD 0.015 per generated minute; final billing is token-based.",
+    "verified_at": "2026-08-20",
+    "source_url": "https://developers.openai.com/api/docs/models/gpt-4o-mini-tts"
+  },
+  "budget": {
+    "max_casting_cost_usd": "1.00",
+    "max_requests": 13,
+    "reservation_per_network_attempt_usd": "0.05",
+    "estimated_duration_seconds_per_voice": 70
+  },
+  "duration_review": {
+    "expected_min_seconds": 45,
+    "expected_max_seconds": 70,
+    "needs_review_below_seconds": 35,
+    "needs_review_above_seconds": 100
+  },
+  "retry_policy": {
+    "max_retries_per_voice": 1,
+    "max_total_network_attempts": 13,
+    "ambiguous_requests_are_never_retried": true
+  },
+  "credential": {
+    "environment_variable": "OPENAI_API_KEY",
+    "keychain_service": "AudiobookStudio-OpenAI",
+    "keychain_account": ""
+  },
+  "request_timeout_seconds": 180,
+  "output_root": "/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio/casting/openai"
+}

@@ -13,6 +13,7 @@ __pycache__/
 renders/
 renders-yandex/
 runtime-data/
+casting/openai/output/
 native/build/
 
 # Runtime manifests/logs should stay with local jobs, not source control
