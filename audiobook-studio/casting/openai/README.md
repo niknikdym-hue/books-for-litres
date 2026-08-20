@@ -21,13 +21,13 @@ The same artificial Russian control text and the same instruction preset are sen
 Run the complete offline gate:
 
 ```bash
-python3 qwen-audiobook-studio/casting/openai/run_openai_casting.py --check
+python3 audiobook-studio/casting/openai/run_openai_casting.py --check
 ```
 
 Check only whether an approved credential source exists (the value is not printed):
 
 ```bash
-python3 qwen-audiobook-studio/casting/openai/run_openai_casting.py --credential-status
+python3 audiobook-studio/casting/openai/run_openai_casting.py --credential-status
 ```
 
 If no credential exists, store it in the macOS Keychain using the Keychain Access application with service name `AudiobookStudio-OpenAI` and the current macOS username as the account, or provide `OPENAI_API_KEY` only in the local process environment. Do not put the key in this repository or send it in chat.
@@ -35,7 +35,7 @@ If no credential exists, store it in the macOS Keychain using the Keychain Acces
 The paid run is deliberately explicit:
 
 ```bash
-python3 qwen-audiobook-studio/casting/openai/run_openai_casting.py --run --confirm-paid-casting
+python3 audiobook-studio/casting/openai/run_openai_casting.py --run --confirm-paid-casting
 ```
 
 Official references:

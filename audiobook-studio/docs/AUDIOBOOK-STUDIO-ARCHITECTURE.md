@@ -3,7 +3,7 @@
 **Статус:** основной архитектурный документ проекта  
 **Версия:** 1.0  
 **Дата фиксации:** 2026-08-17  
-**Текущий проект:** `qwen-audiobook-studio/`  
+**Текущий проект:** `audiobook-studio/`
 **Целевая система:** универсальная **Audiobook Studio** с локальным Qwen/MLX и облачными Yandex SpeechKit v3 и OpenAI TTS.
 
 ---
@@ -723,7 +723,7 @@ Master хранится в WAV.
 Целевая структура может выглядеть так:
 
 ```text
-qwen-audiobook-studio/
+audiobook-studio/
     docs/
         AUDIOBOOK-STUDIO-ARCHITECTURE.md
 
