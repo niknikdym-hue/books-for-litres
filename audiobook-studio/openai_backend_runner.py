@@ -16,6 +16,8 @@ from backends.openai_tts import (
     load_backend_config,
     load_pricing_config,
 )
+from cloud_billing import BillingLedger
+from workspace_paths import load_workspace_paths
 
 
 STUDIO_DIR = Path(__file__).resolve().parent
@@ -70,7 +72,11 @@ def _require(value: str, option: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        backend = OpenAITTSBackend(load_backend_config(CONFIG_PATH))
+        workspace = load_workspace_paths()
+        backend = OpenAITTSBackend(
+            load_backend_config(CONFIG_PATH),
+            billing_ledger=BillingLedger(workspace.billing_ledger),
+        )
         pricing = load_pricing_config(PRICING_PATH)
         if args.status:
             print(json.dumps(backend.status(check_credentials=False), ensure_ascii=False, indent=2))

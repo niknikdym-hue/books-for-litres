@@ -43,6 +43,15 @@ class WorkspacePathContractTests(unittest.TestCase):
             self.assertEqual(paths.resolve("renders/yandex", "unused"), Path(directory).resolve() / "renders/yandex")
             self.assertEqual(paths.openai_cache_root, Path(directory).resolve() / "cache/openai")
             self.assertEqual(paths.jobs_root, Path(directory).resolve() / "jobs")
+            self.assertEqual(
+                paths.cloud_billing_settings,
+                Path(directory).resolve() / "settings/cloud-billing.json",
+            )
+            self.assertEqual(paths.billing_ledger, Path(directory).resolve() / "runtime/billing/ledger.json")
+            self.assertEqual(
+                paths.billing_provider_cache,
+                Path(directory).resolve() / "runtime/billing/provider-cache.json",
+            )
 
     def test_absolute_test_paths_remain_supported(self):
         with tempfile.TemporaryDirectory() as directory:

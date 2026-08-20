@@ -13,6 +13,7 @@ import urllib.request
 import uuid
 import wave
 from dataclasses import asdict
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -175,10 +176,50 @@ def _read_rest_v3_audio_stream(
 
 
 class YandexSpeechKitBackend:
-    def __init__(self, config: YandexBackendConfig, *, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        config: YandexBackendConfig,
+        *,
+        api_key: str | None = None,
+        billing_ledger: Any | None = None,
+    ) -> None:
         self.config = config
         self.profile = config.profile
         self._api_key = api_key
+        self._billing_ledger = billing_ledger
+
+    def _record_billing_event(
+        self,
+        *,
+        job_id: str,
+        segment: TextSegment,
+        request_id: str | None,
+        fingerprint: str,
+        timestamp: str,
+        pricing: YandexPricingConfig,
+        cost_known: bool,
+    ) -> str | None:
+        if self._billing_ledger is None:
+            return None
+        actual_cost = None
+        cost_source = "unavailable"
+        if cost_known and pricing.unit_price is not None:
+            units = max(1, math.ceil(len(segment.text) / 250))
+            actual_cost = Decimal(units) * pricing.unit_price
+            cost_source = "local_actual"
+        transaction_id, _ = self._billing_ledger.record(
+            provider="yandex",
+            job_id=job_id,
+            segment_id=segment.segment_id,
+            request_id=request_id,
+            profile_id=f"yandex_{self.profile.voice}",
+            timestamp=timestamp,
+            currency=pricing.currency,
+            actual_cost=actual_cost,
+            cost_source=cost_source,
+            fingerprint=fingerprint,
+        )
+        return transaction_id
 
     def list_voices(self) -> list[dict[str, str]]:
         return [{
@@ -507,11 +548,21 @@ class YandexSpeechKitBackend:
                     materialize_cached(cache_path, wav_path)
                     recovered_from = "cache"
                 if recovered_from:
+                    recovered_at = utc_now_iso()
                     existing.update({
                         "status": "CACHED" if recovered_from == "cache" else "DONE",
                         "recovered_after_interruption": recovered_from,
-                        "updated_at": utc_now_iso(),
+                        "updated_at": recovered_at,
                     })
+                    existing["billing_transaction_id"] = self._record_billing_event(
+                        job_id=job_id,
+                        segment=seg,
+                        request_id=existing.get("request_id"),
+                        fingerprint=fingerprint,
+                        timestamp=recovered_at,
+                        pricing=pricing,
+                        cost_known=False,
+                    )
                     entries[seg.segment_id] = existing
                     atomic_write_json(manifest_path, manifest)
                     ordered.append((wav_path, seg.pause_after_ms))
@@ -557,11 +608,22 @@ class YandexSpeechKitBackend:
                 atomic_write_json(manifest_path, manifest)
                 raise
 
+            finished_at = utc_now_iso()
             entries[seg.segment_id].update({
                 "status": "CACHED" if result.cached else "DONE",
                 "result": asdict(result),
-                "updated_at": utc_now_iso(),
+                "updated_at": finished_at,
             })
+            if not result.cached:
+                entries[seg.segment_id]["billing_transaction_id"] = self._record_billing_event(
+                    job_id=job_id,
+                    segment=seg,
+                    request_id=result.request_id,
+                    fingerprint=fingerprint,
+                    timestamp=finished_at,
+                    pricing=pricing,
+                    cost_known=True,
+                )
             atomic_write_json(manifest_path, manifest)
             ordered.append((wav_path, seg.pause_after_ms))
 

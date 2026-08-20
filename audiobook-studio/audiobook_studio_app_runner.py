@@ -16,6 +16,7 @@ from typing import Any, Sequence
 
 from voice_library import load_voice_library, normalize_qwen_profiles
 from workspace_paths import load_workspace_paths
+from cloud_billing import CloudBillingService, decimal_value
 
 STUDIO_DIR = Path(__file__).resolve().parent
 QWEN_RUNNER = STUDIO_DIR / "studio_app_runner.py"
@@ -25,6 +26,7 @@ YANDEX_CONFIG = STUDIO_DIR / "yandex-config.json"
 YANDEX_PRICING_CONFIG = STUDIO_DIR / "yandex-pricing.json"
 USER_PRICING_CONFIG = Path.home() / "Library/Application Support/Audiobook Studio/yandex-pricing.local.json"
 WORKSPACE_PATHS = load_workspace_paths()
+BOOKS_DIR = STUDIO_DIR / "books"
 
 ENGINES = (
     ("qwen", "Qwen — локально"),
@@ -53,11 +55,15 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--openai-pricing-status", action="store_true")
     mode.add_argument("--openai-preflight", action="store_true")
     mode.add_argument("--run-openai", action="store_true")
+    mode.add_argument("--billing-status", action="store_true")
+    mode.add_argument("--billing-preflight", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--job", default="")
     parser.add_argument("--speaker", default="")
     parser.add_argument("--profile-id", default="")
+    parser.add_argument("--provider", choices=("yandex", "openai"), default="")
+    parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--hard-limit-rub", default="")
     parser.add_argument("--format", dest="output_format", choices=("json", "tsv"), default="json")
     return parser
@@ -76,6 +82,98 @@ def _require(value: str, option: str) -> str:
     if not value:
         raise RuntimeError(f"{option} is required")
     return value
+
+
+def _billing_service() -> CloudBillingService:
+    return CloudBillingService(
+        settings_path=WORKSPACE_PATHS.cloud_billing_settings,
+        ledger_path=WORKSPACE_PATHS.billing_ledger,
+        cache_path=WORKSPACE_PATHS.billing_provider_cache,
+    )
+
+
+def _load_book_job_text(book_name: str, job_id: str) -> tuple[dict[str, Any], str]:
+    path = BOOKS_DIR / Path(book_name).name
+    if not path.is_file() or path.name == "BOOK-TEMPLATE.json":
+        raise RuntimeError(f"Book profile not found: {book_name}")
+    book = json.loads(path.read_text(encoding="utf-8"))
+    job = (book.get("jobs") or {}).get(job_id) if isinstance(book, dict) else None
+    segments = job.get("segments") if isinstance(job, dict) else None
+    if not isinstance(segments, list) or not segments:
+        raise RuntimeError(f"Book job not found or empty: {job_id}")
+    texts: list[str] = []
+    for segment in segments:
+        value = segment.get("text") if isinstance(segment, dict) else None
+        if not isinstance(value, str) or not value.strip():
+            raise RuntimeError("Book job contains an invalid segment")
+        texts.append(value.strip())
+    return book, "\n\n".join(texts)
+
+
+def billing_status(*, provider: str = "", refresh: bool = False) -> dict[str, Any]:
+    service = _billing_service()
+    _, yandex_pricing, _ = _load_yandex_offline()
+    hard_limits = {
+        "yandex": yandex_pricing.hard_limit_rub,
+        "openai": service.settings.openai_hard_limit_usd,
+    }
+
+    def one(name: str) -> dict[str, Any]:
+        return service.status(
+            name,
+            refresh=refresh,
+            hard_limit=hard_limits[name],
+            paid_execution_enabled=False if name == "openai" else True,
+        )
+
+    if provider:
+        return one(provider)
+    results = {name: one(name) for name in ("yandex", "openai")}
+    return {
+        "schema_version": 1,
+        "providers": results,
+        "remote_request_sent": any(result["remote_request_sent"] for result in results.values()),
+    }
+
+
+def billing_preflight(*, provider: str, book_name: str, job_id: str, profile_id: str = "") -> dict[str, Any]:
+    book, text = _load_book_job_text(book_name, job_id)
+    service = _billing_service()
+    if provider == "yandex":
+        backend, pricing, _ = _load_yandex_offline()
+        estimate = backend.estimate(text, pricing=pricing, scope="book")
+        value = estimate.get("estimated_remaining_cost")
+        current = decimal_value(value, "yandex.current_job_estimate") if value is not None else None
+        return service.preflight(
+            "yandex",
+            current_job_estimate=current,
+            current_job_estimate_source="local_estimate" if current is not None else "unavailable",
+            hard_limit=pricing.hard_limit_rub,
+            paid_execution_enabled=True,
+            job_metadata={"book": book.get("slug"), "job_id": job_id, "provider_preflight": estimate},
+        )
+
+    from backends.openai_tts import OpenAITTSBackend, load_backend_config, load_pricing_config
+    from openai_backend_runner import CONFIG_PATH as OPENAI_CONFIG_PATH
+    from openai_backend_runner import PRICING_PATH as OPENAI_PRICING_PATH
+
+    selected_profile = _require(profile_id, "--profile-id")
+    backend = OpenAITTSBackend(load_backend_config(OPENAI_CONFIG_PATH))
+    estimate = backend.preflight(
+        text,
+        profile_id=selected_profile,
+        pricing=load_pricing_config(OPENAI_PRICING_PATH),
+    )
+    # The exact output audio charge is unavailable before synthesis, so the
+    # full current-job cost remains unavailable rather than becoming a false total.
+    return service.preflight(
+        "openai",
+        current_job_estimate=None,
+        current_job_estimate_source="unavailable",
+        hard_limit=service.settings.openai_hard_limit_usd,
+        paid_execution_enabled=False,
+        job_metadata={"book": book.get("slug"), "job_id": job_id, "provider_preflight": estimate},
+    )
 
 
 def _load_yandex_offline() -> tuple[Any, Any, str]:
@@ -163,6 +261,7 @@ def ui_snapshot() -> dict[str, Any]:
         },
         "yandex_estimate": estimate,
         "yandex_settings": {"hard_limit_rub": str(pricing.hard_limit_rub) if pricing.hard_limit_rub is not None else None},
+        "cloud_billing": billing_status(refresh=False),
         "remote_request_sent": False,
     }
 
@@ -334,6 +433,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             "--job", _require(args.job, "--job"),
             "--profile-id", _require(args.profile_id, "--profile-id"),
         )
+
+    if args.billing_status:
+        print(json.dumps(
+            billing_status(provider=args.provider, refresh=args.refresh),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if args.billing_preflight:
+        print(json.dumps(
+            billing_preflight(
+                provider=_require(args.provider, "--provider"),
+                book_name=_require(args.book, "--book"),
+                job_id=_require(args.job, "--job"),
+                profile_id=args.profile_id,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
 
     return 0
 

@@ -151,6 +151,59 @@ class UniversalBridgeTests(unittest.TestCase):
             "--profile-id", "openai_onyx",
         )
 
+    def test_shared_billing_status_is_ui_ready_and_offline(self):
+        completed = run_script(ROOT / "audiobook_studio_app_runner.py", "--billing-status")
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertEqual(set(result["providers"]), {"yandex", "openai"})
+        self.assertFalse(result["remote_request_sent"])
+        for provider, currency in (("yandex", "RUB"), ("openai", "USD")):
+            snapshot = result["providers"][provider]
+            self.assertEqual(snapshot["currency"], currency)
+            self.assertIsNone(snapshot["remaining"])
+            self.assertEqual(snapshot["remaining_source"], "unavailable")
+
+    def test_yandex_billing_preflight_reuses_cache_aware_estimate(self):
+        completed = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--billing-preflight", "--provider", "yandex",
+            "--book", "demo-book.json", "--job", "short-test",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertEqual(result["current_job_estimate_source"], "local_estimate")
+        self.assertEqual(result["decision"], "BLOCK")
+        self.assertEqual(result["decision_reason"], "hard_limit_missing")
+        self.assertFalse(result["remote_request_sent"])
+
+    def test_openai_billing_preflight_preserves_unknown_output_and_paid_block(self):
+        completed = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--billing-preflight", "--provider", "openai",
+            "--book", "demo-book.json", "--job", "short-test", "--profile-id", "openai_cedar",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertIsNone(result["current_job_estimate"])
+        self.assertEqual(result["current_job_estimate_source"], "unavailable")
+        self.assertEqual(result["decision"], "BLOCK")
+        self.assertEqual(result["decision_reason"], "openai_paid_execution_disabled")
+        self.assertFalse(result["remote_request_sent"])
+
+    def test_ui_snapshot_contains_cloud_billing_data_contract(self):
+        snapshot = bridge.ui_snapshot()
+        self.assertIn("cloud_billing", snapshot)
+        billing = snapshot["cloud_billing"]
+        self.assertEqual(set(billing["providers"]), {"yandex", "openai"})
+        for provider in billing["providers"].values():
+            for field in (
+                "spent", "spent_source", "remaining", "remaining_source",
+                "current_job_estimate", "current_job_estimate_source",
+                "projected_remaining", "projected_remaining_source", "freshness", "status", "warnings",
+            ):
+                self.assertIn(field, provider)
+        self.assertFalse(billing["remote_request_sent"])
+
 
 if __name__ == "__main__":
     unittest.main()

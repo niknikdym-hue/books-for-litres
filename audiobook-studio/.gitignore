@@ -52,3 +52,4 @@ RUN-REPORT.json
 secrets*.json
 credentials*.json
 settings/workspace-paths.json
+settings/cloud-billing.json

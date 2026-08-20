@@ -234,10 +234,38 @@ class OpenAITTSBackend:
         *,
         credential_loader: Callable[[str, str], OpenAICredential] = read_credential_from_keychain,
         opener: Callable[..., Any] = urllib.request.urlopen,
+        billing_ledger: Any | None = None,
     ) -> None:
         self.config = config
         self._credential_loader = credential_loader
         self._opener = opener
+        self._billing_ledger = billing_ledger
+
+    def _record_billing_event(
+        self,
+        *,
+        job_id: str,
+        segment_id: str,
+        request_id: str | None,
+        profile_id: str,
+        fingerprint: str,
+        timestamp: str,
+    ) -> str | None:
+        if self._billing_ledger is None:
+            return None
+        transaction_id, _ = self._billing_ledger.record(
+            provider="openai",
+            job_id=job_id,
+            segment_id=segment_id,
+            request_id=request_id,
+            profile_id=profile_id,
+            timestamp=timestamp,
+            currency="USD",
+            actual_cost=None,
+            cost_source="unavailable",
+            fingerprint=fingerprint,
+        )
+        return transaction_id
 
     def list_voices(self) -> list[dict[str, Any]]:
         return load_voice_library(provider="openai")
@@ -655,7 +683,16 @@ class OpenAITTSBackend:
                 continue
             if entry["state"] == "IN_FLIGHT":
                 if self._recover_existing(entry, output_path=output_path, fingerprint=fingerprint):
-                    entry.update({"state": "SUCCEEDED", "finished_at": utc_now_iso(), "error_category": None})
+                    finished_at = utc_now_iso()
+                    entry.update({"state": "SUCCEEDED", "finished_at": finished_at, "error_category": None})
+                    entry["billing_transaction_id"] = self._record_billing_event(
+                        job_id=job_id,
+                        segment_id=segment.segment_id,
+                        request_id=entry.get("request_id"),
+                        profile_id=profile_id,
+                        fingerprint=fingerprint,
+                        timestamp=finished_at,
+                    )
                     atomic_write_json(manifest_path, manifest)
                     continue
                 entry.update({"state": "AMBIGUOUS", "error_category": "resume_ambiguous"})
@@ -722,14 +759,24 @@ class OpenAITTSBackend:
                 manifest["state"] = error.state
                 atomic_write_json(manifest_path, manifest)
                 raise
+            finished_at = utc_now_iso()
             entry.update({
                 "state": "SUCCEEDED",
                 "cache_status": "HIT" if result.cached else "STORED",
                 "request_id": result.request_id,
-                "finished_at": utc_now_iso(),
+                "finished_at": finished_at,
                 "error_category": None,
                 "wav_metadata": result.wav_metadata,
             })
+            if not result.cached:
+                entry["billing_transaction_id"] = self._record_billing_event(
+                    job_id=job_id,
+                    segment_id=segment.segment_id,
+                    request_id=result.request_id,
+                    profile_id=profile_id,
+                    fingerprint=fingerprint,
+                    timestamp=finished_at,
+                )
             atomic_write_json(manifest_path, manifest)
 
         manifest["state"] = "SUCCEEDED"

@@ -60,6 +60,22 @@ class WorkspacePaths:
         return self.root / "jobs"
 
     @property
+    def cloud_billing_settings(self) -> Path:
+        return self.root / "settings" / "cloud-billing.json"
+
+    @property
+    def billing_runtime_root(self) -> Path:
+        return self.root / "runtime" / "billing"
+
+    @property
+    def billing_ledger(self) -> Path:
+        return self.billing_runtime_root / "ledger.json"
+
+    @property
+    def billing_provider_cache(self) -> Path:
+        return self.billing_runtime_root / "provider-cache.json"
+
+    @property
     def openai_casting_root(self) -> Path:
         return self.root / "casting" / "openai"
 

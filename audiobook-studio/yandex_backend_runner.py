@@ -10,6 +10,8 @@ from pathlib import Path
 
 from backends.yandex_speechkit import YandexSpeechKitBackend, load_backend_config
 from backends.yandex_speechkit import load_pricing_config
+from cloud_billing import BillingLedger
+from workspace_paths import load_workspace_paths
 
 STUDIO_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = STUDIO_DIR / "yandex-config.json"
@@ -33,7 +35,10 @@ def main() -> int:
 
     cfg = load_backend_config(CONFIG_PATH)
     pricing = load_pricing_config(PRICING_CONFIG_PATH)
-    backend = YandexSpeechKitBackend(cfg)
+    backend = YandexSpeechKitBackend(
+        cfg,
+        billing_ledger=BillingLedger(load_workspace_paths().billing_ledger),
+    )
 
     if args.check:
         print(json.dumps(backend.healthcheck(remote=False), ensure_ascii=False, indent=2))

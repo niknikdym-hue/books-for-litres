@@ -334,11 +334,11 @@ OpenAI требует ясно сообщать конечным пользов�
 - cache/manifest/Resume contract;
 - tests без реальных запросов.
 
-Production transport остаётся закрыт явным `paid_execution_enabled = false` до общего Cloud Billing / spending guard. Реальный OpenAI request и live paid smoke на этом этапе не выполнялись.
+Общий Cloud Billing / spending data layer реализован, включая OpenAI local hard limit, local actual ledger, optional Organization Costs metadata и честный `remaining: unavailable | local_estimate`. Production transport остаётся закрыт явным `paid_execution_enabled = false` до отдельного controlled smoke checkpoint. Реальный OpenAI request и live paid smoke не выполнялись.
 
 ### Stage OAI-3 — Native Studio integration
 
-Статус: `PENDING CLOUD BILLING GATE`; native Swift UI функционально не менялся в OAI-2.
+Статус: `PENDING CONTROLLED SMOKE CHECKPOINT`; полный Cloud Billing Swift UI функционально не реализован.
 
 Только после отдельного разрешённого этапа:
 

@@ -1,8 +1,8 @@
 # Audiobook Studio — архитектура и производственный регламент
 
 **Статус:** основной архитектурный документ проекта  
-**Версия:** 1.1
-**Дата фиксации:** 2026-08-20
+**Версия:** 1.2
+**Дата фиксации:** 2026-08-21
 **Текущий проект:** `audiobook-studio/`
 **Целевая система:** универсальная **Audiobook Studio** с локальным Qwen/MLX и облачными Yandex SpeechKit v3 и OpenAI TTS.
 
@@ -135,6 +135,7 @@ API keys Yandex и OpenAI не хранятся в книге, JSON-профил
 - два равноправных approved OpenAI built-in profiles: Onyx и Cedar;
 - production OpenAI Speech backend реализован и полностью проверен offline: литературный safety segmenter, stable fingerprint, canonical cache, atomic WAV, manifest/Resume, AMBIGUOUS safety, pricing/preflight и Keychain credential contract;
 - OpenAI paid execution закрыт по умолчанию до отдельного Cloud Billing gate; live paid smoke не выполнялся;
+- единый provider-neutral Cloud Billing data layer реализован для Yandex и OpenAI: Decimal money, обязательный provenance, local settings, idempotent ledger, stale cache и offline/read-only bridge;
 - единая Voice Library schema v1 без обязательного `gender`; OpenAI Custom Voice остаётся `DEFERRED`;
 - native parse, typecheck и arm64 staging build на Swift 6.3.3 / macOS SDK 26.5 / minimum target macOS 14;
 - version-keyed isolated Swift module cache, исключающий повторное использование stale SDK modules.
@@ -1052,7 +1053,100 @@ Native staging build создаётся `native/build_native_app.sh` в `Audiobo
 
 ---
 
-## 31. Официальные источники Yandex для реализации
+## 31. Единый Cloud Billing contract
+
+Cloud Billing является общей инфраструктурой Studio, а не частью конкретного TTS adapter. Канонический implementation — `cloud_billing.py`.
+
+Каждое денежное значение имеет один обязательный provenance:
+
+```text
+provider_reported
+local_actual
+local_estimate
+user_confirmed
+unavailable
+```
+
+Estimate никогда не записывается как actual, а локальный расчёт не называется provider balance. Денежная арифметика выполняется только через `Decimal`; RUB и USD не конвертируются и не суммируются между собой.
+
+Общий UI/bridge contract для каждого provider содержит:
+
+```text
+provider / currency
+spent / spent_source / spent_as_of
+remaining / remaining_source / remaining_as_of
+current_job_estimate / current_job_estimate_source
+projected_remaining / projected_remaining_source
+freshness / status / warnings
+last_successful_refresh / last_attempt / stale_after_seconds
+hard_limit / low_balance_threshold
+```
+
+Недоступное значение передаётся как `null` с source/status `unavailable`, а не как ноль.
+
+### 31.1. Локальные settings и ledger
+
+Канонические пути выводятся только через `workspace_paths.py`:
+
+```text
+settings: Audiobook-Studio/settings/cloud-billing.json
+ledger:   Audiobook-Studio/runtime/billing/ledger.json
+cache:    Audiobook-Studio/runtime/billing/provider-cache.json
+```
+
+Settings schema versioned и local-only. В ней допустимы billing account ID, user-confirmed OpenAI baseline, timestamps, low-balance thresholds, OpenAI per-job hard limit и freshness preferences. Credentials, API keys, IAM/Admin tokens и cookies запрещены.
+
+Ledger отражает только фактические Studio billing events. Запись защищена file lock, выполняется atomic replace и имеет deterministic transaction ID. Точный повтор является idempotent no-op; conflicting transaction или повторное использование request ID отклоняются. Если точную стоимость completed request нельзя доказать, event сохраняется с `actual_cost: null` и `cost_source: unavailable`; estimate не подставляется.
+
+### 31.2. Yandex
+
+Read-only provider balance поддерживается через документированный:
+
+```text
+GET https://billing.api.cloud.yandex.net/billing/v1/billingAccounts/{id}
+```
+
+Успешное поле `balance` получает `remaining_source: provider_reported`. Billing account ID хранится только в local settings.
+
+Yandex Billing API документированно требует IAM Bearer token. Существующий SpeechKit API key (`Authorization: Api-Key`) нельзя молча использовать как Billing credential. Для будущего refresh предусмотрен отдельный optional Keychain service `AudiobookStudio-YandexBilling-IAM`; Studio его не создаёт и не изменяет. Минимальная read-only роль — `billing.accounts.viewer`. При отсутствии ID, IAM credential или permission balance остаётся explicit unavailable, а SpeechKit продолжает работать по прежнему contract.
+
+Yandex `hard_limit_rub` не заменяется provider balance и остаётся отдельным последним pricing guard.
+
+### 31.3. OpenAI
+
+Provider-wide costs и audio speech usage могут читаться только через документированные Organization Administration endpoints:
+
+```text
+GET https://api.openai.com/v1/organization/costs
+GET https://api.openai.com/v1/organization/usage/audio_speeches
+```
+
+Они используют отдельный optional Admin credential из Keychain service `AudiobookStudio-OpenAI-Admin`. Production TTS key не считается Admin key и не проверяется как таковой. Costs являются дополнительным provider-wide metadata и не заменяют локальный Studio spend.
+
+Документированный поддерживаемый endpoint точного prepaid credit balance в текущей реализации отсутствует. Studio не использует dashboard scraping, undocumented endpoints, browser cookies или session tokens. Поэтому OpenAI `remaining` по умолчанию `null/unavailable`.
+
+Optional user-confirmed USD baseline хранится локально с `confirmed_at`. Расчёт `baseline - known local actual since confirmation` получает `remaining_source: local_estimate` и обязательное предупреждение о возможном использовании OpenAI вне Studio. Stale baseline не становится fresh автоматически.
+
+OpenAI имеет отдельный local per-job hard limit в USD; default `1.00 USD`. Он не является balance. `paid_execution_enabled = false` сохраняется, поэтому Cloud Billing preflight всё ещё возвращает `BLOCK` до отдельного controlled smoke checkpoint.
+
+### 31.4. Refresh и решения
+
+Refresh ограничен минимальным interval и выполняет только read-only Billing/Organization requests. Последний успешный provider value может сохраняться после сетевой ошибки только как `STALE` с датой. Не выполняются TTS synthesis, IAM changes, purchase, auto-recharge, budget creation или provider-side configuration changes.
+
+Preflight decision contract:
+
+```text
+ALLOW
+BLOCK
+REQUIRES_CONFIRMATION
+BALANCE_UNKNOWN
+```
+
+Projected remaining вычисляется только при известных remaining и current-job estimate и всегда маркируется `local_estimate`.
+
+---
+
+## 32. Официальные источники Yandex для реализации
 
 Перед изменениями API, лимитов и тарификации проверять текущую документацию, а не полагаться на сохранённые цифры.
 
