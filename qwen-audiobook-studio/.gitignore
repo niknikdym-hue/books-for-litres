@@ -14,6 +14,7 @@ renders/
 renders-yandex/
 runtime-data/
 casting/openai/output/
+casting/yandex-male/output/
 native/build/
 
 # Runtime manifests/logs should stay with local jobs, not source control

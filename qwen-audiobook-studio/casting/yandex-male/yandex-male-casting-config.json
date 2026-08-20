@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "casting_type": "male_voice_round_1",
+  "provider": "yandex",
+  "engine": "yandex_speechkit_v3",
+  "voices": [
+    {"voice": "filipp", "role": null},
+    {"voice": "ermil", "role": "neutral"},
+    {"voice": "zahar", "role": "neutral"},
+    {"voice": "alexander", "role": "neutral"},
+    {"voice": "kirill", "role": "neutral"},
+    {"voice": "anton", "role": "neutral"},
+    {"voice": "madi_ru", "role": null}
+  ],
+  "speed": "1.0",
+  "source_text": "../openai/openai-russian-casting-text.txt",
+  "source_text_sha256": "8ae8f545b187ddf8b8363d9703a0f2408b771d7c6f019020b90c4a09cb9faa2e",
+  "production_backend_config": "../../yandex-config.json",
+  "production_pricing_config": "../../yandex-pricing.json",
+  "task_scoped_hard_limit_rub": "10.00",
+  "max_retries_per_voice": 1,
+  "duration_review": {
+    "needs_review_below_seconds": 35,
+    "needs_review_above_seconds": 120
+  },
+  "output_root": "/Users/elenadymova/Documents/New project/Qwen-Audiobook-Studio/casting/yandex-male"
+}

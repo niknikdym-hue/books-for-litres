@@ -180,6 +180,21 @@ class YandexSpeechKitBackend:
         validate_api_key(self._api_key)
         return self._api_key
 
+    def build_synthesis_payload(self, text: str) -> dict[str, Any]:
+        hints: list[dict[str, str]] = [{"voice": self.profile.voice}]
+        if self.profile.role:
+            hints.append({"role": self.profile.role})
+        hints.append({"speed": self.profile.speed})
+        return {
+            "text": text,
+            "hints": hints,
+            "outputAudioSpec": {
+                "containerAudio": {"containerAudioType": self.profile.output_container}
+            },
+            "loudnessNormalizationType": self.profile.loudness_normalization,
+            "unsafeMode": False,
+        }
+
     def _request(self, text: str, request_id: str) -> tuple[bytes, dict[str, str | None]]:
         if len(text) > 250:
             raise YandexSpeechKitError(
@@ -187,19 +202,7 @@ class YandexSpeechKitBackend:
                 category="segment_limit",
                 request_id=request_id,
             )
-        payload = {
-            "text": text,
-            "hints": [
-                {"voice": self.profile.voice},
-                {"role": self.profile.role},
-                {"speed": self.profile.speed},
-            ],
-            "outputAudioSpec": {
-                "containerAudio": {"containerAudioType": self.profile.output_container}
-            },
-            "loudnessNormalizationType": self.profile.loudness_normalization,
-            "unsafeMode": False,
-        }
+        payload = self.build_synthesis_payload(text)
         req = urllib.request.Request(
             self.config.endpoint,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
