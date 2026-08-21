@@ -738,7 +738,7 @@ class OpenAIBackendTests(unittest.TestCase):
                 billing_ledger=ledger,
             )
             first_path = backend.run_text_job(
-                "Текст.", root / "job", job_id="job", profile_id="openai_cedar", pricing=pricing()
+                "Текст.", root / "job-1", job_id="job-1", profile_id="openai_cedar", pricing=pricing()
             )
             first = json.loads(first_path.read_text(encoding="utf-8"))
             entry = first["segments"]["s0001"]
@@ -749,13 +749,23 @@ class OpenAIBackendTests(unittest.TestCase):
             self.assertEqual(len(ledger.transactions()), 1)
 
             second_path = backend.run_text_job(
-                "Текст.", root / "job", job_id="job", profile_id="openai_cedar", pricing=pricing()
+                "Текст.", root / "job-2", job_id="job-2", profile_id="openai_cedar", pricing=pricing()
             )
             second = json.loads(second_path.read_text(encoding="utf-8"))
+            second_entry = second["segments"]["s0001"]
+            self.assertEqual(second_entry["cache_status"], "HIT")
+            self.assertEqual(second_entry["attempt_count"], 0)
+            self.assertTrue(inspect_pcm_wav(Path(second_entry["output_path"])).data_size_sentinel)
+
+            resumed_path = backend.run_text_job(
+                "Текст.", root / "job-2", job_id="job-2", profile_id="openai_cedar", pricing=pricing()
+            )
+            resumed = json.loads(resumed_path.read_text(encoding="utf-8"))
             transactions = ledger.transactions()
         self.assertEqual(opener.call_count, 1)
         self.assertEqual(second["state"], "SUCCEEDED")
-        self.assertEqual(second["segments"]["s0001"]["attempt_count"], 1)
+        self.assertEqual(resumed["state"], "SUCCEEDED")
+        self.assertEqual(resumed["segments"]["s0001"]["attempt_count"], 0)
         self.assertEqual(len(transactions), 1)
         self.assertIsNone(transactions[0]["actual_cost"])
         self.assertEqual(transactions[0]["cost_source"], "unavailable")
