@@ -1,6 +1,6 @@
 # Audiobook Studio — OpenAI TTS backend contract
 
-**Статус:** **PRODUCTION BACKEND + NATIVE UI IMPLEMENTED OFFLINE**; **FIRST CONTROLLED SMOKE AMBIGUOUS / INCONCLUSIVE**; **SECOND CONTROLLED SMOKE PENDING**
+**Статус:** **PRODUCTION BACKEND + NATIVE UI IMPLEMENTED**; **FIRST CONTROLLED SMOKE AMBIGUOUS / INCONCLUSIVE**; **SECOND CONTROLLED SMOKE PASS**
 **Дата:** 2026-08-21
 **Проект:** `audiobook-studio/`
 **Система:** единая `Audiobook Studio`
@@ -342,17 +342,17 @@ OpenAI требует ясно сообщать конечным пользов�
 
 Первый controlled production smoke 2026-08-21 отправил один request с `openai_cedar` / `gpt-4o-mini-tts` / WAV и завершился `AMBIGUOUS / truncated_response`, без retry. Он считается **INCONCLUSIVE**, а не PASS: прежний validator отвергал legal streaming RIFF sentinel semantics, но исходный `.part` был удалён, поэтому конкретный provider response задним числом нельзя признать валидным. Historical manifest остаётся `AMBIGUOUS`.
 
-Offline synthetic fixtures доказали validator root cause и подтвердили исправление для finalized WAV, true truncation, RIFF/data `0xFFFFFFFF` sentinel combinations, empty/partial payload, malformed chunks, HTTP Content-Length, atomic final/cache, Resume и idempotent ledger. Для будущих ambiguous responses добавлено forensic preservation. Второй controlled live smoke остаётся отдельным `PENDING` checkpoint.
+Offline synthetic fixtures доказали validator root cause и подтвердили исправление для finalized WAV, true truncation, RIFF/data `0xFFFFFFFF` sentinel combinations, empty/partial payload, malformed chunks, HTTP Content-Length, atomic final/cache, Resume и idempotent ledger. Для будущих ambiguous responses добавлено forensic preservation.
+
+Второй controlled production smoke 2026-08-21 завершился **PASS** через canonical `OpenAITTSBackend`: `openai_cedar` / `gpt-4o-mini-tts` / WAV, один paid request, HTTP `200`, retry `0`. Реальный streamed response использовал RIFF и `data` size sentinel `0xFFFFFFFF`; production validator подтвердил PCM WAV, после чего atomic final, canonical cache, manifest, Resume replay без дополнительной сети и одна idempotent ledger transaction прошли успешно. `actual_cost` остаётся `null` с provenance `unavailable`, поскольку точная per-request стоимость не была сообщена provider. Global `paid_execution_enabled` остаётся `false`.
 
 ### Stage OAI-3 — Native Studio integration
 
-Статус: `PASS / IMPLEMENTED OFFLINE`; первый controlled paid smoke — `AMBIGUOUS / INCONCLUSIVE`, второй — `PENDING`.
+Статус: `PASS / PRODUCTION SMOKE VALIDATED`; первый controlled paid smoke — `AMBIGUOUS / INCONCLUSIVE`, второй — `PASS`.
 
 Единый native UI теперь показывает третий engine OpenAI, approved Onyx/Cedar из canonical Voice Library, model/WAV/status и общий Cloud Billing contract. Exact OpenAI remaining и future audio charge не фабрикуются: UI показывает `Недоступно`; local USD hard limit редактируется через atomic Python bridge. OpenAI production action видим, но disabled, и не имеет hidden override.
 
-Только после отдельного разрешённого этапа можно выполнить:
-
-- второй controlled integration smoke test без автоматического перехода к production unlock.
+Успешный второй smoke не снимает global paid block автоматически. Любой следующий paid run требует отдельного разрешённого этапа.
 
 ## 15. Acceptance principle
 
