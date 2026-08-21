@@ -24,6 +24,8 @@ struct NativeContractTests {
         require(snapshot.voiceLibrary.openai.map(\.label) == ["Onyx", "Cedar"], "OpenAI labels")
         require(snapshot.voiceLibrary.openai.allSatisfy { $0.model == "gpt-4o-mini-tts" }, "OpenAI model")
         require(snapshot.voiceLibrary.openai.allSatisfy { $0.responseFormat == "wav" }, "OpenAI WAV")
+        require(snapshot.books.first?.jobs.first?.id == "short-test", "prepared jobs decode")
+        require(snapshot.books.first?.jobs.first?.segmentCount == 1, "prepared job segment count")
 
         let yandex = snapshot.cloudBilling.providers.yandex
         let openai = snapshot.cloudBilling.providers.openai
@@ -80,6 +82,82 @@ struct NativeContractTests {
         require(formattedMoney("4.22", currency: "RUB", source: "local_estimate").contains("₽"), "RUB symbol")
         require(formattedMoney("1.00", currency: "USD", source: "local_actual").hasPrefix("$"), "USD symbol")
         require(billingWarningLabel("provider_balance_stale") == "Последние данные об остатке устарели.", "warning rendering")
+
+        let readyPlanJSON = """
+        {
+          "schema_version": 1,
+          "plan_id": "11111111-1111-1111-1111-111111111111",
+          "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "PREPARED",
+          "created_at": "2026-08-21T12:00:00+00:00",
+          "expires_at": "2099-08-21T12:10:00+00:00",
+          "provider": "openai",
+          "book_id": "demo-book",
+          "book_file": "demo-book.json",
+          "book_title": "Демонстрационная книга",
+          "job_id": "short-test",
+          "job_label": "Безопасный короткий тест",
+          "profile_id": "openai_cedar",
+          "model": "gpt-4o-mini-tts",
+          "voice": "cedar",
+          "response_format": "wav",
+          "selected_segment_id": "s0001",
+          "selected_segment_characters": 91,
+          "selected_segment_utf8_bytes": 166,
+          "selected_segment_number": 1,
+          "total_segments": 2,
+          "succeeded_segments": 0,
+          "cached_segments": 0,
+          "pending_segments": 2,
+          "ambiguous_segments": 0,
+          "failed_segments": 0,
+          "network_miss_count_for_this_plan": 1,
+          "max_network_requests": 1,
+          "hard_limit": "1.00",
+          "currency": "USD",
+          "pricing_verified_at": "2026-08-20",
+          "pricing_stale": false,
+          "credential_available": true,
+          "cost_estimate": null,
+          "cost_estimate_source": "unavailable",
+          "warnings": ["exact_future_audio_cost_unavailable"],
+          "blockers": [],
+          "decision": "READY_FOR_CONFIRMATION",
+          "billing": \(staleJSON),
+          "remote_request_sent": false
+        }
+        """
+        let readyPlan = try JSONDecoder().decode(PaidRunPlan.self, from: Data(readyPlanJSON.utf8))
+        require(readyPlan.decision == "READY_FOR_CONFIRMATION", "ready decision decode")
+        require(readyPlan.canExecute, "ready plan can execute")
+        require(readyPlan.maxNetworkRequests == 1, "one request maximum")
+        require(readyPlan.costEstimate == nil, "future exact cost unavailable")
+        require(readyPlan.costEstimateSource == "unavailable", "cost provenance unavailable")
+        require(readyPlan.voice == "cedar" && readyPlan.model == "gpt-4o-mini-tts", "confirmation voice and model")
+        require(readyPlan.bookTitle == "Демонстрационная книга", "confirmation book")
+        require(readyPlan.jobLabel == "Безопасный короткий тест", "confirmation job")
+        require(readyPlan.selectedSegmentNumber == 1 && readyPlan.totalSegments == 2, "confirmation segment")
+        require(readyPlan.selectedSegmentCharacters == 91, "confirmation characters")
+        let cachePlan = try JSONDecoder().decode(
+            PaidRunPlan.self,
+            from: Data(readyPlanJSON.replacingOccurrences(of: "READY_FOR_CONFIRMATION", with: "CACHE_ONLY").utf8)
+        )
+        require(cachePlan.decision == "CACHE_ONLY" && cachePlan.canExecute, "cache-only decode")
+        let blockedPlan = try JSONDecoder().decode(
+            PaidRunPlan.self,
+            from: Data(readyPlanJSON.replacingOccurrences(of: "READY_FOR_CONFIRMATION", with: "BLOCKED").utf8)
+        )
+        require(!blockedPlan.canExecute, "blocked plan cannot execute")
+        let expiredPlan = try JSONDecoder().decode(
+            PaidRunPlan.self,
+            from: Data(readyPlanJSON.replacingOccurrences(of: "2099-08-21", with: "2000-08-21").utf8)
+        )
+        require(expiredPlan.isExpired && !expiredPlan.canExecute, "expired plan cannot execute")
+        require(
+            paidRunBlockerLabel(["ambiguous_segment_requires_resolution"])
+                == "Результат запроса не определён. Автоматический повтор запрещён.",
+            "ambiguous UI has no retry"
+        )
 
         print("NATIVE_CONTRACT_TESTS_PASS")
     }

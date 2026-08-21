@@ -33,7 +33,8 @@ private struct WorkspacePaths {
 
 private let workspacePaths = WorkspacePaths.load()
 private let studioDirectory = workspacePaths.runtimeRoot
-private let pythonExecutable = workspacePaths.qwenPython.path
+private let pythonExecutable = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_PYTHON"]
+    ?? workspacePaths.qwenPython.path
 
 @MainActor
 final class StudioModel: ObservableObject {
@@ -43,6 +44,7 @@ final class StudioModel: ObservableObject {
     @Published var estimate: YandexEstimate?
     @Published var cloudBilling: CloudBillingEnvelope?
     @Published var selectedBookID = ""
+    @Published var selectedJobID = ""
     @Published var selectedProfileID = ""
     @Published var engine: Engine = .yandex
     @Published var isLoading = true
@@ -50,6 +52,10 @@ final class StudioModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var completedOutput: URL?
     @Published var showConfirmation = false
+    @Published var showPaidConfirmation = false
+    @Published var paidPlan: PaidRunPlan?
+    @Published var paidStatusText = ""
+    @Published var remainingPaidSegments: Int?
     @Published var hardLimitText = ""
     @Published var openAIHardLimitText = "1.00"
     @Published var localHealthText = ""
@@ -65,6 +71,7 @@ final class StudioModel: ObservableObject {
     }
 
     var selectedBook: Book? { books.first { $0.id == selectedBookID } }
+    var selectedJob: PreparedJob? { selectedBook?.jobs.first { $0.id == selectedJobID } }
     var availableProfiles: [VoiceProfile] { voiceLibrary.profiles(for: engine) }
     var selectedProfile: VoiceProfile? { availableProfiles.first { $0.profileID == selectedProfileID } }
     var selectedBilling: CloudBillingSnapshot? { cloudBilling?.providers[engine] }
@@ -80,6 +87,7 @@ final class StudioModel: ObservableObject {
             estimate = snapshot.yandexEstimate
             cloudBilling = snapshot.cloudBilling
             selectedBookID = books.first?.id ?? ""
+            selectDefaultJob()
             selectDefaultProfile()
             if let requestedProfile = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_PROFILE"],
                availableProfiles.contains(where: { $0.profileID == requestedProfile }) {
@@ -94,7 +102,14 @@ final class StudioModel: ObservableObject {
     }
 
     func begin() {
-        if engine == .openai { return }
+        if engine == .openai {
+            if paidPlan?.decision == "CACHE_ONLY", paidPlan?.canExecute == true {
+                executePaidPlan()
+            } else {
+                preparePaidRun()
+            }
+            return
+        }
         guard engine == .yandex else {
             errorMessage = "Для Qwen выберите подготовленную задачу. Автоматический запуск литературного master-а отключён."
             return
@@ -115,6 +130,86 @@ final class StudioModel: ObservableObject {
         }
         selectedProfileID = availableProfiles.first(where: { $0.profileID == preferred })?.profileID
             ?? availableProfiles.first?.profileID ?? ""
+        paidPlan = nil
+        showPaidConfirmation = false
+    }
+
+    func selectDefaultJob() {
+        selectedJobID = selectedBook?.jobs.first?.id ?? ""
+        paidPlan = nil
+        showPaidConfirmation = false
+    }
+
+    func preparePaidRun() {
+        guard engine == .openai,
+              !selectedBookID.isEmpty,
+              !selectedJobID.isEmpty,
+              !selectedProfileID.isEmpty else {
+            errorMessage = "Для книги нет подготовленных задач."
+            return
+        }
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let plan: PaidRunPlan = try await runBridgeJSON([
+                    "--prepare-paid-run", "--provider", "openai",
+                    "--book", selectedBookID,
+                    "--job", selectedJobID,
+                    "--profile-id", selectedProfileID,
+                ])
+                paidPlan = plan
+                technicalDetails = nil
+                if plan.decision == "READY_FOR_CONFIRMATION" {
+                    showPaidConfirmation = plan.canExecute
+                    paidStatusText = "План подготовлен. Требуется подтверждение одного сегмента."
+                } else if plan.decision == "CACHE_ONLY" {
+                    paidStatusText = "Готовое аудио найдено. Платный запрос не требуется."
+                } else if plan.blockers.contains("ambiguous_segment_requires_resolution") {
+                    errorMessage = "Результат запроса не определён. Автоматический повтор запрещён."
+                    technicalDetails = plan.blockers.joined(separator: "\n")
+                } else if plan.blockers.contains("failed_segment_requires_resolution") {
+                    errorMessage = "Неустранённая ошибка сегмента блокирует запуск."
+                    technicalDetails = plan.blockers.joined(separator: "\n")
+                } else {
+                    errorMessage = paidRunBlockerLabel(plan.blockers)
+                    technicalDetails = plan.blockers.joined(separator: "\n")
+                }
+            } catch {
+                showError(error)
+            }
+        }
+    }
+
+    func executePaidPlan() {
+        guard let plan = paidPlan, plan.canExecute else {
+            errorMessage = paidPlan?.isExpired == true
+                ? "Срок действия плана истёк. Подготовьте новый запуск."
+                : "Сначала подготовьте действующий план запуска."
+            return
+        }
+        showPaidConfirmation = false
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let result: PaidRunExecutionResult = try await runBridgeJSON([
+                    "--execute-paid-plan", "--plan-id", plan.planID,
+                    "--plan-digest", plan.planDigest,
+                ])
+                paidPlan = nil
+                remainingPaidSegments = result.remainingSegments
+                if let path = result.outputPath, !path.isEmpty {
+                    completedOutput = URL(fileURLWithPath: path)
+                }
+                paidStatusText = result.networkRequests == 0
+                    ? "Готовое аудио использовано без нового запроса."
+                    : "Сегмент готов. Осталось: \(result.remainingSegments)"
+                errorMessage = nil
+            } catch {
+                showError(error)
+            }
+        }
     }
 
     func refreshBilling(_ provider: Engine) {
@@ -310,24 +405,55 @@ struct StudioView: View {
                             }
                             LabeledContent("Модель", value: model.selectedProfile?.model ?? "gpt-4o-mini-tts")
                             LabeledContent("Формат", value: (model.selectedProfile?.responseFormat ?? "wav").uppercased())
-                            LabeledContent("Статус", value: "Production backend готов")
-                            Label("Платный запуск пока заблокирован до контрольной проверки.", systemImage: "lock.fill")
+                            LabeledContent("Статус", value: "Безопасный запуск одного сегмента")
+                            Label("Каждый новый платный сегмент требует отдельного плана и подтверждения.", systemImage: "checkmark.shield")
                                 .font(.caption)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
                     Section("Что озвучить") {
-                        Picker("Режим", selection: .constant("demo")) {
-                            Text("Тестовый фрагмент").tag("demo")
-                            Text("Фрагмент — скоро").tag("fragment")
-                            Text("Глава — скоро").tag("chapter")
-                            Text("Вся книга — после подключения TTS-master").tag("book")
+                        if model.engine == .openai {
+                            if let book = model.selectedBook, !book.jobs.isEmpty {
+                                Picker("Подготовленная задача", selection: $model.selectedJobID) {
+                                    ForEach(book.jobs) { job in
+                                        Text("\(job.label) · \(job.segmentCount) сегм.").tag(job.id)
+                                    }
+                                }
+                                .onChange(of: model.selectedJobID) { _, _ in model.paidPlan = nil }
+                            } else {
+                                Text("Для книги нет подготовленных задач.")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text("Studio выберет только первый допустимый MISS-сегмент. Вся книга автоматически не запускается.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Picker("Режим", selection: .constant("demo")) {
+                                Text("Тестовый фрагмент").tag("demo")
+                                Text("Фрагмент — скоро").tag("fragment")
+                                Text("Глава — скоро").tag("chapter")
+                                Text("Вся книга — после подключения TTS-master").tag("book")
+                            }
+                            .disabled(true)
+                            Text("Текущий литературный master автоматически не используется.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        .disabled(true)
-                        Text("Текущий литературный master автоматически не используется.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    }
+
+                    if model.engine == .openai, let plan = model.paidPlan {
+                        Section("План запуска") {
+                            LabeledContent("Решение", value: plan.decision == "CACHE_ONLY" ? "Готовое аудио" : plan.decision)
+                            if let number = plan.selectedSegmentNumber {
+                                LabeledContent("Сегмент", value: "\(number) из \(plan.totalSegments)")
+                            }
+                            LabeledContent("Новых платных запросов", value: "максимум \(plan.maxNetworkRequests)")
+                            LabeledContent("Точная будущая стоимость", value: "Недоступно")
+                            if !model.paidStatusText.isEmpty {
+                                Text(model.paidStatusText).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
                     }
 
                     if model.engine == .yandex, let estimate = model.estimate {
@@ -407,7 +533,9 @@ struct StudioView: View {
                         } else if model.engine == .qwen {
                             Text("Выберите подготовленную задачу для Qwen.").foregroundStyle(.secondary)
                         } else if model.engine == .openai {
-                            Text("OpenAI готов. Платный запуск будет разрешён после контрольной проверки.")
+                            Text(model.paidStatusText.isEmpty
+                                ? "Выберите подготовленную задачу. Один план разрешает максимум один новый запрос."
+                                : model.paidStatusText)
                                 .foregroundStyle(.secondary)
                         } else {
                             Text("Тестовый фрагмент · Lera · neutral · 1.04").foregroundStyle(.secondary)
@@ -418,12 +546,11 @@ struct StudioView: View {
                         Button("Прослушать") { NSWorkspace.shared.open(output) }
                         Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
                     }
-                    Button(
-                        model.engine == .openai ? "Платный запуск заблокирован" :
-                            (model.isRunning ? "Выполняется…" : "Начать озвучку")
-                    ) { model.begin() }
+                    Button(primaryButtonTitle(model)) { model.begin() }
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.isRunning || model.isLoading || model.engine == .openai)
+                        .disabled(model.isRunning || model.isLoading || (
+                            model.engine == .openai && (model.selectedBook?.jobs.isEmpty ?? true)
+                        ))
                 }
                 .padding()
                 if let details = model.technicalDetails {
@@ -437,6 +564,7 @@ struct StudioView: View {
                 if model.isLoading { ProgressView("Загрузка Studio…") }
             }
             .navigationTitle(model.selectedBook?.title ?? "Audiobook Studio")
+            .onChange(of: model.selectedBookID) { _, _ in model.selectDefaultJob() }
             .toolbar { ToolbarItem { SettingsLink { Label("Настройки", systemImage: "gearshape") } } }
             .task {
                 if ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_OPEN_SETTINGS_ON_LAUNCH"] == "1",
@@ -455,8 +583,32 @@ struct StudioView: View {
             } message: {
                 Text("Yandex SpeechKit\n\(model.profile.voice) · \(model.profile.role) · \(model.profile.speed)\n\(model.estimate?.segments ?? 0) сегмента\n\(formattedMoney(model.estimate?.estimatedRemainingCost, currency: "RUB", source: "local_estimate"))")
             }
+            .confirmationDialog("Подтвердить платный OpenAI TTS-запрос?", isPresented: $model.showPaidConfirmation, titleVisibility: .visible) {
+                if model.paidPlan?.canExecute == true,
+                   model.paidPlan?.decision == "READY_FOR_CONFIRMATION" {
+                    Button("Подтвердить 1 платный запрос") { model.executePaidPlan() }
+                }
+                Button("Отмена", role: .cancel) { model.showPaidConfirmation = false }
+            } message: {
+                if let plan = model.paidPlan {
+                    Text("OpenAI TTS\nГолос: \(plan.voice.capitalized)\nМодель: \(plan.model)\nКнига: \(plan.bookTitle)\nЗадача: \(plan.jobLabel)\nСегмент: \(plan.selectedSegmentNumber ?? 0) из \(plan.totalSegments)\nСимволов: \(plan.selectedSegmentCharacters)\nКэш: MISS\nНовых платных запросов: максимум 1\nТочная будущая стоимость: Недоступно\nЛимит политики Studio: \(formattedMoney(plan.hardLimit, currency: plan.currency, source: "local_actual"))\nOpenAI balance: \(formattedMoney(plan.billing.remaining, currency: plan.currency, source: plan.billing.remainingSource))\n\nOpenAI не сообщает точную стоимость будущего аудио до синтеза. После подтверждения Studio сможет отправить максимум один новый платный TTS-запрос.")
+                }
+            }
         }
     }
+}
+
+@MainActor
+private func primaryButtonTitle(_ model: StudioModel) -> String {
+    if model.isRunning { return "Выполняется…" }
+    guard model.engine == .openai else { return "Начать озвучку" }
+    if model.paidPlan?.decision == "CACHE_ONLY", model.paidPlan?.canExecute == true {
+        return "Использовать готовое аудио"
+    }
+    if let remaining = model.remainingPaidSegments, remaining > 0 {
+        return "Подготовить следующий сегмент"
+    }
+    return "Подготовить запуск"
 }
 
 private struct BillingValueLine: View {
@@ -506,7 +658,7 @@ struct SettingsView: View {
                     }
                 }
                 Section("OpenAI TTS") {
-                    LabeledContent("Backend", value: "Production готов · paid run заблокирован")
+                    LabeledContent("Backend", value: "Production готов · one-time approval")
                     HStack {
                         TextField("Максимальная стоимость задачи, $", text: $model.openAIHardLimitText)
                         Button("Сохранить") { model.saveOpenAIHardLimit() }

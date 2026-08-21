@@ -76,6 +76,10 @@ class WorkspacePaths:
         return self.billing_runtime_root / "provider-cache.json"
 
     @property
+    def paid_run_plans(self) -> Path:
+        return self.root / "runtime" / "paid-run-plans"
+
+    @property
     def openai_casting_root(self) -> Path:
         return self.root / "casting" / "openai"
 

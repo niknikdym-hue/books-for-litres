@@ -1,6 +1,6 @@
 # Audiobook Studio — OpenAI TTS backend contract
 
-**Статус:** **PRODUCTION BACKEND + NATIVE UI IMPLEMENTED**; **FIRST CONTROLLED SMOKE AMBIGUOUS / INCONCLUSIVE**; **SECOND CONTROLLED SMOKE PASS**
+**Статус:** **PRODUCTION BACKEND + SAFE NATIVE OPENAI PAID EXECUTION v1 IMPLEMENTED OFFLINE**; **FIRST CONTROLLED SMOKE AMBIGUOUS / INCONCLUSIVE**; **SECOND CONTROLLED SMOKE PASS**
 **Дата:** 2026-08-21
 **Проект:** `audiobook-studio/`
 **Система:** единая `Audiobook Studio`
@@ -353,6 +353,32 @@ Offline synthetic fixtures доказали validator root cause и подтве
 Единый native UI теперь показывает третий engine OpenAI, approved Onyx/Cedar из canonical Voice Library, model/WAV/status и общий Cloud Billing contract. Exact OpenAI remaining и future audio charge не фабрикуются: UI показывает `Недоступно`; local USD hard limit редактируется через atomic Python bridge. OpenAI production action видим, но disabled, и не имеет hidden override.
 
 Успешный второй smoke не снимает global paid block автоматически. Любой следующий paid run требует отдельного разрешённого этапа.
+
+### Stage OAI-4 — Safe native paid execution v1
+
+Статус: **IMPLEMENTED OFFLINE**. После реализации feature новый live request не выполнялся.
+
+Canonical `openai-config.json` по-прежнему содержит `"paid_execution_enabled": false`. Глобальный paid unlock не используется. Native Studio разрешает новый платный OpenAI TTS request только через короткоживущий immutable one-time plan:
+
+```text
+PREPARE (offline)
+→ SHOW EXACT EXECUTION FACTS
+→ USER CONFIRMATION
+→ REVALIDATE THE SAME DIGEST
+→ PREPARED → CONSUMING (atomic)
+→ maximum one new network request
+→ CONSUMED
+```
+
+Plan хранится атомарно вне repository в `Audiobook-Studio/runtime/paid-run-plans/<plan-id>.json`. Default TTL — 10 минут. Состояния: `PREPARED`, `CONSUMING`, `CONSUMED`, `EXPIRED`, `BLOCKED`. Решения: `READY_FOR_CONFIRMATION`, `CACHE_ONLY`, `BLOCKED`.
+
+SHA-256 digest покрывает provider, book file/source identity, job/text identity, selected segment text/fingerprint, approved profile, model, voice, instructions hash, WAV format, hard limit, pricing identity и `max_network_requests = 1`. Execute не принимает text/model/voice/instructions повторно и перед atomic consumption заново доказывает неизменность source, profile, pricing, hard limit, credential, fingerprint, manifest/Resume state и segment eligibility.
+
+`run_approved_segment()` материализует валидные cache/Resume hits и может синтезировать только один заранее выбранный MISS. Multi-segment job после одного успеха остаётся `PARTIAL`, пока есть `PENDING`; каждый следующий новый segment требует нового offline plan и нового confirmation.
+
+`CACHE_ONLY` выполняется без paid confirmation, network и новой ledger transaction. Matching `AMBIGUOUS` и unresolved `FAILED` дают `BLOCKED`; automatic retry равен нулю. При неопределённом response сохраняется прежний `diagnostics/*.ambiguous` contract. Один successful network synthesis создаёт максимум одну idempotent shared Cloud Billing transaction; неизвестная точная стоимость остаётся `actual_cost: null`, `cost_source: unavailable`.
+
+Native confirmation показывает OpenAI TTS, voice/model, book/job, segment X/N, characters, MISS, максимум один новый paid request, точную будущую стоимость как `Недоступно`, локальный USD hard limit и OpenAI balance из shared Cloud Billing (`Недоступно`, а не `$0`). Кнопка paid MISS: `Подтвердить 1 платный запрос`; cache-only: `Использовать готовое аудио`. Persistent consent отсутствует.
 
 ## 15. Acceptance principle
 

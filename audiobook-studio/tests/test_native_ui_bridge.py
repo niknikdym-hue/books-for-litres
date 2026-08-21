@@ -81,6 +81,26 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"--billing-status", "--provider", provider.rawValue, "--refresh"', source)
         self.assertNotIn('runBridgeText(["--run-openai"]', source)
 
+    def test_native_openai_paid_plan_contract_has_job_picker_and_exact_confirmation(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
+        snapshot = bridge.ui_snapshot()
+        self.assertTrue(snapshot["books"][0]["jobs"])
+        self.assertIn('"--prepare-paid-run", "--provider", "openai"', source)
+        self.assertIn('"--execute-paid-plan", "--plan-id", plan.planID', source)
+        self.assertIn("Подтвердить 1 платный запрос", source)
+        self.assertIn("Использовать готовое аудио", source)
+        self.assertIn("Новых платных запросов: максимум 1", source)
+        self.assertIn("Точная будущая стоимость: Недоступно", source)
+        self.assertIn("OpenAI balance:", source)
+        self.assertIn("Для книги нет подготовленных задач.", source)
+        self.assertIn("Автоматический повтор запрещён.", contracts)
+        self.assertIn('decision == "READY_FOR_CONFIRMATION"', contracts)
+        self.assertIn('decision == "CACHE_ONLY"', contracts)
+        self.assertNotIn("Больше не спрашивать", source)
+        self.assertNotIn("Всегда разрешать", source)
+        self.assertNotIn("Автоматически подтверждать", source)
+
     def test_native_build_compiles_shared_contract_file(self):
         build = (ROOT / "native" / "build_native_app.sh").read_text(encoding="utf-8")
         self.assertIn('"$script_dir/StudioContracts.swift"', build)

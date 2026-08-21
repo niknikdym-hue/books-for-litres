@@ -4,6 +4,18 @@ struct Book: Codable, Identifiable, Hashable {
     let id: String
     let title: String
     let author: String
+    let jobs: [PreparedJob]
+}
+
+struct PreparedJob: Codable, Identifiable, Hashable {
+    let id: String
+    let label: String
+    let segmentCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, label
+        case segmentCount = "segment_count"
+    }
 }
 
 struct EngineDescriptor: Codable, Identifiable, Hashable {
@@ -204,6 +216,123 @@ struct CloudBillingEnvelope: Codable {
     }
 }
 
+struct PaidRunPlan: Codable, Identifiable {
+    let schemaVersion: Int
+    let planID: String
+    let planDigest: String
+    let state: String
+    let createdAt: String
+    let expiresAt: String
+    let provider: String
+    let bookID: String
+    let bookFile: String
+    let bookTitle: String
+    let jobID: String
+    let jobLabel: String
+    let profileID: String
+    let model: String
+    let voice: String
+    let responseFormat: String
+    let selectedSegmentID: String?
+    let selectedSegmentCharacters: Int
+    let selectedSegmentUtf8Bytes: Int
+    let selectedSegmentNumber: Int?
+    let totalSegments: Int
+    let succeededSegments: Int
+    let cachedSegments: Int
+    let pendingSegments: Int
+    let ambiguousSegments: Int
+    let failedSegments: Int
+    let networkMissCountForThisPlan: Int
+    let maxNetworkRequests: Int
+    let hardLimit: String?
+    let currency: String
+    let pricingVerifiedAt: String
+    let pricingStale: Bool
+    let credentialAvailable: Bool
+    let costEstimate: String?
+    let costEstimateSource: String
+    let warnings: [String]
+    let blockers: [String]
+    let decision: String
+    let billing: CloudBillingSnapshot
+    let remoteRequestSent: Bool
+
+    var id: String { planID }
+    var isExpired: Bool {
+        guard let date = ISO8601DateFormatter().date(from: expiresAt) else { return true }
+        return date <= Date()
+    }
+    var canExecute: Bool {
+        state == "PREPARED"
+            && !isExpired
+            && blockers.isEmpty
+            && maxNetworkRequests == 1
+            && (decision == "READY_FOR_CONFIRMATION" || decision == "CACHE_ONLY")
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case provider, voice, currency, warnings, blockers, decision, billing, state, model
+        case schemaVersion = "schema_version"
+        case planID = "plan_id"
+        case planDigest = "plan_digest"
+        case createdAt = "created_at"
+        case expiresAt = "expires_at"
+        case bookID = "book_id"
+        case bookFile = "book_file"
+        case bookTitle = "book_title"
+        case jobID = "job_id"
+        case jobLabel = "job_label"
+        case profileID = "profile_id"
+        case responseFormat = "response_format"
+        case selectedSegmentID = "selected_segment_id"
+        case selectedSegmentCharacters = "selected_segment_characters"
+        case selectedSegmentUtf8Bytes = "selected_segment_utf8_bytes"
+        case selectedSegmentNumber = "selected_segment_number"
+        case totalSegments = "total_segments"
+        case succeededSegments = "succeeded_segments"
+        case cachedSegments = "cached_segments"
+        case pendingSegments = "pending_segments"
+        case ambiguousSegments = "ambiguous_segments"
+        case failedSegments = "failed_segments"
+        case networkMissCountForThisPlan = "network_miss_count_for_this_plan"
+        case maxNetworkRequests = "max_network_requests"
+        case hardLimit = "hard_limit"
+        case pricingVerifiedAt = "pricing_verified_at"
+        case pricingStale = "pricing_stale"
+        case credentialAvailable = "credential_available"
+        case costEstimate = "cost_estimate"
+        case costEstimateSource = "cost_estimate_source"
+        case remoteRequestSent = "remote_request_sent"
+    }
+}
+
+struct PaidRunExecutionResult: Codable {
+    let planID: String
+    let state: String
+    let decision: String
+    let manifest: String
+    let networkRequests: Int
+    let selectedSegmentID: String?
+    let outputPath: String?
+    let manifestState: String
+    let remainingSegments: Int
+    let automaticRetryCount: Int
+    let remoteRequestSent: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case state, decision, manifest
+        case planID = "plan_id"
+        case networkRequests = "network_requests"
+        case selectedSegmentID = "selected_segment_id"
+        case outputPath = "output_path"
+        case manifestState = "manifest_state"
+        case remainingSegments = "remaining_segments"
+        case automaticRetryCount = "automatic_retry_count"
+        case remoteRequestSent = "remote_request_sent"
+    }
+}
+
 struct StudioSnapshot: Codable {
     let workspaceRoot: String
     let engines: [EngineDescriptor]
@@ -314,4 +443,21 @@ func billingAvailabilityReason(_ billing: CloudBillingSnapshot) -> String? {
     case "unavailable": return "Данные Yandex Billing пока недоступны."
     default: return nil
     }
+}
+
+func paidRunBlockerLabel(_ blockers: [String]) -> String {
+    if blockers.contains("ambiguous_segment_requires_resolution") {
+        return "Результат запроса не определён. Автоматический повтор запрещён."
+    }
+    if blockers.contains("failed_segment_requires_resolution") {
+        return "Неустранённая ошибка сегмента блокирует запуск."
+    }
+    if blockers.contains("missing_credential") {
+        return "Ключ OpenAI недоступен в macOS Keychain."
+    }
+    if blockers.contains("stale_pricing") { return "Данные о тарифе OpenAI устарели." }
+    if blockers.contains("missing_hard_limit") || blockers.contains("hard_limit_not_positive") {
+        return "Задайте положительный лимит политики Studio для OpenAI."
+    }
+    return "Платный запуск заблокирован проверками безопасности."
 }

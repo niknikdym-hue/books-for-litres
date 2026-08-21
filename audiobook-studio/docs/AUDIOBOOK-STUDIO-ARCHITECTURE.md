@@ -1,7 +1,7 @@
 # Audiobook Studio — архитектура и производственный регламент
 
 **Статус:** основной архитектурный документ проекта  
-**Версия:** 1.5
+**Версия:** 1.6
 **Дата фиксации:** 2026-08-21
 **Текущий проект:** `audiobook-studio/`
 **Целевая система:** универсальная **Audiobook Studio** с локальным Qwen/MLX и облачными Yandex SpeechKit v3 и OpenAI TTS.
@@ -992,6 +992,7 @@ Production entry points имеют разные обязанности и не �
 - `studio_app_runner.py` — Qwen-specific catalog/run adapter;
 - `yandex_backend_runner.py` — provider CLI для Yandex health/demo boundary;
 - `openai_backend_runner.py` — provider CLI для OpenAI status, credential fact, pricing, cache-aware preflight и fail-closed production run boundary;
+- `paid_run.py` — Python-authoritative immutable one-time approval для максимум одного нового OpenAI TTS request;
 - `voice_library.py` — единственный нормализатор общей Voice Library;
 - `workspace_paths.py` — единственный resolver локального workspace.
 
@@ -1157,6 +1158,33 @@ Native `Audiobook Studio` использует один engine selector: Qwen, Y
 Cloud backend получает компактную секцию «Расходы и лимиты» с `spent`, `remaining`, `current_job_estimate`, `projected_remaining`, provenance, freshness, warnings и hard limit. `null` никогда не форматируется как ноль. RUB и USD имеют разные formatter, а `local_estimate` визуально маркируется `≈`. Qwen вместо billing показывает отсутствие API-расходов.
 
 Кнопка refresh вызывает только `--billing-status --provider <provider> --refresh`. Нормальное отсутствие account ID, IAM/Admin credential или документированного OpenAI prepaid balance остаётся inline unavailable state, а не fatal UI error. OpenAI hard limit изменяется только через атомарный provider-neutral bridge command `--set-billing-setting`; Swift не пишет Cloud Billing JSON напрямую.
+
+### 31.5. Safe native OpenAI paid execution v1
+
+Статус: **IMPLEMENTED OFFLINE**. Live request после реализации feature: **NOT PERFORMED**. Global `paid_execution_enabled` остаётся `false`.
+
+Native OpenAI workflow использует реальные prepared jobs из canonical book profiles и две bridge responsibility:
+
+```text
+--prepare-paid-run --provider openai --book <book> --job <job> --profile-id <profile>
+--execute-paid-plan --plan-id <id> --plan-digest <sha256>
+```
+
+Prepare не синтезирует audio и не вызывает TTS network. Он строит production segmentation/fingerprints, проверяет manifest, cache, Resume, AMBIGUOUS/FAILED, pricing freshness, shared Cloud Billing hard limit и Keychain credential availability, затем детерминированно выбирает только первый `PENDING + MISS`.
+
+Immutable JSON plans хранятся атомарно в `Audiobook-Studio/runtime/paid-run-plans/`, TTL по умолчанию 10 минут. Plan states: `PREPARED`, `CONSUMING`, `CONSUMED`, `EXPIRED`, `BLOCKED`; decisions: `READY_FOR_CONFIRMATION`, `CACHE_ONLY`, `BLOCKED`.
+
+Перед TTS network execute повторно валидирует тот же SHA-256 digest и все execution-critical facts. Затем plan атомарно переводится `PREPARED → CONSUMING`; ни crash, ни повторный вызов не возвращают его в `PREPARED`. Временный `paid_execution_enabled=True` существует только in-process внутри validated execute и не записывается в config.
+
+Технический invariant production code:
+
+```text
+one user confirmation = max_network_requests 1
+automatic retries = 0
+multi-segment automatic batch = forbidden
+```
+
+После одного successful segment остальные сохраняют свои состояния, а общий manifest становится `PARTIAL`, если есть pending. Valid cache-only plan materializes audio с network `0` и ledger additions `0`. Matching `AMBIGUOUS` и unresolved `FAILED` блокируют plan до явного разрешения; кнопки implicit retry нет. Exact future OpenAI audio cost и prepaid balance остаются `null / unavailable`, никогда не превращаются в estimate-as-actual или `$0`.
 
 ---
 

@@ -4,7 +4,9 @@ set -euo pipefail
 script_dir="${0:A:h}"
 workspace_root="${AUDIOBOOK_STUDIO_HOME:-$HOME/Documents/New project/Audiobook-Studio}"
 output_app="${1:-$workspace_root/builds/native-staging/Audiobook Studio.app}"
-contents="$output_app/Contents"
+temporary_root="$(mktemp -d /tmp/audiobook-studio-native-build.XXXXXX)"
+staged_app="$temporary_root/Audiobook Studio.app"
+contents="$staged_app/Contents"
 sdk_path="${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}"
 sdk_version="$(plutil -extract Version raw -o - "$sdk_path/SDKSettings.plist")"
 swift_build="$(xcrun swiftc --version 2>/dev/null | sed -n 's/.*swiftlang-\([^ ]*\).*/\1/p')"
@@ -12,6 +14,11 @@ deployment_target="${AUDIOBOOK_STUDIO_MACOS_DEPLOYMENT_TARGET:-14.0}"
 target_arch="${AUDIOBOOK_STUDIO_ARCH:-$(uname -m)}"
 cache_key="${swift_build:-unknown}-macosx${sdk_version}"
 module_cache="${AUDIOBOOK_STUDIO_SWIFT_MODULE_CACHE:-/tmp/audiobook-studio-swift-module-cache/$cache_key}"
+
+cleanup() {
+  rm -rf "$temporary_root"
+}
+trap cleanup EXIT
 
 mkdir -p "$contents/MacOS" "$contents/Resources" "$module_cache/clang" "$module_cache/swift"
 cp "$script_dir/Info.plist" "$contents/Info.plist"
@@ -29,7 +36,28 @@ xcrun swiftc "$script_dir/StudioContracts.swift" "$script_dir/AudiobookStudioApp
   -framework SwiftUI \
   -framework AppKit
 plutil -lint "$contents/Info.plist"
-xattr -cr "$output_app"
-codesign --force --sign - --timestamp=none "$output_app"
-codesign --verify --deep --strict --verbose=2 "$output_app"
+xattr -cr "$staged_app"
+codesign --force --sign - --timestamp=none "$staged_app"
+codesign --verify --deep --strict --verbose=2 "$staged_app"
+
+# File Provider may attach FinderInfo while an .app is assembled directly in
+# the workspace. Sign in /tmp, then install without resource forks/xattrs.
+mkdir -p "${output_app:h}"
+if [[ -e "$output_app" ]]; then
+  mv "$output_app" "$temporary_root/previous.app"
+fi
+if ! ditto --norsrc --noextattr "$staged_app" "$output_app"; then
+  rm -rf "$output_app"
+  if [[ -e "$temporary_root/previous.app" ]]; then
+    mv "$temporary_root/previous.app" "$output_app"
+  fi
+  exit 1
+fi
+if ! codesign --verify --deep --strict --verbose=2 "$output_app"; then
+  rm -rf "$output_app"
+  if [[ -e "$temporary_root/previous.app" ]]; then
+    mv "$temporary_root/previous.app" "$output_app"
+  fi
+  exit 1
+fi
 echo "$output_app"

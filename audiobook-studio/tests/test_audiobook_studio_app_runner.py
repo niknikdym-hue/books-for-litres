@@ -206,6 +206,29 @@ class UniversalBridgeTests(unittest.TestCase):
                 self.assertIn(field, provider)
         self.assertFalse(billing["remote_request_sent"])
 
+    def test_ui_snapshot_exposes_real_prepared_job_catalog(self):
+        snapshot = bridge.ui_snapshot()
+        demo = next(book for book in snapshot["books"] if book["id"] == "demo-book.json")
+        self.assertEqual(demo["jobs"], [{
+            "id": "short-test",
+            "label": "Безопасный короткий тест",
+            "segment_count": 1,
+        }])
+
+    def test_paid_plan_commands_are_separate_and_require_immutable_identity(self):
+        prepared = bridge.build_parser().parse_args([
+            "--prepare-paid-run", "--provider", "openai", "--book", "demo-book.json",
+            "--job", "short-test", "--profile-id", "openai_onyx",
+        ])
+        executed = bridge.build_parser().parse_args([
+            "--execute-paid-plan", "--plan-id", "abc", "--plan-digest", "digest",
+        ])
+        self.assertTrue(prepared.prepare_paid_run)
+        self.assertFalse(prepared.execute_paid_plan)
+        self.assertTrue(executed.execute_paid_plan)
+        self.assertEqual(executed.plan_id, "abc")
+        self.assertEqual(executed.plan_digest, "digest")
+
     def test_openai_hard_limit_setter_is_atomic_local_and_preserves_schema(self):
         from workspace_paths import load_workspace_paths
 

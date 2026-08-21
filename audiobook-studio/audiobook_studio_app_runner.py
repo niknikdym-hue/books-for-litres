@@ -18,6 +18,7 @@ from typing import Any, Sequence
 from voice_library import load_voice_library, normalize_qwen_profiles
 from workspace_paths import load_workspace_paths
 from cloud_billing import CloudBillingService, decimal_text, decimal_value, save_settings
+from paid_run import PaidRunService
 
 STUDIO_DIR = Path(__file__).resolve().parent
 QWEN_RUNNER = STUDIO_DIR / "studio_app_runner.py"
@@ -56,6 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--openai-pricing-status", action="store_true")
     mode.add_argument("--openai-preflight", action="store_true")
     mode.add_argument("--run-openai", action="store_true")
+    mode.add_argument("--prepare-paid-run", action="store_true")
+    mode.add_argument("--execute-paid-plan", action="store_true")
     mode.add_argument("--billing-status", action="store_true")
     mode.add_argument("--billing-preflight", action="store_true")
     mode.add_argument("--set-billing-setting", action="store_true")
@@ -69,6 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--setting", choices=("hard_limit",), default="")
     parser.add_argument("--value", default="")
     parser.add_argument("--hard-limit-rub", default="")
+    parser.add_argument("--plan-id", default="")
+    parser.add_argument("--plan-digest", default="")
     parser.add_argument("--format", dest="output_format", choices=("json", "tsv"), default="json")
     return parser
 
@@ -93,6 +98,25 @@ def _billing_service() -> CloudBillingService:
         settings_path=WORKSPACE_PATHS.cloud_billing_settings,
         ledger_path=WORKSPACE_PATHS.billing_ledger,
         cache_path=WORKSPACE_PATHS.billing_provider_cache,
+    )
+
+
+def _paid_run_service() -> PaidRunService:
+    from backends.openai_tts import OpenAITTSBackend, load_backend_config, load_pricing_config
+    from openai_backend_runner import CONFIG_PATH as OPENAI_CONFIG_PATH
+    from openai_backend_runner import PRICING_PATH as OPENAI_PRICING_PATH
+
+    billing = _billing_service()
+    backend = OpenAITTSBackend(
+        load_backend_config(OPENAI_CONFIG_PATH),
+        billing_ledger=billing.ledger,
+    )
+    return PaidRunService(
+        backend=backend,
+        pricing=load_pricing_config(OPENAI_PRICING_PATH),
+        billing=billing,
+        books_dir=BOOKS_DIR,
+        plans_dir=WORKSPACE_PATHS.paid_run_plans,
     )
 
 
@@ -246,6 +270,15 @@ def _load_qwen_runtime_catalog() -> tuple[list[dict[str, str]], list[dict[str, A
             "id": path.name,
             "title": str(book.get("title", path.stem)),
             "author": str(book.get("author", "")),
+            "jobs": [
+                {
+                    "id": str(job_id),
+                    "label": str(job.get("label", job_id)),
+                    "segment_count": len(job.get("segments") or []),
+                }
+                for job_id, job in book.get("jobs", {}).items()
+                if isinstance(job, dict) and isinstance(job.get("segments"), list) and job["segments"]
+            ],
         })
     return books, list(studio.load_voices())
 
@@ -471,6 +504,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             "--job", _require(args.job, "--job"),
             "--profile-id", _require(args.profile_id, "--profile-id"),
         )
+
+    if args.prepare_paid_run:
+        if _require(args.provider, "--provider") != "openai":
+            raise RuntimeError("Safe paid run v1 supports only OpenAI.")
+        print(json.dumps(
+            _paid_run_service().prepare(
+                book_name=_require(args.book, "--book"),
+                job_id=_require(args.job, "--job"),
+                profile_id=_require(args.profile_id, "--profile-id"),
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if args.execute_paid_plan:
+        print(json.dumps(
+            _paid_run_service().execute(
+                plan_id=_require(args.plan_id, "--plan-id"),
+                plan_digest=_require(args.plan_digest, "--plan-digest"),
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
 
     if args.billing_status:
         print(json.dumps(

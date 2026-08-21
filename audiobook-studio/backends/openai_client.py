@@ -908,3 +908,181 @@ class OpenAITTSBackend:
         manifest["updated_at"] = utc_now_iso()
         atomic_write_json(manifest_path, manifest)
         return manifest_path
+
+    def run_approved_segment(
+        self,
+        text: str,
+        job_dir: Path,
+        *,
+        job_id: str,
+        profile_id: str,
+        pricing: OpenAIPricingConfig,
+        selected_segment_id: str | None,
+    ) -> tuple[Path, dict[str, Any]]:
+        """Materialize free hits and synthesize at most one pre-approved MISS.
+
+        This is the only production primitive used by a one-time paid plan. It
+        deliberately cannot accept a list of segment IDs and contains no retry.
+        """
+        if not self.config.paid_execution_enabled:
+            raise PaidExecutionBlocked()
+        job_dir = Path(job_dir)
+        manifest_path = job_dir / "MANIFEST.json"
+        manifest, preflight = self.prepare_job(
+            text,
+            job_dir,
+            job_id=job_id,
+            profile_id=profile_id,
+            pricing=pricing,
+        )
+        if not preflight["allowed_to_start"]:
+            raise PaidExecutionBlocked()
+        profile = load_approved_profile(profile_id)
+        segments = self.segment(text)
+        entries: dict[str, Any] = manifest["segments"]
+        network_requests = 0
+        selected_seen = selected_segment_id is None
+        selected_output: str | None = None
+
+        for segment in segments:
+            entry = entries[segment.segment_id]
+            fingerprint = make_fingerprint(segment.text, profile)
+            output_path = Path(entry["output_path"])
+            if segment.segment_id == selected_segment_id:
+                selected_seen = True
+
+            if entry["state"] == "SUCCEEDED" and self._recover_existing(
+                entry, output_path=output_path, fingerprint=fingerprint
+            ):
+                if segment.segment_id == selected_segment_id:
+                    selected_output = str(output_path)
+                continue
+            if entry["state"] == "IN_FLIGHT":
+                if self._recover_existing(entry, output_path=output_path, fingerprint=fingerprint):
+                    finished_at = utc_now_iso()
+                    entry.update({"state": "SUCCEEDED", "finished_at": finished_at, "error_category": None})
+                    entry["billing_transaction_id"] = self._record_billing_event(
+                        job_id=job_id,
+                        segment_id=segment.segment_id,
+                        request_id=entry.get("request_id"),
+                        profile_id=profile_id,
+                        fingerprint=fingerprint,
+                        timestamp=finished_at,
+                    )
+                    atomic_write_json(manifest_path, manifest)
+                    continue
+                entry.update({"state": "AMBIGUOUS", "error_category": "resume_ambiguous"})
+                manifest["state"] = "AMBIGUOUS"
+                atomic_write_json(manifest_path, manifest)
+                raise OpenAITTSError(
+                    f"Segment {segment.segment_id} was IN_FLIGHT without a valid artifact.",
+                    category="resume_ambiguous",
+                    state="AMBIGUOUS",
+                    request_id=entry.get("request_id"),
+                )
+            if entry["state"] == "AMBIGUOUS":
+                raise OpenAITTSError(
+                    f"Segment {segment.segment_id} is AMBIGUOUS and requires human resolution.",
+                    category="resume_ambiguous",
+                    state="AMBIGUOUS",
+                    request_id=entry.get("request_id"),
+                )
+            if entry["state"] == "FAILED":
+                raise OpenAITTSError(
+                    f"Segment {segment.segment_id} is FAILED and requires an explicit future action.",
+                    category="resume_failed",
+                )
+
+            cache_path = self._cache_path(fingerprint)
+            if cache_path.exists() and self._valid_wav(cache_path) is not None:
+                materialize_validated_file(cache_path, output_path, validator=inspect_pcm_wav)
+                entry.update({
+                    "state": "SUCCEEDED",
+                    "cache_status": "HIT",
+                    "finished_at": utc_now_iso(),
+                    "error_category": None,
+                })
+                if segment.segment_id == selected_segment_id:
+                    selected_output = str(output_path)
+                atomic_write_json(manifest_path, manifest)
+                continue
+
+            if segment.segment_id != selected_segment_id:
+                continue
+            if network_requests >= 1:
+                raise OpenAITTSError(
+                    "One-time paid run request cap was exhausted.",
+                    category="request_cap",
+                )
+            entry.update({
+                "state": "IN_FLIGHT",
+                "attempt_count": int(entry.get("attempt_count", 0)) + 1,
+                "started_at": utc_now_iso(),
+                "finished_at": None,
+                "error_category": None,
+            })
+            manifest["state"] = "IN_FLIGHT"
+            atomic_write_json(manifest_path, manifest)
+            network_requests += 1
+            try:
+                result = self.synthesize_segment(segment.text, output_path, profile_id=profile_id)
+            except OpenAITTSError as error:
+                entry.update({
+                    "state": error.state,
+                    "request_id": error.request_id,
+                    "finished_at": utc_now_iso(),
+                    "error_category": error.category,
+                    "response_diagnostics": dict(error.diagnostics),
+                    "forensic_artifact_path": error.forensic_artifact_path,
+                })
+                manifest["state"] = error.state
+                atomic_write_json(manifest_path, manifest)
+                raise
+            finished_at = utc_now_iso()
+            entry.update({
+                "state": "SUCCEEDED",
+                "cache_status": "HIT" if result.cached else "STORED",
+                "request_id": result.request_id,
+                "finished_at": finished_at,
+                "error_category": None,
+                "wav_metadata": result.wav_metadata,
+                "response_diagnostics": result.response_diagnostics,
+                "forensic_artifact_path": None,
+            })
+            if not result.cached:
+                entry["billing_transaction_id"] = self._record_billing_event(
+                    job_id=job_id,
+                    segment_id=segment.segment_id,
+                    request_id=result.request_id,
+                    profile_id=profile_id,
+                    fingerprint=fingerprint,
+                    timestamp=finished_at,
+                )
+            selected_output = str(output_path)
+            atomic_write_json(manifest_path, manifest)
+
+        if not selected_seen:
+            raise OpenAITTSError("Approved OpenAI segment no longer exists.", category="approved_segment_mismatch")
+        state_counts: dict[str, int] = {}
+        for entry in entries.values():
+            state = str(entry.get("state") or "PENDING")
+            state_counts[state] = state_counts.get(state, 0) + 1
+        if state_counts.get("AMBIGUOUS"):
+            manifest["state"] = "AMBIGUOUS"
+        elif state_counts.get("FAILED"):
+            manifest["state"] = "FAILED"
+        elif state_counts.get("PENDING") or state_counts.get("IN_FLIGHT"):
+            manifest["state"] = "PARTIAL" if state_counts.get("SUCCEEDED") else "PENDING"
+        else:
+            manifest["state"] = "SUCCEEDED"
+            manifest["finished_at"] = utc_now_iso()
+        manifest["updated_at"] = utc_now_iso()
+        atomic_write_json(manifest_path, manifest)
+        return manifest_path, {
+            "network_requests": network_requests,
+            "selected_segment_id": selected_segment_id,
+            "output_path": selected_output,
+            "manifest_state": manifest["state"],
+            "remaining_segments": state_counts.get("PENDING", 0),
+            "automatic_retry_count": 0,
+        }
