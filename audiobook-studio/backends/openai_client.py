@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -23,6 +24,7 @@ from .common import (
     inspect_pcm_wav,
     materialize_validated_file,
     utc_now_iso,
+    wav_size_markers,
 )
 from .openai_pricing import OpenAIPricingConfig, build_preflight
 from .openai_types import (
@@ -227,6 +229,37 @@ def request_id_from_headers(headers: Any) -> str | None:
     return None
 
 
+def _response_diagnostics(
+    *,
+    headers: Any,
+    request_id: str | None,
+    http_status: int | None,
+    content_length: int | None,
+    bytes_written: int,
+    part_path: Path | None = None,
+) -> dict[str, Any]:
+    diagnostics = {
+        "request_id": request_id,
+        "http_status": http_status,
+        "content_type": headers.get("Content-Type") if headers is not None else None,
+        "content_length": content_length,
+        "bytes_written": bytes_written,
+        "riff_declared_size": None,
+        "data_declared_size": None,
+        "riff_size_sentinel": False,
+        "data_size_sentinel": False,
+    }
+    if part_path is not None and part_path.exists():
+        diagnostics.update(wav_size_markers(part_path))
+    return diagnostics
+
+
+def _forensic_artifact_path(output_path: Path) -> Path:
+    output_path = Path(output_path)
+    job_root = output_path.parent.parent if output_path.parent.name == "segments" else output_path.parent
+    return job_root / "diagnostics" / f"{output_path.name}.ambiguous"
+
+
 class OpenAITTSBackend:
     def __init__(
         self,
@@ -323,7 +356,11 @@ class OpenAITTSBackend:
         except WavValidationError:
             return None
 
-    def _request_to_part(self, payload: Mapping[str, str], part_path: Path) -> str | None:
+    def _request_to_part(
+        self,
+        payload: Mapping[str, str],
+        part_path: Path,
+    ) -> tuple[str | None, dict[str, Any]]:
         credential = self._credential_loader(
             self.config.keychain_service,
             self.config.keychain_account,
@@ -353,6 +390,13 @@ class OpenAITTSBackend:
                 state=state,
                 request_id=request_id,
                 http_status=error.code,
+                diagnostics=_response_diagnostics(
+                    headers=error.headers,
+                    request_id=request_id,
+                    http_status=error.code,
+                    content_length=None,
+                    bytes_written=0,
+                ),
             )
             error.close()
             raise diagnostic from error
@@ -364,8 +408,11 @@ class OpenAITTSBackend:
             ) from error
 
         request_id = request_id_from_headers(getattr(response, "headers", None))
+        headers = getattr(response, "headers", {})
+        status = int(getattr(response, "status", 200))
+        expected_length: int | None = None
+        written = 0
         try:
-            status = int(getattr(response, "status", 200))
             if status < 200 or status >= 300:
                 raise OpenAITTSError(
                     f"Unexpected OpenAI Speech status {status}.",
@@ -373,21 +420,43 @@ class OpenAITTSBackend:
                     state="AMBIGUOUS" if status >= 500 else "FAILED",
                     request_id=request_id,
                     http_status=status,
+                    diagnostics=_response_diagnostics(
+                        headers=headers,
+                        request_id=request_id,
+                        http_status=status,
+                        content_length=None,
+                        bytes_written=0,
+                    ),
                 )
-            content_length_value = getattr(response, "headers", {}).get("Content-Length")
+            content_length_value = headers.get("Content-Length")
             try:
                 expected_length = int(content_length_value) if content_length_value else None
+                if expected_length is not None and expected_length < 0:
+                    raise ValueError
             except (TypeError, ValueError) as error:
                 raise OpenAITTSError(
                     "OpenAI audio response has an invalid Content-Length.",
                     category="response_protocol",
                     state="AMBIGUOUS",
                     request_id=request_id,
+                    http_status=status,
+                    diagnostics=_response_diagnostics(
+                        headers=headers,
+                        request_id=request_id,
+                        http_status=status,
+                        content_length=None,
+                        bytes_written=0,
+                    ),
                 ) from error
-            written = 0
             with part_path.open("wb") as output:
                 while True:
-                    chunk = response.read(_READ_SIZE)
+                    try:
+                        chunk = response.read(_READ_SIZE)
+                    except http.client.IncompleteRead as error:
+                        if error.partial:
+                            output.write(error.partial)
+                            written += len(error.partial)
+                        raise
                     if not chunk:
                         break
                     output.write(chunk)
@@ -398,21 +467,46 @@ class OpenAITTSBackend:
                     category="truncated_response",
                     state="AMBIGUOUS",
                     request_id=request_id,
+                    http_status=status,
+                    diagnostics=_response_diagnostics(
+                        headers=headers,
+                        request_id=request_id,
+                        http_status=status,
+                        content_length=expected_length,
+                        bytes_written=written,
+                        part_path=part_path,
+                    ),
                 )
         except OpenAITTSError:
             raise
-        except (TimeoutError, socket.timeout, OSError) as error:
+        except (http.client.IncompleteRead, TimeoutError, socket.timeout, OSError) as error:
             raise OpenAITTSError(
                 "OpenAI audio stream was interrupted; automatic retry is forbidden.",
                 category="network_ambiguous",
                 state="AMBIGUOUS",
                 request_id=request_id,
+                http_status=status,
+                diagnostics=_response_diagnostics(
+                    headers=headers,
+                    request_id=request_id,
+                    http_status=status,
+                    content_length=expected_length,
+                    bytes_written=written,
+                    part_path=part_path,
+                ),
             ) from error
         finally:
             close = getattr(response, "close", None)
             if callable(close):
                 close()
-        return request_id
+        return request_id, _response_diagnostics(
+            headers=headers,
+            request_id=request_id,
+            http_status=status,
+            content_length=expected_length,
+            bytes_written=written,
+            part_path=part_path,
+        )
 
     def synthesize_segment(
         self,
@@ -442,8 +536,10 @@ class OpenAITTSBackend:
         payload = self.build_synthesis_payload(normalized, profile_id)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         part_path = output_path.with_suffix(output_path.suffix + ".part")
+        request_id: str | None = None
+        response_diagnostics: dict[str, Any] | None = None
         try:
-            request_id = self._request_to_part(payload, part_path)
+            request_id, response_diagnostics = self._request_to_part(payload, part_path)
             try:
                 metadata = inspect_pcm_wav(part_path).to_dict()
             except WavTruncatedError as error:
@@ -452,6 +548,8 @@ class OpenAITTSBackend:
                     category="truncated_response",
                     state="AMBIGUOUS",
                     request_id=request_id,
+                    http_status=response_diagnostics.get("http_status"),
+                    diagnostics={**response_diagnostics, **wav_size_markers(part_path)},
                 ) from error
             except WavValidationError as error:
                 raise OpenAITTSError(
@@ -459,8 +557,28 @@ class OpenAITTSBackend:
                     category="audio_integrity",
                     state="FAILED",
                     request_id=request_id,
+                    http_status=response_diagnostics.get("http_status"),
+                    diagnostics={**response_diagnostics, **wav_size_markers(part_path)},
                 ) from error
             os.replace(part_path, output_path)
+        except OpenAITTSError as error:
+            if error.state == "AMBIGUOUS" and part_path.exists() and part_path.stat().st_size > 0:
+                forensic_path = _forensic_artifact_path(output_path)
+                forensic_path.parent.mkdir(parents=True, exist_ok=True)
+                suffix = 2
+                while forensic_path.exists():
+                    forensic_path = forensic_path.with_name(
+                        f"{output_path.name}.{suffix}.ambiguous"
+                    )
+                    suffix += 1
+                os.replace(part_path, forensic_path)
+                error.forensic_artifact_path = str(forensic_path)
+                error.diagnostics = {
+                    **error.diagnostics,
+                    **wav_size_markers(forensic_path),
+                    "bytes_written": forensic_path.stat().st_size,
+                }
+            raise
         finally:
             if part_path.exists():
                 part_path.unlink()
@@ -479,7 +597,7 @@ class OpenAITTSBackend:
                     cache_part.unlink()
         return OpenAISynthesisResult(
             ENGINE_ID, PROVIDER, profile_id, profile["model"], profile["voice"],
-            str(output_path), request_id, fingerprint, False, metadata,
+            str(output_path), request_id, fingerprint, False, metadata, response_diagnostics,
         )
 
     def _recover_existing(
@@ -623,6 +741,8 @@ class OpenAITTSBackend:
                     "started_at": None,
                     "finished_at": None,
                     "error_category": None,
+                    "response_diagnostics": None,
+                    "forensic_artifact_path": None,
                     "pause_after_ms": segment.pause_after_ms,
                     "paragraph_index": segment.paragraph_index,
                 }
@@ -755,6 +875,8 @@ class OpenAITTSBackend:
                     "request_id": error.request_id,
                     "finished_at": utc_now_iso(),
                     "error_category": error.category,
+                    "response_diagnostics": dict(error.diagnostics),
+                    "forensic_artifact_path": error.forensic_artifact_path,
                 })
                 manifest["state"] = error.state
                 atomic_write_json(manifest_path, manifest)
@@ -767,6 +889,8 @@ class OpenAITTSBackend:
                 "finished_at": finished_at,
                 "error_category": None,
                 "wav_metadata": result.wav_metadata,
+                "response_diagnostics": result.response_diagnostics,
+                "forensic_artifact_path": None,
             })
             if not result.cached:
                 entry["billing_transaction_id"] = self._record_billing_event(

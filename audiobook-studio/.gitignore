@@ -12,6 +12,7 @@ __pycache__/
 *.flac
 *.aac
 *.part
+*.ambiguous
 runtime/
 cache/
 logs/

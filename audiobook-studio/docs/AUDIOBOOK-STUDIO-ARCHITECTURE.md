@@ -1,7 +1,7 @@
 # Audiobook Studio — архитектура и производственный регламент
 
 **Статус:** основной архитектурный документ проекта  
-**Версия:** 1.3
+**Версия:** 1.4
 **Дата фиксации:** 2026-08-21
 **Текущий проект:** `audiobook-studio/`
 **Целевая система:** универсальная **Audiobook Studio** с локальным Qwen/MLX и облачными Yandex SpeechKit v3 и OpenAI TTS.
@@ -133,8 +133,8 @@ API keys Yandex и OpenAI не хранятся в книге, JSON-профил
 - Yandex SpeechKit v3 backend с segmentation, streaming transport, WAV validation, fingerprint cache, manifest, Resume и pricing gate;
 - четыре approved Yandex profiles: Lera 1.04 (frozen), Ermil 1.0, Kirill 1.0 и Anton 1.0;
 - два равноправных approved OpenAI built-in profiles: Onyx и Cedar;
-- production OpenAI Speech backend реализован и полностью проверен offline: литературный safety segmenter, stable fingerprint, canonical cache, atomic WAV, manifest/Resume, AMBIGUOUS safety, pricing/preflight и Keychain credential contract;
-- OpenAI paid execution закрыт по умолчанию до отдельного Cloud Billing gate; live paid smoke не выполнялся;
+- production OpenAI Speech backend реализован и проверен offline: literary safety segmenter, stable fingerprint, canonical cache, atomic WAV, manifest/Resume, AMBIGUOUS safety, streaming RIFF sentinel validation, pricing/preflight и Keychain credential contract;
+- первый controlled OpenAI production smoke 2026-08-21 завершился `AMBIGUOUS / INCONCLUSIVE` без retry: validator contract bug для legal streaming RIFF sentinel доказан и исправлен synthetic fixtures, но конкретный утраченный response не переоценивался; global paid execution остаётся закрыт;
 - единый provider-neutral Cloud Billing data layer реализован для Yandex и OpenAI: Decimal money, обязательный provenance, local settings, idempotent ledger, stale cache и offline/read-only bridge;
 - native Swift UI декодирует canonical Voice Library и Cloud Billing snapshot для всех трёх engine, отображает RUB/USD без FX, сохраняет `null` как «Недоступно», показывает provenance/freshness/warnings и не предоставляет OpenAI paid-run override;
 - единая Voice Library schema v1 без обязательного `gender`; OpenAI Custom Voice остаётся `DEFERRED`;
@@ -995,6 +995,8 @@ Production entry points имеют разные обязанности и не �
 - `workspace_paths.py` — единственный resolver локального workspace.
 
 Provider-neutral atomic JSON и PCM WAV integrity helpers находятся в `backends/common.py`. OpenAI использует общие Studio book/job/profile semantics и canonical workspace (`cache/openai`, `jobs`), не создавая отдельной библиотеки книг, QA, mastering или export pipeline.
+
+Общий WAV validator строго проверяет finalized RIFF/chunk sizes и отдельно поддерживает streaming sentinel `0xFFFFFFFF` для RIFF и/или `data`, вычисляя фактический PCM payload до EOF. Sentinel принимается только при полном structural PCM contract и frame alignment. HTTP Content-Length остаётся независимой transport-проверкой. Для будущего `AMBIGUOUS` после полученного audio response OpenAI сохраняет local-only forensic artifact вне final/cache и allow-listed diagnostics без credentials/raw headers; historical manifest первого smoke не изменяется.
 
 AppleScript launchers больше не входят в production contour: canonical UI реализован в `native/AudiobookStudioApp.swift`.
 

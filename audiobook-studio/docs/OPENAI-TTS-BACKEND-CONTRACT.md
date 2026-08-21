@@ -1,6 +1,6 @@
 # Audiobook Studio — OpenAI TTS backend contract
 
-**Статус:** **PRODUCTION BACKEND + NATIVE UI IMPLEMENTED OFFLINE**; **LIVE PAID SMOKE PENDING CONTROLLED CHECKPOINT**
+**Статус:** **PRODUCTION BACKEND + NATIVE UI IMPLEMENTED OFFLINE**; **FIRST CONTROLLED SMOKE AMBIGUOUS / INCONCLUSIVE**; **SECOND CONTROLLED SMOKE PENDING**
 **Дата:** 2026-08-21
 **Проект:** `audiobook-studio/`
 **Система:** единая `Audiobook Studio`
@@ -200,6 +200,8 @@ response_format: wav
 
 Studio должна валидировать фактический WAV и при необходимости приводить его к единому внутреннему master-format общим audio pipeline, а не специальным OpenAI-скриптом.
 
+Provider-neutral WAV validator различает HTTP transport framing и внутренние RIFF sizes. Для finalized WAV `RIFF ChunkSize` и размеры chunks проверяются строго. Для streaming WAV значение `0xFFFFFFFF` в RIFF и/или `data` size является sentinel «размер неизвестен до EOF»: фактический PCM payload читается до границы контейнера/EOF и принимается только при наличии `fmt`/`data`, PCM encoding, корректных channel/sample-rate/sample-width/block-align и целого числа непустых frames. Sentinel не является безусловным bypass.
+
 ## 8. Segmentation
 
 Не копировать Yandex-ограничение `220 chars / 34 words` как универсальную истину.
@@ -270,6 +272,8 @@ Production estimate должен быть cache-aware: cache hit не счита
 
 После неоднозначного сетевого обрыва не делать безусловный автоматический retry, если неизвестно, был ли запрос обработан.
 
+Если после полученного response возникает `AMBIGUOUS`, partial response сохраняется только как local forensic artifact `diagnostics/*.ambiguous`. Он не является final WAV, не попадает в cache и никогда не считается Resume HIT. Manifest хранит только allow-listed diagnostics: request ID, HTTP status, Content-Type, Content-Length, число полученных bytes и RIFF/data size markers. Credentials и raw headers запрещены.
+
 ## 12. User interface
 
 После production-интеграции в едином native Studio:
@@ -334,17 +338,21 @@ OpenAI требует ясно сообщать конечным пользов�
 - cache/manifest/Resume contract;
 - tests без реальных запросов.
 
-Общий Cloud Billing / spending data layer реализован, включая OpenAI local hard limit, local actual ledger, optional Organization Costs metadata и честный `remaining: unavailable | local_estimate`. Production transport остаётся закрыт явным `paid_execution_enabled = false` до отдельного controlled smoke checkpoint. Реальный OpenAI request и live paid smoke не выполнялись.
+Общий Cloud Billing / spending data layer реализован, включая OpenAI local hard limit, local actual ledger, optional Organization Costs metadata и честный `remaining: unavailable | local_estimate`. Production transport остаётся закрыт явным `paid_execution_enabled = false`.
+
+Первый controlled production smoke 2026-08-21 отправил один request с `openai_cedar` / `gpt-4o-mini-tts` / WAV и завершился `AMBIGUOUS / truncated_response`, без retry. Он считается **INCONCLUSIVE**, а не PASS: прежний validator отвергал legal streaming RIFF sentinel semantics, но исходный `.part` был удалён, поэтому конкретный provider response задним числом нельзя признать валидным. Historical manifest остаётся `AMBIGUOUS`.
+
+Offline synthetic fixtures доказали validator root cause и подтвердили исправление для finalized WAV, true truncation, RIFF/data `0xFFFFFFFF` sentinel combinations, empty/partial payload, malformed chunks, HTTP Content-Length, atomic final/cache, Resume и idempotent ledger. Для будущих ambiguous responses добавлено forensic preservation. Второй controlled live smoke остаётся отдельным `PENDING` checkpoint.
 
 ### Stage OAI-3 — Native Studio integration
 
-Статус: `PASS / IMPLEMENTED OFFLINE`; controlled paid smoke остаётся `PENDING`.
+Статус: `PASS / IMPLEMENTED OFFLINE`; первый controlled paid smoke — `AMBIGUOUS / INCONCLUSIVE`, второй — `PENDING`.
 
 Единый native UI теперь показывает третий engine OpenAI, approved Onyx/Cedar из canonical Voice Library, model/WAV/status и общий Cloud Billing contract. Exact OpenAI remaining и future audio charge не фабрикуются: UI показывает `Недоступно`; local USD hard limit редактируется через atomic Python bridge. OpenAI production action видим, но disabled, и не имеет hidden override.
 
 Только после отдельного разрешённого этапа можно выполнить:
 
-- один controlled integration smoke test.
+- второй controlled integration smoke test без автоматического перехода к production unlock.
 
 ## 15. Acceptance principle
 

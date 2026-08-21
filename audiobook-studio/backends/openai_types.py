@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from workspace_paths import load_workspace_paths
 
@@ -27,6 +27,8 @@ class OpenAITTSError(RuntimeError):
         state: str = "FAILED",
         request_id: str | None = None,
         http_status: int | None = None,
+        diagnostics: Mapping[str, Any] | None = None,
+        forensic_artifact_path: str | None = None,
     ) -> None:
         super().__init__(message)
         if state not in SEGMENT_STATES:
@@ -35,6 +37,8 @@ class OpenAITTSError(RuntimeError):
         self.state = state
         self.request_id = request_id
         self.http_status = http_status
+        self.diagnostics = dict(diagnostics or {})
+        self.forensic_artifact_path = forensic_artifact_path
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +47,8 @@ class OpenAITTSError(RuntimeError):
             "state": self.state,
             "request_id": self.request_id,
             "http_status": self.http_status,
+            "response_diagnostics": dict(self.diagnostics),
+            "forensic_artifact_path": self.forensic_artifact_path,
             "retryable": False,
         }
 
@@ -82,6 +88,7 @@ class OpenAISynthesisResult:
     fingerprint: str
     cached: bool
     wav_metadata: dict[str, Any]
+    response_diagnostics: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

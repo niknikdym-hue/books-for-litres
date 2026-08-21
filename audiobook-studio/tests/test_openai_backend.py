@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import io
+import http.client
 import json
+import struct
 import subprocess
 import sys
 import tempfile
@@ -31,6 +33,7 @@ from backends.openai_types import (
     OpenAITTSError,
     PaidExecutionBlocked,
 )
+from cloud_billing import BillingLedger
 
 
 def wav_bytes(*, channels: int = 1, sample_rate: int = 24_000, frames: int = 240) -> bytes:
@@ -43,15 +46,47 @@ def wav_bytes(*, channels: int = 1, sample_rate: int = 24_000, frames: int = 240
     return output.getvalue()
 
 
+def streaming_wav_bytes(
+    *,
+    payload: bytes | None = None,
+    riff_sentinel: bool = True,
+    data_sentinel: bool = True,
+) -> bytes:
+    data = bytearray(wav_bytes(frames=8))
+    data_offset = data.index(b"data")
+    if payload is not None:
+        data = data[: data_offset + 8] + payload
+    data_size = 0xFFFFFFFF if data_sentinel else len(data) - data_offset - 8
+    riff_size = 0xFFFFFFFF if riff_sentinel else len(data) - 8
+    data[4:8] = struct.pack("<I", riff_size)
+    data[data_offset + 4 : data_offset + 8] = struct.pack("<I", data_size)
+    return bytes(data)
+
+
 class FakeResponse:
-    def __init__(self, body: bytes, *, headers: dict[str, str] | None = None, status: int = 200):
+    def __init__(
+        self,
+        body: bytes,
+        *,
+        headers: dict[str, str] | None = None,
+        status: int = 200,
+        terminal_error: BaseException | None = None,
+    ):
         self._body = io.BytesIO(body)
         self.headers = headers or {}
         self.status = status
+        self.terminal_error = terminal_error
         self.closed = False
 
     def read(self, size: int = -1) -> bytes:
-        return self._body.read(size)
+        chunk = self._body.read(size)
+        if chunk:
+            return chunk
+        if self.terminal_error is not None:
+            error = self.terminal_error
+            self.terminal_error = None
+            raise error
+        return b""
 
     def close(self) -> None:
         self.closed = True
@@ -504,6 +539,226 @@ class OpenAIBackendTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 2)
         self.assertEqual(json.loads(completed.stderr)["error"], "paid_execution_gate")
         self.assertFalse(json.loads(completed.stderr)["remote_request_sent"])
+
+    def test_33_fake_finalized_wav_with_exact_content_length_succeeds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            body = wav_bytes()
+            response = FakeResponse(body, headers={
+                "Content-Length": str(len(body)),
+                "Content-Type": "audio/wav",
+                "x-request-id": "req-finalized",
+            })
+            backend = OpenAITTSBackend(
+                backend_config(root, paid=True),
+                opener=mock.Mock(return_value=response),
+                credential_loader=lambda *_: OpenAICredential("sk-test-12345678901234567890"),
+            )
+            result = backend.synthesize_segment("Текст", root / "out.wav", profile_id="openai_onyx")
+        self.assertEqual(result.request_id, "req-finalized")
+        self.assertEqual(result.response_diagnostics["http_status"], 200)
+        self.assertEqual(result.response_diagnostics["content_length"], len(body))
+        self.assertEqual(result.response_diagnostics["bytes_written"], len(body))
+        self.assertFalse(result.response_diagnostics["riff_size_sentinel"])
+        self.assertFalse(result.response_diagnostics["data_size_sentinel"])
+
+    def test_34_fake_sentinel_wav_without_content_length_succeeds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            body = streaming_wav_bytes()
+            backend = OpenAITTSBackend(
+                backend_config(root, paid=True),
+                opener=mock.Mock(return_value=FakeResponse(body, headers={
+                    "Content-Type": "audio/wav",
+                    "x-request-id": "req-sentinel-no-length",
+                })),
+                credential_loader=lambda *_: OpenAICredential("sk-test-12345678901234567890"),
+            )
+            result = backend.synthesize_segment("Текст", root / "out.wav", profile_id="openai_cedar")
+            metadata = inspect_pcm_wav(root / "out.wav")
+        self.assertTrue(metadata.riff_size_sentinel)
+        self.assertTrue(metadata.data_size_sentinel)
+        self.assertIsNone(result.response_diagnostics["content_length"])
+        self.assertEqual(result.response_diagnostics["bytes_written"], len(body))
+
+    def test_35_fake_sentinel_wav_with_correct_content_length_succeeds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            body = streaming_wav_bytes()
+            backend = OpenAITTSBackend(
+                backend_config(root, paid=True),
+                opener=mock.Mock(return_value=FakeResponse(body, headers={
+                    "Content-Length": str(len(body)),
+                    "Content-Type": "audio/wav",
+                    "x-request-id": "req-sentinel-length",
+                })),
+                credential_loader=lambda *_: OpenAICredential("sk-test-12345678901234567890"),
+            )
+            result = backend.synthesize_segment("Текст", root / "out.wav", profile_id="openai_cedar")
+        self.assertEqual(result.response_diagnostics["content_length"], len(body))
+        self.assertTrue(result.response_diagnostics["riff_size_sentinel"])
+        self.assertTrue(result.response_diagnostics["data_size_sentinel"])
+
+    def test_36_short_body_vs_content_length_is_ambiguous_and_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            body = wav_bytes()
+            backend = OpenAITTSBackend(
+                backend_config(root, paid=True),
+                opener=mock.Mock(return_value=FakeResponse(body, headers={
+                    "Content-Length": str(len(body) + 5),
+                    "Content-Type": "audio/wav",
+                    "x-request-id": "req-short-content-length",
+                })),
+                credential_loader=lambda *_: OpenAICredential("sk-test-12345678901234567890"),
+            )
+            with self.assertRaises(OpenAITTSError) as raised:
+                backend.synthesize_segment("Текст", root / "out.wav", profile_id="openai_onyx")
+            forensic = Path(raised.exception.forensic_artifact_path)
+            self.assertTrue(forensic.is_file())
+            self.assertTrue(forensic.is_relative_to(root / "diagnostics"))
+            self.assertFalse((root / "out.wav").exists())
+            self.assertEqual(list(backend.config.cache_root.glob("*.wav")), [])
+        self.assertEqual(raised.exception.state, "AMBIGUOUS")
+        self.assertEqual(raised.exception.category, "truncated_response")
+        self.assertEqual(raised.exception.diagnostics["bytes_written"], len(body))
+        self.assertEqual(raised.exception.diagnostics["content_length"], len(body) + 5)
+
+    def test_37_genuinely_truncated_finalized_riff_is_ambiguous_and_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            body = wav_bytes()[:-8]
+            backend = OpenAITTSBackend(
+                backend_config(root, paid=True),
+                opener=mock.Mock(return_value=FakeResponse(body, headers={
+                    "Content-Type": "audio/wav",
+                    "x-request-id": "req-truncated-riff",
+                })),
+                credential_loader=lambda *_: OpenAICredential("sk-test-12345678901234567890"),
+            )
+            with self.assertRaises(OpenAITTSError) as raised:
+                backend.synthesize_segment("Текст", root / "out.wav", profile_id="openai_onyx")
+            forensic = Path(raised.exception.forensic_artifact_path)
+            self.assertTrue(forensic.is_file())
+            self.assertFalse((root / "out.wav").exists())
+        self.assertEqual(raised.exception.state, "AMBIGUOUS")
+        self.assertEqual(raised.exception.category, "truncated_response")
+        self.assertEqual(raised.exception.request_id, "req-truncated-riff")
+
+    def test_38_incomplete_sentinel_frame_is_ambiguous_with_manifest_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            body = streaming_wav_bytes(payload=b"\0")
+            opener = mock.Mock(return_value=FakeResponse(body, headers={
+                "Content-Type": "audio/wav",
+                "x-request-id": "req-partial-frame",
+            }))
+            backend = OpenAITTSBackend(
+                backend_config(root, paid=True),
+                opener=opener,
+                credential_loader=lambda *_: OpenAICredential("sk-test-12345678901234567890"),
+            )
+            with self.assertRaises(OpenAITTSError) as raised:
+                backend.run_text_job(
+                    "Текст.", root / "job", job_id="job", profile_id="openai_cedar", pricing=pricing()
+                )
+            manifest = json.loads((root / "job" / "MANIFEST.json").read_text(encoding="utf-8"))
+            entry = manifest["segments"]["s0001"]
+            forensic = Path(entry["forensic_artifact_path"])
+            self.assertTrue(forensic.is_file())
+            self.assertTrue(forensic.is_relative_to(root / "job" / "diagnostics"))
+            self.assertFalse(Path(entry["output_path"]).exists())
+            self.assertEqual(list(backend.config.cache_root.glob("*.wav")), [])
+        self.assertEqual(raised.exception.state, "AMBIGUOUS")
+        self.assertEqual(manifest["state"], "AMBIGUOUS")
+        self.assertEqual(entry["attempt_count"], 1)
+        self.assertEqual(entry["response_diagnostics"]["request_id"], "req-partial-frame")
+        self.assertEqual(set(entry["response_diagnostics"]), {
+            "request_id", "http_status", "content_type", "content_length", "bytes_written",
+            "riff_declared_size", "data_declared_size", "riff_size_sentinel", "data_size_sentinel",
+        })
+        self.assertNotIn("authorization", json.dumps(entry).lower())
+
+    def test_39_fake_5xx_is_ambiguous_without_audio_artifact(self):
+        error = urllib.error.HTTPError(
+            "https://api.openai.com/v1/audio/speech", 503, "Unavailable",
+            {"x-request-id": "req-503", "Content-Type": "application/json"}, io.BytesIO(b"{}"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backend = OpenAITTSBackend(
+                backend_config(root, paid=True),
+                opener=mock.Mock(side_effect=error),
+                credential_loader=lambda *_: OpenAICredential("sk-test-12345678901234567890"),
+            )
+            with self.assertRaises(OpenAITTSError) as raised:
+                backend.synthesize_segment("Текст", root / "out.wav", profile_id="openai_onyx")
+        self.assertEqual(raised.exception.state, "AMBIGUOUS")
+        self.assertEqual(raised.exception.http_status, 503)
+        self.assertEqual(raised.exception.request_id, "req-503")
+        self.assertIsNone(raised.exception.forensic_artifact_path)
+
+    def test_40_stream_interruption_after_bytes_is_ambiguous_and_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            partial = streaming_wav_bytes()[:40]
+            response = FakeResponse(
+                partial,
+                headers={"Content-Type": "audio/wav", "x-request-id": "req-interrupted"},
+                terminal_error=http.client.IncompleteRead(b"tail"),
+            )
+            backend = OpenAITTSBackend(
+                backend_config(root, paid=True),
+                opener=mock.Mock(return_value=response),
+                credential_loader=lambda *_: OpenAICredential("sk-test-12345678901234567890"),
+            )
+            with self.assertRaises(OpenAITTSError) as raised:
+                backend.synthesize_segment("Текст", root / "out.wav", profile_id="openai_onyx")
+            forensic = Path(raised.exception.forensic_artifact_path)
+            self.assertTrue(forensic.is_file())
+            self.assertEqual(forensic.stat().st_size, len(partial) + len(b"tail"))
+            self.assertFalse((root / "out.wav").exists())
+        self.assertEqual(raised.exception.state, "AMBIGUOUS")
+        self.assertEqual(raised.exception.category, "network_ambiguous")
+        self.assertEqual(raised.exception.diagnostics["bytes_written"], len(partial) + len(b"tail"))
+
+    def test_41_sentinel_cache_resume_and_ledger_are_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            body = streaming_wav_bytes()
+            opener = mock.Mock(return_value=FakeResponse(body, headers={
+                "Content-Type": "audio/wav",
+                "x-request-id": "req-sentinel-ledger",
+            }))
+            ledger = BillingLedger(root / "ledger.json")
+            backend = OpenAITTSBackend(
+                backend_config(root, paid=True),
+                opener=opener,
+                credential_loader=lambda *_: OpenAICredential("sk-test-12345678901234567890"),
+                billing_ledger=ledger,
+            )
+            first_path = backend.run_text_job(
+                "Текст.", root / "job", job_id="job", profile_id="openai_cedar", pricing=pricing()
+            )
+            first = json.loads(first_path.read_text(encoding="utf-8"))
+            entry = first["segments"]["s0001"]
+            output_path = Path(entry["output_path"])
+            cache_path = backend._cache_path(entry["fingerprint"])
+            self.assertTrue(inspect_pcm_wav(output_path).data_size_sentinel)
+            self.assertTrue(inspect_pcm_wav(cache_path).data_size_sentinel)
+            self.assertEqual(len(ledger.transactions()), 1)
+
+            second_path = backend.run_text_job(
+                "Текст.", root / "job", job_id="job", profile_id="openai_cedar", pricing=pricing()
+            )
+            second = json.loads(second_path.read_text(encoding="utf-8"))
+            transactions = ledger.transactions()
+        self.assertEqual(opener.call_count, 1)
+        self.assertEqual(second["state"], "SUCCEEDED")
+        self.assertEqual(second["segments"]["s0001"]["attempt_count"], 1)
+        self.assertEqual(len(transactions), 1)
+        self.assertIsNone(transactions[0]["actual_cost"])
+        self.assertEqual(transactions[0]["cost_source"], "unavailable")
 
 
 if __name__ == "__main__":
