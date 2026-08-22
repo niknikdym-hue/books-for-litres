@@ -36,6 +36,23 @@ private let studioDirectory = workspacePaths.runtimeRoot
 private let pythonExecutable = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_PYTHON"]
     ?? workspacePaths.qwenPython.path
 
+private struct OpenAIExecutionSelection: Equatable {
+    let engine: Engine
+    let bookID: String
+    let jobID: String
+    let profileID: String
+}
+
+private enum PendingOpenAIAction: Equatable {
+    case prepare(OpenAIExecutionSelection)
+    case materializeCache(OpenAIExecutionSelection, planID: String, planDigest: String)
+}
+
+private enum PlanExecutionAuthorization {
+    case paidConfirmation
+    case cacheOnly(ConsumedOneShotIntent)
+}
+
 @MainActor
 final class StudioModel: ObservableObject {
     @Published var books: [Book] = []
@@ -43,15 +60,25 @@ final class StudioModel: ObservableObject {
     @Published var profile = YandexProfile(voice: "Lera", role: "neutral", speed: "1.04")
     @Published var estimate: YandexEstimate?
     @Published var cloudBilling: CloudBillingEnvelope?
-    @Published var selectedBookID = ""
-    @Published var selectedJobID = ""
-    @Published var selectedProfileID = ""
-    @Published var engine: Engine = .yandex
+    @Published var selectedBookID = "" {
+        didSet { if oldValue != selectedBookID { executionSelectionDidChange() } }
+    }
+    @Published var selectedJobID = "" {
+        didSet { if oldValue != selectedJobID { executionSelectionDidChange() } }
+    }
+    @Published var selectedProfileID = "" {
+        didSet { if oldValue != selectedProfileID { executionSelectionDidChange() } }
+    }
+    @Published var engine: Engine = .yandex {
+        didSet { if oldValue != engine { executionSelectionDidChange() } }
+    }
     @Published var isLoading = true
     @Published var isRunning = false
     @Published var errorMessage: String?
     @Published var completedOutput: URL?
     @Published var showConfirmation = false
+    @Published private(set) var showPrepareConfirmation = false
+    @Published private(set) var showCacheOnlyConfirmation = false
     @Published var showPaidConfirmation = false
     @Published var paidPlan: PaidRunPlan?
     @Published var paidStatusText = ""
@@ -61,6 +88,9 @@ final class StudioModel: ObservableObject {
     @Published var localHealthText = ""
     @Published var billingRefreshText = ""
     @Published var technicalDetails: String?
+    private var openAIIntentGate = OneShotIntentGate()
+    private var pendingOpenAIIntentToken: OneShotIntentToken?
+    private var pendingOpenAIAction: PendingOpenAIAction?
 
     init() {
         if let requested = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_ENGINE"],
@@ -77,6 +107,7 @@ final class StudioModel: ObservableObject {
     var selectedBilling: CloudBillingSnapshot? { cloudBilling?.providers[engine] }
 
     func reload() async {
+        invalidateOpenAIIntent()
         isLoading = true
         defer { isLoading = false }
         do {
@@ -103,10 +134,10 @@ final class StudioModel: ObservableObject {
 
     func begin() {
         if engine == .openai {
-            if paidPlan?.decision == "CACHE_ONLY", paidPlan?.canExecute == true {
-                executePaidPlan()
+            if let plan = paidPlan, plan.decision == "CACHE_ONLY", plan.canExecute {
+                requestCacheOnlyMaterializationConfirmation(for: plan)
             } else {
-                preparePaidRun()
+                requestOpenAIPrepareConfirmation()
             }
             return
         }
@@ -122,6 +153,7 @@ final class StudioModel: ObservableObject {
     }
 
     func selectDefaultProfile() {
+        invalidateOpenAIIntent()
         let preferred: String
         switch engine {
         case .qwen: preferred = "qwen_vivian"
@@ -135,28 +167,91 @@ final class StudioModel: ObservableObject {
     }
 
     func selectDefaultJob() {
+        invalidateOpenAIIntent()
         selectedJobID = selectedBook?.jobs.first?.id ?? ""
         paidPlan = nil
         showPaidConfirmation = false
     }
 
-    func preparePaidRun() {
-        guard engine == .openai,
-              !selectedBookID.isEmpty,
-              !selectedJobID.isEmpty,
-              !selectedProfileID.isEmpty else {
+    func confirmOpenAIPrepare() {
+        guard case let .prepare(expectedSelection) = pendingOpenAIAction,
+              currentOpenAISelection() == expectedSelection,
+              let authorization = openAIIntentGate.consume(pendingOpenAIIntentToken) else {
+            invalidateOpenAIIntent()
+            errorMessage = "Подтверждение подготовки устарело. Начните действие заново."
+            return
+        }
+        clearConsumedOpenAIIntent()
+        preparePaidRun(authorizedBy: authorization, selection: expectedSelection)
+    }
+
+    func cancelOpenAIIntent() {
+        invalidateOpenAIIntent()
+    }
+
+    func confirmCacheOnlyMaterialization() {
+        guard case let .materializeCache(expectedSelection, planID, planDigest) = pendingOpenAIAction,
+              currentOpenAISelection() == expectedSelection,
+              paidPlan?.planID == planID,
+              paidPlan?.planDigest == planDigest,
+              paidPlan?.decision == "CACHE_ONLY",
+              let authorization = openAIIntentGate.consume(pendingOpenAIIntentToken) else {
+            invalidateOpenAIIntent()
+            errorMessage = "Подтверждение использования готового аудио устарело. Начните действие заново."
+            return
+        }
+        clearConsumedOpenAIIntent()
+        executePaidPlan(authorizedBy: .cacheOnly(authorization))
+    }
+
+    func confirmPaidRequest() {
+        guard paidPlan?.decision == "READY_FOR_CONFIRMATION", paidPlan?.canExecute == true else {
+            errorMessage = "Сначала подготовьте действующий план запуска."
+            return
+        }
+        executePaidPlan(authorizedBy: .paidConfirmation)
+    }
+
+    private func requestOpenAIPrepareConfirmation() {
+        guard let selection = currentOpenAISelection() else {
             errorMessage = "Для книги нет подготовленных задач."
             return
         }
+        invalidateOpenAIIntent()
+        pendingOpenAIIntentToken = openAIIntentGate.arm()
+        pendingOpenAIAction = .prepare(selection)
+        showPrepareConfirmation = true
+    }
+
+    private func requestCacheOnlyMaterializationConfirmation(for plan: PaidRunPlan) {
+        guard let selection = currentOpenAISelection() else {
+            errorMessage = "Для книги нет подготовленных задач."
+            return
+        }
+        invalidateOpenAIIntent()
+        pendingOpenAIIntentToken = openAIIntentGate.arm()
+        pendingOpenAIAction = .materializeCache(
+            selection,
+            planID: plan.planID,
+            planDigest: plan.planDigest
+        )
+        showCacheOnlyConfirmation = true
+    }
+
+    private func preparePaidRun(
+        authorizedBy authorization: ConsumedOneShotIntent,
+        selection: OpenAIExecutionSelection
+    ) {
+        _ = authorization
         Task {
             isRunning = true
             defer { isRunning = false }
             do {
                 let plan: PaidRunPlan = try await runBridgeJSON([
                     "--prepare-paid-run", "--provider", "openai",
-                    "--book", selectedBookID,
-                    "--job", selectedJobID,
-                    "--profile-id", selectedProfileID,
+                    "--book", selection.bookID,
+                    "--job", selection.jobID,
+                    "--profile-id", selection.profileID,
                 ])
                 paidPlan = plan
                 technicalDetails = nil
@@ -181,12 +276,24 @@ final class StudioModel: ObservableObject {
         }
     }
 
-    func executePaidPlan() {
+    private func executePaidPlan(authorizedBy authorization: PlanExecutionAuthorization) {
         guard let plan = paidPlan, plan.canExecute else {
             errorMessage = paidPlan?.isExpired == true
                 ? "Срок действия плана истёк. Подготовьте новый запуск."
                 : "Сначала подготовьте действующий план запуска."
             return
+        }
+        switch authorization {
+        case .paidConfirmation:
+            guard plan.decision == "READY_FOR_CONFIRMATION" else {
+                errorMessage = "Платное подтверждение не соответствует текущему плану."
+                return
+            }
+        case .cacheOnly:
+            guard plan.decision == "CACHE_ONLY" else {
+                errorMessage = "Готовое аудио больше не соответствует текущему плану."
+                return
+            }
         }
         showPaidConfirmation = false
         Task {
@@ -293,6 +400,40 @@ final class StudioModel: ObservableObject {
         }
     }
 
+    private func currentOpenAISelection() -> OpenAIExecutionSelection? {
+        guard engine == .openai,
+              selectedBook != nil,
+              selectedJob != nil,
+              selectedProfile != nil else { return nil }
+        return OpenAIExecutionSelection(
+            engine: engine,
+            bookID: selectedBookID,
+            jobID: selectedJobID,
+            profileID: selectedProfileID
+        )
+    }
+
+    private func executionSelectionDidChange() {
+        invalidateOpenAIIntent()
+        paidPlan = nil
+        showPaidConfirmation = false
+    }
+
+    private func invalidateOpenAIIntent() {
+        openAIIntentGate.cancel()
+        pendingOpenAIIntentToken = nil
+        pendingOpenAIAction = nil
+        showPrepareConfirmation = false
+        showCacheOnlyConfirmation = false
+    }
+
+    private func clearConsumedOpenAIIntent() {
+        pendingOpenAIIntentToken = nil
+        pendingOpenAIAction = nil
+        showPrepareConfirmation = false
+        showCacheOnlyConfirmation = false
+    }
+
     private func runBridgeText(_ arguments: [String]) async throws -> String {
         try await Task.detached(priority: .userInitiated) {
             let process = Process()
@@ -319,6 +460,7 @@ final class StudioModel: ObservableObject {
     }
 
     private func showError(_ error: Error) {
+        invalidateOpenAIIntent()
         technicalDetails = error.localizedDescription
         errorMessage = "Не удалось выполнить действие. Откройте Технические подробности, если проблема повторится."
     }
@@ -583,10 +725,50 @@ struct StudioView: View {
             } message: {
                 Text("Yandex SpeechKit\n\(model.profile.voice) · \(model.profile.role) · \(model.profile.speed)\n\(model.estimate?.segments ?? 0) сегмента\n\(formattedMoney(model.estimate?.estimatedRemainingCost, currency: "RUB", source: "local_estimate"))")
             }
-            .confirmationDialog("Подтвердить платный OpenAI TTS-запрос?", isPresented: $model.showPaidConfirmation, titleVisibility: .visible) {
+            .modifier(OpenAIConfirmationDialogs(model: model))
+        }
+    }
+}
+
+private struct OpenAIConfirmationDialogs: ViewModifier {
+    @ObservedObject var model: StudioModel
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog(
+                "Подготовить OpenAI-план?",
+                isPresented: Binding(
+                    get: { model.showPrepareConfirmation },
+                    set: { if !$0 { model.cancelOpenAIIntent() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Подготовить план") { model.confirmOpenAIPrepare() }
+                Button("Отмена", role: .cancel) { model.cancelOpenAIIntent() }
+            } message: {
+                Text("Подготовка плана не отправляет TTS-запрос и не списывает средства. После подготовки платный запрос потребует отдельного подтверждения.")
+            }
+            .confirmationDialog(
+                "Использовать готовое OpenAI-аудио?",
+                isPresented: Binding(
+                    get: { model.showCacheOnlyConfirmation },
+                    set: { if !$0 { model.cancelOpenAIIntent() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Использовать готовое аудио") { model.confirmCacheOnlyMaterialization() }
+                Button("Отмена", role: .cancel) { model.cancelOpenAIIntent() }
+            } message: {
+                Text("Готовое аудио будет материализовано локально. Новый provider-запрос не отправляется.")
+            }
+            .confirmationDialog(
+                "Подтвердить платный OpenAI TTS-запрос?",
+                isPresented: $model.showPaidConfirmation,
+                titleVisibility: .visible
+            ) {
                 if model.paidPlan?.canExecute == true,
                    model.paidPlan?.decision == "READY_FOR_CONFIRMATION" {
-                    Button("Подтвердить 1 платный запрос") { model.executePaidPlan() }
+                    Button("Подтвердить 1 платный запрос") { model.confirmPaidRequest() }
                 }
                 Button("Отмена", role: .cancel) { model.showPaidConfirmation = false }
             } message: {
@@ -594,7 +776,6 @@ struct StudioView: View {
                     Text("OpenAI TTS\nГолос: \(plan.voice.capitalized)\nМодель: \(plan.model)\nКнига: \(plan.bookTitle)\nЗадача: \(plan.jobLabel)\nСегмент: \(plan.selectedSegmentNumber ?? 0) из \(plan.totalSegments)\nСимволов: \(plan.selectedSegmentCharacters)\nКэш: MISS\nНовых платных запросов: максимум 1\nТочная будущая стоимость: Недоступно\nЛимит политики Studio: \(formattedMoney(plan.hardLimit, currency: plan.currency, source: "local_actual"))\nOpenAI balance: \(formattedMoney(plan.billing.remaining, currency: plan.currency, source: plan.billing.remainingSource))\n\nOpenAI не сообщает точную стоимость будущего аудио до синтеза. После подтверждения Studio сможет отправить максимум один новый платный TTS-запрос.")
                 }
             }
-        }
     }
 }
 

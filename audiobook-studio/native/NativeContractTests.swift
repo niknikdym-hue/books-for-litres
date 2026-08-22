@@ -10,6 +10,26 @@ private func require(_ condition: @autoclosure () -> Bool, _ message: String) {
 @main
 struct NativeContractTests {
     static func main() throws {
+        var intentGate = OneShotIntentGate()
+        require(!intentGate.isArmed, "one-shot intent initially unarmed")
+        require(intentGate.consume(nil) == nil, "consume without arm fails closed")
+
+        let firstIntent = intentGate.arm()
+        require(intentGate.isArmed, "arm creates an intent")
+        require(intentGate.consume(firstIntent) != nil, "armed intent consumes once")
+        require(!intentGate.isArmed, "consume clears armed intent")
+        require(intentGate.consume(firstIntent) == nil, "consumed intent cannot be reused")
+
+        let cancelledIntent = intentGate.arm()
+        intentGate.cancel()
+        require(intentGate.consume(cancelledIntent) == nil, "cancel invalidates intent")
+
+        let replacedIntent = intentGate.arm()
+        let replacementIntent = intentGate.arm()
+        require(replacedIntent != replacementIntent, "new arm creates a new intent")
+        require(intentGate.consume(replacedIntent) == nil, "new arm invalidates previous intent")
+        require(intentGate.consume(replacementIntent) != nil, "replacement intent consumes once")
+
         guard CommandLine.arguments.count == 2 else {
             throw NSError(domain: "NativeContractTests", code: 2)
         }

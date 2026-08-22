@@ -13,6 +13,20 @@ sys.path.insert(0, str(ROOT))
 import audiobook_studio_app_runner as bridge
 
 
+def swift_function_body(source: str, signature: str) -> str:
+    start = source.index(signature)
+    opening = source.index("{", start)
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[opening + 1 : index]
+    raise AssertionError(f"unterminated Swift function: {signature}")
+
+
 def run_script(*arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(ROOT / "audiobook_studio_app_runner.py"), *arguments],
@@ -100,6 +114,76 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertNotIn("Больше не спрашивать", source)
         self.assertNotIn("Всегда разрешать", source)
         self.assertNotIn("Автоматически подтверждать", source)
+
+    def test_native_openai_prepare_requires_explicit_one_shot_confirmation(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
+        begin = swift_function_body(source, "func begin()")
+        request_prepare = swift_function_body(source, "private func requestOpenAIPrepareConfirmation()")
+        confirm_prepare = swift_function_body(source, "func confirmOpenAIPrepare()")
+        prepare = swift_function_body(source, "private func preparePaidRun(")
+
+        self.assertIn("requestOpenAIPrepareConfirmation()", begin)
+        self.assertNotIn("preparePaidRun(", begin)
+        self.assertNotIn("--prepare-paid-run", begin)
+        self.assertNotIn("runBridge", begin)
+
+        self.assertIn("openAIIntentGate.arm()", request_prepare)
+        self.assertIn("showPrepareConfirmation = true", request_prepare)
+        self.assertNotIn("runBridge", request_prepare)
+        self.assertIn("openAIIntentGate.consume(pendingOpenAIIntentToken)", confirm_prepare)
+        self.assertIn("clearConsumedOpenAIIntent()", confirm_prepare)
+        self.assertIn("preparePaidRun(authorizedBy: authorization", confirm_prepare)
+        self.assertLess(
+            confirm_prepare.index("openAIIntentGate.consume"),
+            confirm_prepare.index("preparePaidRun(authorizedBy:"),
+        )
+        self.assertEqual(source.count("preparePaidRun(authorizedBy: authorization"), 1)
+        self.assertIn('"--prepare-paid-run", "--provider", "openai"', prepare)
+
+        self.assertIn("struct OneShotIntentGate", contracts)
+        self.assertIn("mutating func arm() -> OneShotIntentToken", contracts)
+        self.assertIn("mutating func consume(_ token: OneShotIntentToken?)", contracts)
+        self.assertIn("mutating func cancel()", contracts)
+        self.assertIn('"Подготовить OpenAI-план?"', source)
+        self.assertIn('Button("Подготовить план") { model.confirmOpenAIPrepare() }', source)
+        self.assertIn("Подготовка плана не отправляет TTS-запрос", source)
+
+    def test_native_openai_prepare_and_paid_confirmations_remain_separate(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        confirm_paid = swift_function_body(source, "func confirmPaidRequest()")
+        confirm_cache = swift_function_body(source, "func confirmCacheOnlyMaterialization()")
+        execute = swift_function_body(source, "private func executePaidPlan(")
+
+        self.assertIn('"Подтвердить платный OpenAI TTS-запрос?"', source)
+        self.assertIn(
+            'Button("Подтвердить 1 платный запрос") { model.confirmPaidRequest() }',
+            source,
+        )
+        self.assertIn('paidPlan?.decision == "READY_FOR_CONFIRMATION"', confirm_paid)
+        self.assertIn("executePaidPlan(authorizedBy: .paidConfirmation)", confirm_paid)
+        self.assertNotIn("confirmOpenAIPrepare", confirm_paid)
+
+        self.assertIn("openAIIntentGate.consume(pendingOpenAIIntentToken)", confirm_cache)
+        self.assertIn('paidPlan?.decision == "CACHE_ONLY"', confirm_cache)
+        self.assertIn("executePaidPlan(authorizedBy: .cacheOnly(authorization))", confirm_cache)
+        self.assertIn('"--execute-paid-plan", "--plan-id", plan.planID', execute)
+        self.assertNotIn('runBridgeText(["--run-openai"]', source)
+
+    def test_native_execution_selection_changes_invalidate_prepare_intent(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        invalidation = swift_function_body(source, "private func executionSelectionDidChange()")
+        reload_body = swift_function_body(source, "func reload() async")
+        cancel_body = swift_function_body(source, "func cancelOpenAIIntent()")
+
+        for selection in ("selectedBookID", "selectedJobID", "selectedProfileID", "engine"):
+            declaration = source.index(f"@Published var {selection}")
+            observer = source[declaration : declaration + 220]
+            self.assertIn("executionSelectionDidChange()", observer)
+        self.assertIn("invalidateOpenAIIntent()", invalidation)
+        self.assertIn("paidPlan = nil", invalidation)
+        self.assertIn("invalidateOpenAIIntent()", reload_body)
+        self.assertIn("invalidateOpenAIIntent()", cancel_body)
 
     def test_native_build_compiles_shared_contract_file(self):
         build = (ROOT / "native" / "build_native_app.sh").read_text(encoding="utf-8")

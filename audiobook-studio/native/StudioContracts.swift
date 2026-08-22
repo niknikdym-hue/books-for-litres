@@ -1,5 +1,35 @@
 import Foundation
 
+struct OneShotIntentToken: Equatable {
+    fileprivate let id: UUID
+}
+
+struct ConsumedOneShotIntent {
+    fileprivate init() {}
+}
+
+struct OneShotIntentGate {
+    private(set) var armedToken: OneShotIntentToken?
+
+    var isArmed: Bool { armedToken != nil }
+
+    mutating func arm() -> OneShotIntentToken {
+        let token = OneShotIntentToken(id: UUID())
+        armedToken = token
+        return token
+    }
+
+    mutating func consume(_ token: OneShotIntentToken?) -> ConsumedOneShotIntent? {
+        guard let token, token == armedToken else { return nil }
+        armedToken = nil
+        return ConsumedOneShotIntent()
+    }
+
+    mutating func cancel() {
+        armedToken = nil
+    }
+}
+
 struct Book: Codable, Identifiable, Hashable {
     let id: String
     let title: String
