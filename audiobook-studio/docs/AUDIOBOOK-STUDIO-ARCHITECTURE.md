@@ -1134,7 +1134,7 @@ GET https://api.openai.com/v1/organization/usage/audio_speeches
 
 Optional user-confirmed USD baseline хранится локально с `confirmed_at`. Расчёт `baseline - known local actual since confirmation` получает `remaining_source: local_estimate` и обязательное предупреждение о возможном использовании OpenAI вне Studio. Stale baseline не становится fresh автоматически.
 
-OpenAI имеет отдельный local per-job hard limit в USD; default `1.00 USD`. Он не является balance. `paid_execution_enabled = false` сохраняется, поэтому Cloud Billing preflight всё ещё возвращает `BLOCK` до отдельного controlled smoke checkpoint.
+OpenAI имеет отдельный local per-job hard limit в USD; default `1.00 USD`. Он не является balance. Canonical `paid_execution_enabled = false` сохраняется: разрешение на один request существует только внутри повторно валидированного и атомарно consumed one-time plan, а не как global unlock.
 
 ### 31.4. Refresh и решения
 
@@ -1161,7 +1161,7 @@ Cloud backend получает компактную секцию «Расход�
 
 ### 31.5. Safe native OpenAI paid execution v1
 
-Статус: **IMPLEMENTED OFFLINE**. Live request после реализации feature: **NOT PERFORMED**. Global `paid_execution_enabled` остаётся `false`.
+Статус: **ACCEPTED AND DEPLOYED**. Global `paid_execution_enabled` остаётся `false`.
 
 Native OpenAI workflow использует реальные prepared jobs из canonical book profiles и две bridge responsibility:
 
@@ -1169,6 +1169,20 @@ Native OpenAI workflow использует реальные prepared jobs из 
 --prepare-paid-run --provider openai --book <book> --job <job> --profile-id <profile>
 --execute-paid-plan --plan-id <id> --plan-digest <sha256>
 ```
+
+Native safety flow:
+
+```text
+primary action
+→ local PREPARE confirmation
+→ one-shot intent consume
+→ network-free immutable PREPARE
+→ separate paid confirmation
+→ maximum one new provider request
+→ plan consumed
+```
+
+Launch, reload и изменение engine/profile/book/job сами по себе не вызывают PREPARE (`PREPARE = 0`). Любое изменение execution selection инвалидирует pending one-shot intent. `CACHE_ONLY` также начинается только явным local user action, но выполняется с provider network `0`.
 
 Prepare не синтезирует audio и не вызывает TTS network. Он строит production segmentation/fingerprints, проверяет manifest, cache, Resume, AMBIGUOUS/FAILED, pricing freshness, shared Cloud Billing hard limit и Keychain credential availability, затем детерминированно выбирает только первый `PENDING + MISS`.
 
@@ -1185,6 +1199,12 @@ multi-segment automatic batch = forbidden
 ```
 
 После одного successful segment остальные сохраняют свои состояния, а общий manifest становится `PARTIAL`, если есть pending. Valid cache-only plan materializes audio с network `0` и ledger additions `0`. Matching `AMBIGUOUS` и unresolved `FAILED` блокируют plan до явного разрешения; кнопки implicit retry нет. Exact future OpenAI audio cost и prepaid balance остаются `null / unavailable`, никогда не превращаются в estimate-as-actual или `$0`.
+
+Live native acceptance выполнил ровно один OpenAI request из фактически выбранного process state `openai_onyx`: automatic retry `0`, HTTP `200`, request ID `req_ec29b6810200449791be47c8aabf201f`, `audio/wav`, PCM 24 kHz / 16-bit / mono, duration 7.85 sec. WAV validation, atomic final, cache и `SUCCEEDED` manifest прошли; billing получил один event с unknown actual cost, без подмены exact cost/balance. Это не Cedar failure и не profile substitution: historical Cedar production transport validation остаётся отдельным принятым доказательством.
+
+Для новых consumed plans execution fact сохраняется в самом plan: при `network_requests = 1` — `remote_request_sent = true`; при `network_requests = 0` / `CACHE_ONLY` — `false`; при `AMBIGUOUS` после начала network — `true` и automatic retry `0`. Historical forensic plans задним числом не переписываются.
+
+Accepted build развёрнут как production Desktop bundle `/Users/elenadymova/Desktop/Audiobook Studio.app`. Следующий product checkpoint: `BOOK LIBRARY / ADD BOOK + IMMUTABLE SOURCE / TTS WORKING COPY`.
 
 ---
 

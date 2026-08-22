@@ -703,16 +703,17 @@ accepted code in main
 ≠ production Desktop deployment
 ```
 
-На момент этой authority-фиксации **код OpenAI safe native paid workflow уже находится в `main`**, но отдельный post-merge production Desktop deployment/acceptance отчёт после `4fda728…` в authority ещё не зафиксирован.
+Post-merge closeout после `4fda728…` завершён: full offline suite `214/214 PASS`, fresh native staging build и strict codesign прошли, bounded runtime contour синхронизирован с current `main`, offline UI snapshot прошёл без provider request.
 
 Поэтому текущий статус:
 
 ```text
-OPENAI SAFE NATIVE PAID WORKFLOW = CODE_ACCEPTED_AND_MERGED
-PRODUCTION DESKTOP DEPLOYMENT = PENDING VERIFICATION
+OPENAI SAFE NATIVE PAID WORKFLOW = ACCEPTED_AND_DEPLOYED
+PRODUCTION DESKTOP DEPLOYMENT = PASS
+ZERO-ACTION PRODUCTION ACCEPTANCE = PASS
 ```
 
-Не объявлять Desktop deployment завершённым без фактического post-merge отчёта.
+Production bundle `/Users/elenadymova/Desktop/Audiobook Studio.app` установлен fail-safe replacement из accepted staging artifact и прошёл strict codesign. Production startup вызвал только `--ui-snapshot`: automatic PREPARE `0`, execute `0`, provider requests `0`; forensic plans, billing ledger, cache и jobs не изменились.
 
 Staging build не заменяет Desktop app автоматически.
 
@@ -786,18 +787,7 @@ MP3 не является единственным master.
 
 Не превращать разработку в хаос и не перепрыгивать к mastering/export раньше готовности production book workflow.
 
-OpenAI backend/paid execution слой на уровне code acceptance закрыт.
-
-Перед открытием следующего большого product layer требуется закрыть только отдельный deployment checkpoint:
-
-```text
-DEPLOY-0
-→ post-merge runtime provisioning verification
-→ production Desktop deployment
-→ zero-action native acceptance
-```
-
-После `DEPLOY-0 = PASS` следующий крупный checkpoint:
+OpenAI backend/paid execution и `DEPLOY-0` закрыты. Следующий крупный checkpoint:
 
 ```text
 BOOK LIBRARY / ADD BOOK
@@ -878,8 +868,9 @@ Persisted remote_request_sent     FIXED + TESTED
 Cloud Billing                     ACTIVE PROVIDER-NEUTRAL LAYER
 Full offline suite                214 / 214 PASS
 Code in main                      YES @ 4fda728… baseline
-Post-merge Desktop deployment     PENDING VERIFICATION
-Next product checkpoint           DEPLOY-0 → BOOK_LIBRARY_ADD_BOOK
+Post-merge Desktop deployment     PASS
+Zero-action production startup    PASS / PREPARE 0 / EXECUTE 0
+Next product checkpoint           BOOK_LIBRARY_ADD_BOOK
 ```
 
 ---
@@ -897,4 +888,8 @@ Next product checkpoint           DEPLOY-0 → BOOK_LIBRARY_ADD_BOOK
 - исправлена persistence семантика `remote_request_sent` после execution;
 - targeted `11/11`, full offline `214/214` PASS;
 - commits `ccd15f0…` и `4fda728…` находятся в `main`;
+- post-merge full offline suite `214/214`, fresh staging build и strict codesign повторно прошли;
+- bounded runtime provisioning current-main → production workspace проверен по SHA; пользовательские books/settings/billing/cache/jobs/audio/manifests не заменялись;
+- production Desktop bundle развёрнут fail-safe и прошёл zero-action acceptance: startup snapshot `1`, PREPARE `0`, execute `0`, provider requests `0`;
+- OpenAI native paid workflow классифицирован `ACCEPTED_AND_DEPLOYED`; следующий checkpoint — `BOOK_LIBRARY_ADD_BOOK`;
 - введён этот canonical current-state ledger, чтобы фактический статус проекта больше не зависел от chat и не требовал переписывания стабильной архитектуры при каждом acceptance checkpoint.

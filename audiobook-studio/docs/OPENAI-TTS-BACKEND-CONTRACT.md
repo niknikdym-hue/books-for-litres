@@ -1,6 +1,6 @@
 # Audiobook Studio — OpenAI TTS backend contract
 
-**Статус:** **PRODUCTION BACKEND + SAFE NATIVE OPENAI PAID EXECUTION v1 ACCEPTED**  
+**Статус:** **PRODUCTION BACKEND + SAFE NATIVE OPENAI PAID EXECUTION v1 ACCEPTED AND DEPLOYED**
 **Дата актуализации:** 2026-08-23  
 **Проект:** `audiobook-studio/`  
 **Система:** единая `Audiobook Studio`  
@@ -783,4 +783,4 @@ forensic honesty
 no global paid unlock
 ```
 
-Следующий продуктовый слой после отдельного Desktop deployment checkpoint — `BOOK LIBRARY / ADD BOOK + IMMUTABLE SOURCE / TTS WORKING COPY`, а не расширение paid OpenAI batch semantics.
+Production Desktop deployment и zero-action acceptance завершены. Следующий продуктовый слой — `BOOK LIBRARY / ADD BOOK + IMMUTABLE SOURCE / TTS WORKING COPY`, а не расширение paid OpenAI batch semantics.

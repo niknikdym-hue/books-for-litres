@@ -20,15 +20,12 @@ Qwen, Yandex и OpenAI не являются отдельными Studio. Кни
 
 ## Текущая контрольная точка
 
-Code baseline safe native OpenAI paid workflow принят и находится в `main`. OpenAI transport, one-request safety, zero automatic retry, explicit PREPARE gate и persisted execution facts приняты; подробные forensic/acceptance сведения зафиксированы в current-state authority.
+Safe native OpenAI paid workflow принят, находится в `main` и развёрнут в production Desktop app. Post-merge runtime provisioning, fresh build, strict codesign и zero-action production acceptance завершены; подробные forensic/acceptance сведения зафиксированы в current-state authority.
 
 Следующий порядок:
 
 ```text
-DEPLOY-0
-→ post-merge runtime provisioning verification
-→ production Desktop deployment / zero-action acceptance
-→ BOOK LIBRARY / ADD BOOK
+BOOK LIBRARY / ADD BOOK
 → immutable source + TTS working copy
 ```
 
