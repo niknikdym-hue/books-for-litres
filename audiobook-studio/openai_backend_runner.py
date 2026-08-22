@@ -17,20 +17,19 @@ from backends.openai_tts import (
     load_pricing_config,
 )
 from cloud_billing import BillingLedger
+from book_library import BookLibrary, BookLibraryError
 from workspace_paths import load_workspace_paths
 
 
 STUDIO_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = STUDIO_DIR / "openai-config.json"
 PRICING_PATH = STUDIO_DIR / "openai-pricing.json"
-BOOKS_DIR = STUDIO_DIR / "books"
-
-
-def load_book_job(book_name: str, job_id: str) -> tuple[dict[str, Any], str]:
-    path = BOOKS_DIR / Path(book_name).name
-    if not path.is_file() or path.name == "BOOK-TEMPLATE.json":
-        raise OpenAITTSError(f"Book profile not found: {book_name}.", category="book")
-    book = json.loads(path.read_text(encoding="utf-8"))
+def load_book_job(book_name: str, job_id: str, *, library: BookLibrary | None = None) -> tuple[dict[str, Any], str]:
+    selected_library = library or BookLibrary(load_workspace_paths().books_root)
+    try:
+        book = selected_library.load_book_profile(book_name)
+    except BookLibraryError as error:
+        raise OpenAITTSError(f"Book profile not found: {book_name}.", category="book") from error
     job = dict((book.get("jobs") or {}).get(job_id) or {})
     segments = job.get("segments")
     if not isinstance(segments, list) or not segments:
@@ -104,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         book, text = load_book_job(
             _require(args.book, "--book"),
             _require(args.job, "--job"),
+            library=BookLibrary(workspace.books_root),
         )
         profile_id = _require(args.profile_id, "--profile-id")
         job_dir = job_directory(backend, book, args.job, profile_id)

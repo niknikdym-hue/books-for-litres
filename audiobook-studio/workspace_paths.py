@@ -28,6 +28,10 @@ class WorkspacePaths:
         return self.root / "runtime" / "studio-workspace"
 
     @property
+    def books_root(self) -> Path:
+        return self.root / "books"
+
+    @property
     def qwen_engine_root(self) -> Path:
         return self.root / "engines" / "qwen-mlx"
 

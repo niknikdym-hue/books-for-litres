@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,7 +20,11 @@ class NativeContractTests(unittest.TestCase):
             snapshot = temporary / "snapshot.json"
             binary = temporary / "native-contract-tests"
             environment = dict(os.environ)
-            environment["AUDIOBOOK_STUDIO_HOME"] = str(temporary / "workspace")
+            workspace = temporary / "workspace"
+            books = workspace / "books"
+            books.mkdir(parents=True)
+            shutil.copy2(ROOT / "books/demo-book.json", books / "demo-book.json")
+            environment["AUDIOBOOK_STUDIO_HOME"] = str(workspace)
             completed = subprocess.run(
                 [sys.executable, str(ROOT / "audiobook_studio_app_runner.py"), "--ui-snapshot"],
                 check=False,

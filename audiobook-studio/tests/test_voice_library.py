@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,7 +16,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import audiobook_studio_app_runner as bridge
+from book_library import BookLibrary
+from workspace_paths import load_workspace_paths
 import voice_library
+
+
+SCRIPT_ENV: dict[str, str] | None = None
 
 
 def run_bridge(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -23,6 +30,7 @@ def run_bridge(*arguments: str) -> subprocess.CompletedProcess[str]:
         check=False,
         capture_output=True,
         text=True,
+        env=SCRIPT_ENV,
     )
 
 
@@ -36,7 +44,26 @@ def write_registry(path: Path, profiles: list[dict]) -> None:
 class VoiceLibraryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        global SCRIPT_ENV
         cls.profiles = voice_library.load_static_profiles()
+        cls.temporary = tempfile.TemporaryDirectory()
+        cls.workspace = Path(cls.temporary.name) / "workspace"
+        books = cls.workspace / "books"
+        books.mkdir(parents=True)
+        shutil.copy2(ROOT / "books/demo-book.json", books / "demo-book.json")
+        SCRIPT_ENV = dict(os.environ, AUDIOBOOK_STUDIO_HOME=str(cls.workspace))
+        cls.original_paths = bridge.WORKSPACE_PATHS
+        cls.original_library = bridge.BOOK_LIBRARY
+        bridge.WORKSPACE_PATHS = load_workspace_paths(env={"AUDIOBOOK_STUDIO_HOME": str(cls.workspace)})
+        bridge.BOOK_LIBRARY = BookLibrary(bridge.WORKSPACE_PATHS.books_root)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        global SCRIPT_ENV
+        bridge.WORKSPACE_PATHS = cls.original_paths
+        bridge.BOOK_LIBRARY = cls.original_library
+        SCRIPT_ENV = None
+        cls.temporary.cleanup()
 
     def test_01_schema_loads(self):
         self.assertEqual(len(self.profiles), 6)

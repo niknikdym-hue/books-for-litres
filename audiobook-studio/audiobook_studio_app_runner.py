@@ -18,6 +18,7 @@ from typing import Any, Sequence
 from voice_library import load_voice_library, normalize_qwen_profiles
 from workspace_paths import load_workspace_paths
 from cloud_billing import CloudBillingService, decimal_text, decimal_value, save_settings
+from book_library import BookLibrary
 from paid_run import PaidRunService
 
 STUDIO_DIR = Path(__file__).resolve().parent
@@ -28,7 +29,7 @@ YANDEX_CONFIG = STUDIO_DIR / "yandex-config.json"
 YANDEX_PRICING_CONFIG = STUDIO_DIR / "yandex-pricing.json"
 USER_PRICING_CONFIG = Path.home() / "Library/Application Support/Audiobook Studio/yandex-pricing.local.json"
 WORKSPACE_PATHS = load_workspace_paths()
-BOOKS_DIR = STUDIO_DIR / "books"
+BOOK_LIBRARY = BookLibrary(WORKSPACE_PATHS.books_root)
 
 ENGINES = (
     ("qwen", "Qwen — локально"),
@@ -42,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--list-engines", action="store_true")
     mode.add_argument("--list-books", action="store_true")
+    mode.add_argument("--add-book", action="store_true")
+    mode.add_argument("--book-details", action="store_true")
     mode.add_argument("--list-jobs", action="store_true")
     mode.add_argument("--list-voices", action="store_true")
     mode.add_argument("--default-speaker", action="store_true")
@@ -64,6 +67,10 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--set-billing-setting", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
+    parser.add_argument("--source-file", default="")
+    parser.add_argument("--title", default="")
+    parser.add_argument("--author", default="")
+    parser.add_argument("--slug", default="")
     parser.add_argument("--job", default="")
     parser.add_argument("--speaker", default="")
     parser.add_argument("--profile-id", default="")
@@ -115,16 +122,13 @@ def _paid_run_service() -> PaidRunService:
         backend=backend,
         pricing=load_pricing_config(OPENAI_PRICING_PATH),
         billing=billing,
-        books_dir=BOOKS_DIR,
+        books_dir=WORKSPACE_PATHS.books_root,
         plans_dir=WORKSPACE_PATHS.paid_run_plans,
     )
 
 
 def _load_book_job_text(book_name: str, job_id: str) -> tuple[dict[str, Any], str]:
-    path = BOOKS_DIR / Path(book_name).name
-    if not path.is_file() or path.name == "BOOK-TEMPLATE.json":
-        raise RuntimeError(f"Book profile not found: {book_name}")
-    book = json.loads(path.read_text(encoding="utf-8"))
+    book = BOOK_LIBRARY.load_book_profile(book_name)
     job = (book.get("jobs") or {}).get(job_id) if isinstance(book, dict) else None
     segments = job.get("segments") if isinstance(job, dict) else None
     if not isinstance(segments, list) or not segments:
@@ -263,24 +267,20 @@ def _load_qwen_runtime_catalog() -> tuple[list[dict[str, str]], list[dict[str, A
         raise RuntimeError("Не удалось загрузить каталог книг Qwen.")
     studio = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(studio)
-    books = []
-    for path in studio.list_book_profiles():
-        book = studio.load_book(path)
-        books.append({
-            "id": path.name,
-            "title": str(book.get("title", path.stem)),
-            "author": str(book.get("author", "")),
-            "jobs": [
-                {
-                    "id": str(job_id),
-                    "label": str(job.get("label", job_id)),
-                    "segment_count": len(job.get("segments") or []),
-                }
-                for job_id, job in book.get("jobs", {}).items()
-                if isinstance(job, dict) and isinstance(job.get("segments"), list) and job["segments"]
-            ],
-        })
-    return books, list(studio.load_voices())
+    return BOOK_LIBRARY.list_book_summaries(), list(studio.load_voices())
+
+
+def add_book(*, source_file: str, title: str, author: str, slug: str) -> dict[str, Any]:
+    return BOOK_LIBRARY.import_text_book(
+        source_file=Path(_require(source_file, "--source-file")),
+        title=_require(title, "--title"),
+        author=_require(author, "--author"),
+        slug=_require(slug, "--slug"),
+    )
+
+
+def book_details(book_name: str) -> dict[str, Any]:
+    return BOOK_LIBRARY.book_details(_require(book_name, "--book"))
 
 
 def voice_library_listing(engine: str) -> dict[str, Any]:
@@ -431,7 +431,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.list_books:
-        return _delegate(QWEN_RUNNER, "--list-books")
+        for book in BOOK_LIBRARY.list_book_summaries():
+            print(f"{book['id']}\t{book['title']} — {book['author']}")
+        return 0
+
+    if args.add_book:
+        print(json.dumps(add_book(
+            source_file=args.source_file,
+            title=args.title,
+            author=args.author,
+            slug=args.slug,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.book_details:
+        print(json.dumps(book_details(args.book), ensure_ascii=False, indent=2))
+        return 0
 
     if args.list_jobs:
         return _delegate(QWEN_RUNNER, "--list-jobs", "--book", _require(args.book, "--book"))

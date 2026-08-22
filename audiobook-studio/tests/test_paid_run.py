@@ -116,6 +116,10 @@ class PaidRunTests(unittest.TestCase):
             "slug": "demo-book",
             "title": "Демо",
             "author": "Studio",
+            "language": "Russian",
+            "default_speaker": "Vivian",
+            "audiobook_instruct": "Read naturally.",
+            "pronunciation_overrides": {},
             "jobs": {"job-1": {
                 "label": "Подготовленная задача",
                 "segments": [

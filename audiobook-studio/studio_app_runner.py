@@ -58,10 +58,8 @@ def main() -> int:
     if not args.book:
         raise RuntimeError("--book is required")
 
-    book_path = STUDIO_DIR / "books" / args.book
-    if not book_path.exists():
-        raise RuntimeError(f"Book profile not found: {args.book}")
-    book = studio.load_book(book_path)
+    book_path = studio.BOOK_LIBRARY.resolve_book_profile(args.book)
+    book = studio.load_book(args.book)
 
     if args.list_jobs:
         for job_id, job in book["jobs"].items():
@@ -75,6 +73,8 @@ def main() -> int:
     if args.run:
         if not args.job or not args.speaker:
             raise RuntimeError("--job and --speaker are required for --run")
+        if args.job not in book["jobs"]:
+            raise RuntimeError("Prepared job not found. Generation was not started.")
         cfg = studio.load_config()
         title = book["title"]
         try:

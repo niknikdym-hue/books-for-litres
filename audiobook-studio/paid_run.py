@@ -24,6 +24,7 @@ from backends.openai_tts import (
     text_sha256,
 )
 from cloud_billing import BillingLedger, CloudBillingService, decimal_text
+from book_library import BookLibrary, BookLibraryError
 
 
 SCHEMA_VERSION = 1
@@ -137,6 +138,7 @@ class PaidRunService:
         self.pricing = pricing
         self.billing = billing
         self.books_dir = Path(books_dir)
+        self.book_library = BookLibrary(self.books_dir)
         self.store = PaidRunPlanStore(plans_dir)
         self.ttl_seconds = ttl_seconds
         self._now = now or (lambda: datetime.now(timezone.utc))
@@ -144,42 +146,21 @@ class PaidRunService:
             raise ValueError("Paid run plan TTL must be positive.")
 
     def job_catalog(self) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = []
-        for path in sorted(self.books_dir.glob("*.json")):
-            if path.name == "BOOK-TEMPLATE.json":
-                continue
-            try:
-                book = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if not isinstance(book, dict) or book.get("enabled", True) is not True:
-                continue
-            jobs: list[dict[str, Any]] = []
-            raw_jobs = book.get("jobs")
-            if isinstance(raw_jobs, dict):
-                for job_id, job in raw_jobs.items():
-                    segments = job.get("segments") if isinstance(job, dict) else None
-                    if isinstance(job_id, str) and isinstance(segments, list) and segments:
-                        jobs.append({
-                            "id": job_id,
-                            "label": str(job.get("label") or job_id),
-                            "segment_count": len(segments),
-                        })
-            result.append({
-                "id": path.name,
-                "title": str(book.get("title") or path.stem),
-                "author": str(book.get("author") or ""),
-                "jobs": jobs,
-            })
-        return result
+        return [
+            {
+                "id": summary["id"],
+                "title": summary["title"],
+                "author": summary["author"],
+                "jobs": summary["jobs"],
+            }
+            for summary in self.book_library.list_book_summaries()
+        ]
 
     def _load_source(self, book_name: str, job_id: str) -> tuple[Path, dict[str, Any], dict[str, Any], str]:
-        path = self.books_dir / Path(book_name).name
-        if not path.is_file() or path.name == "BOOK-TEMPLATE.json":
-            raise PaidRunError("Book profile not found.", category="invalid_book_job")
         try:
-            book = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
+            path = self.book_library.resolve_book_profile(book_name)
+            book = self.book_library.load_book_profile(book_name)
+        except BookLibraryError as error:
             raise PaidRunError("Book profile is invalid.", category="invalid_book_job") from error
         jobs = book.get("jobs") if isinstance(book, dict) else None
         job = jobs.get(job_id) if isinstance(jobs, dict) else None

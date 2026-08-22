@@ -19,11 +19,13 @@ from typing import Any
 
 import numpy as np
 
+from book_library import BookLibrary
 from workspace_paths import load_workspace_paths
 
 STUDIO_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = STUDIO_DIR / "studio-config.json"
 WORKSPACE_PATHS = load_workspace_paths()
+BOOK_LIBRARY = BookLibrary(WORKSPACE_PATHS.books_root)
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -65,20 +67,11 @@ def configure_runtime_env(cfg: dict[str, Any]) -> None:
 
 
 def list_book_profiles() -> list[Path]:
-    books_dir = STUDIO_DIR / "books"
-    return sorted(p for p in books_dir.glob("*.json") if p.name != "BOOK-TEMPLATE.json")
+    return BOOK_LIBRARY.list_book_profiles()
 
 
-def load_book(path: Path) -> dict[str, Any]:
-    book = read_json(path)
-    if book.get("enabled", True) is not True:
-        raise RuntimeError(f"Book profile disabled: {path.name}")
-    for key in ["title", "author", "language", "default_speaker", "audiobook_instruct", "jobs"]:
-        if key not in book:
-            raise RuntimeError(f"{path.name}: missing {key}")
-    if not book["jobs"]:
-        raise RuntimeError(f"{path.name}: no jobs configured")
-    return book
+def load_book(path: Path | str) -> dict[str, Any]:
+    return BOOK_LIBRARY.load_book_profile(Path(path).name)
 
 
 def load_voices() -> list[dict[str, Any]]:
@@ -410,6 +403,9 @@ def interactive(cfg: dict[str, Any]) -> int:
         validate_profile(book, voices)
 
         job_ids = list(book["jobs"].keys())
+        if not job_ids:
+            print("Для книги нет подготовленных задач. Генерация не запускалась.")
+            continue
         job_labels = [book["jobs"][j].get("label", j) for j in job_ids]
         job_idx = choose("Что генерировать:", job_labels, 0)
         job_id = job_ids[job_idx]

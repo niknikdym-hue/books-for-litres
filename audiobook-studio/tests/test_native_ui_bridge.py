@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -11,6 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import audiobook_studio_app_runner as bridge
+from book_library import BookLibrary
+from workspace_paths import load_workspace_paths
+
+
+SCRIPT_ENV: dict[str, str] | None = None
 
 
 def swift_function_body(source: str, signature: str) -> str:
@@ -33,10 +41,33 @@ def run_script(*arguments: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        env=SCRIPT_ENV,
     )
 
 
 class NativeUIBridgeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        global SCRIPT_ENV
+        cls.temporary = tempfile.TemporaryDirectory()
+        cls.workspace = Path(cls.temporary.name) / "workspace"
+        books = cls.workspace / "books"
+        books.mkdir(parents=True)
+        shutil.copy2(ROOT / "books/demo-book.json", books / "demo-book.json")
+        SCRIPT_ENV = dict(os.environ, AUDIOBOOK_STUDIO_HOME=str(cls.workspace))
+        cls.original_paths = bridge.WORKSPACE_PATHS
+        cls.original_library = bridge.BOOK_LIBRARY
+        bridge.WORKSPACE_PATHS = load_workspace_paths(env={"AUDIOBOOK_STUDIO_HOME": str(cls.workspace)})
+        bridge.BOOK_LIBRARY = BookLibrary(bridge.WORKSPACE_PATHS.books_root)
+
+    @classmethod
+    def tearDownClass(cls):
+        global SCRIPT_ENV
+        bridge.WORKSPACE_PATHS = cls.original_paths
+        bridge.BOOK_LIBRARY = cls.original_library
+        SCRIPT_ENV = None
+        cls.temporary.cleanup()
+
     def test_ui_snapshot_is_structured_and_never_requests_tts(self):
         with mock.patch(
             "backends.yandex_client.YandexSpeechKitBackend._request",
@@ -173,7 +204,7 @@ class NativeUIBridgeTests(unittest.TestCase):
     def test_native_execution_selection_changes_invalidate_prepare_intent(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         invalidation = swift_function_body(source, "private func executionSelectionDidChange()")
-        reload_body = swift_function_body(source, "func reload() async")
+        reload_body = swift_function_body(source, "func reload(preferredBookID:")
         cancel_body = swift_function_body(source, "func cancelOpenAIIntent()")
 
         for selection in ("selectedBookID", "selectedJobID", "selectedProfileID", "engine"):
@@ -189,6 +220,29 @@ class NativeUIBridgeTests(unittest.TestCase):
         build = (ROOT / "native" / "build_native_app.sh").read_text(encoding="utf-8")
         self.assertIn('"$script_dir/StudioContracts.swift"', build)
         self.assertIn('"$script_dir/AudiobookStudioApp.swift"', build)
+
+    def test_native_add_book_uses_file_importer_and_offline_bridge_only(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
+        add_book = swift_function_body(source, "func addBook(sourceURL:")
+        self.assertIn('Label("Добавить книгу", systemImage: "plus")', source)
+        self.assertNotIn("Добавить книгу — скоро", source)
+        self.assertIn(".fileImporter(", source)
+        self.assertIn("allowedContentTypes: [.plainText]", source)
+        self.assertIn('TextField("Название"', source)
+        self.assertIn('TextField("Автор"', source)
+        self.assertIn('TextField("ID / slug"', source)
+        self.assertIn('"--add-book", "--source-file", sourceURL.path', add_book)
+        self.assertIn("await reload(preferredBookID: result.bookID)", add_book)
+        self.assertNotIn("--prepare-paid-run", add_book)
+        self.assertNotIn("--execute-paid-plan", add_book)
+        self.assertNotIn("--run-", add_book)
+        self.assertIn("Подготовленных задач пока нет", source)
+        self.assertIn("Source SHA-256", source)
+        self.assertIn("Source integrity", source)
+        self.assertIn("TTS working copy", source)
+        self.assertIn("struct BookImportResult", contracts)
+        self.assertIn('case sourceSHA256 = "source_sha256"', contracts)
 
 
 if __name__ == "__main__":

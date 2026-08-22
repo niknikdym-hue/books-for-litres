@@ -35,6 +35,7 @@ class WorkspacePathContractTests(unittest.TestCase):
             paths = load_workspace_paths(env={"AUDIOBOOK_STUDIO_PATH_CONTRACT": str(contract)})
             self.assertEqual(paths.root, root.resolve())
             self.assertEqual(paths.runtime_root, root.resolve() / "runtime/studio-workspace")
+            self.assertEqual(paths.books_root, root.resolve() / "books")
             self.assertEqual(paths.qwen_python, root.resolve() / "engines/qwen-mlx/.venv/bin/python")
 
     def test_relative_config_paths_resolve_under_workspace(self):

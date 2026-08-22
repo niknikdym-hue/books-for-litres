@@ -3,6 +3,8 @@ from __future__ import annotations
 import io
 import http.client
 import json
+import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -11,6 +13,7 @@ import unittest
 import urllib.error
 import wave
 from datetime import date, timedelta
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -34,6 +37,16 @@ from backends.openai_types import (
     PaidExecutionBlocked,
 )
 from cloud_billing import BillingLedger
+
+
+@contextmanager
+def runner_environment():
+    with tempfile.TemporaryDirectory() as directory:
+        workspace = Path(directory) / "workspace"
+        books = workspace / "books"
+        books.mkdir(parents=True)
+        shutil.copy2(ROOT / "books/demo-book.json", books / "demo-book.json")
+        yield dict(os.environ, AUDIOBOOK_STUDIO_HOME=str(workspace))
 
 
 def wav_bytes(*, channels: int = 1, sample_rate: int = 24_000, frames: int = 240) -> bytes:
@@ -510,17 +523,18 @@ class OpenAIBackendTests(unittest.TestCase):
         self.assertEqual(result["blocked_reason"], "stale_pricing")
 
     def test_31_runner_status_and_preflight_are_offline(self):
-        status = subprocess.run(
-            [sys.executable, str(ROOT / "openai_backend_runner.py"), "--status"],
-            check=False, capture_output=True, text=True,
-        )
-        preflight = subprocess.run(
-            [
-                sys.executable, str(ROOT / "openai_backend_runner.py"), "--preflight",
-                "--book", "demo-book.json", "--job", "short-test", "--profile-id", "openai_onyx",
-            ],
-            check=False, capture_output=True, text=True,
-        )
+        with runner_environment() as environment:
+            status = subprocess.run(
+                [sys.executable, str(ROOT / "openai_backend_runner.py"), "--status"],
+                check=False, capture_output=True, text=True, env=environment,
+            )
+            preflight = subprocess.run(
+                [
+                    sys.executable, str(ROOT / "openai_backend_runner.py"), "--preflight",
+                    "--book", "demo-book.json", "--job", "short-test", "--profile-id", "openai_onyx",
+                ],
+                check=False, capture_output=True, text=True, env=environment,
+            )
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertEqual(preflight.returncode, 0, preflight.stderr)
         self.assertFalse(json.loads(status.stdout)["remote_request_sent"])
@@ -529,13 +543,14 @@ class OpenAIBackendTests(unittest.TestCase):
         self.assertFalse(result["allowed_to_start"])
 
     def test_32_runner_paid_execution_is_blocked_before_manifest(self):
-        completed = subprocess.run(
-            [
-                sys.executable, str(ROOT / "openai_backend_runner.py"), "--run",
-                "--book", "demo-book.json", "--job", "short-test", "--profile-id", "openai_cedar",
-            ],
-            check=False, capture_output=True, text=True,
-        )
+        with runner_environment() as environment:
+            completed = subprocess.run(
+                [
+                    sys.executable, str(ROOT / "openai_backend_runner.py"), "--run",
+                    "--book", "demo-book.json", "--job", "short-test", "--profile-id", "openai_cedar",
+                ],
+                check=False, capture_output=True, text=True, env=environment,
+            )
         self.assertEqual(completed.returncode, 2)
         self.assertEqual(json.loads(completed.stderr)["error"], "paid_execution_gate")
         self.assertFalse(json.loads(completed.stderr)["remote_request_sent"])

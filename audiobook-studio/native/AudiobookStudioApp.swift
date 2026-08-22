@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 private struct WorkspaceContract: Decodable {
     let workspaceRoot: String
@@ -88,6 +89,7 @@ final class StudioModel: ObservableObject {
     @Published var localHealthText = ""
     @Published var billingRefreshText = ""
     @Published var technicalDetails: String?
+    @Published var isAddingBook = false
     private var openAIIntentGate = OneShotIntentGate()
     private var pendingOpenAIIntentToken: OneShotIntentToken?
     private var pendingOpenAIAction: PendingOpenAIAction?
@@ -106,7 +108,7 @@ final class StudioModel: ObservableObject {
     var selectedProfile: VoiceProfile? { availableProfiles.first { $0.profileID == selectedProfileID } }
     var selectedBilling: CloudBillingSnapshot? { cloudBilling?.providers[engine] }
 
-    func reload() async {
+    func reload(preferredBookID: String? = nil) async {
         invalidateOpenAIIntent()
         isLoading = true
         defer { isLoading = false }
@@ -117,7 +119,9 @@ final class StudioModel: ObservableObject {
             profile = snapshot.yandexProfile
             estimate = snapshot.yandexEstimate
             cloudBilling = snapshot.cloudBilling
-            selectedBookID = books.first?.id ?? ""
+            selectedBookID = preferredBookID.flatMap { requested in
+                books.contains(where: { $0.id == requested }) ? requested : nil
+            } ?? books.first?.id ?? ""
             selectDefaultJob()
             selectDefaultProfile()
             if let requestedProfile = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_PROFILE"],
@@ -129,6 +133,28 @@ final class StudioModel: ObservableObject {
             errorMessage = nil
         } catch {
             showError(error)
+        }
+    }
+
+    func addBook(sourceURL: URL, title: String, author: String, slug: String) async -> Bool {
+        isAddingBook = true
+        defer { isAddingBook = false }
+        let accessing = sourceURL.startAccessingSecurityScopedResource()
+        defer { if accessing { sourceURL.stopAccessingSecurityScopedResource() } }
+        do {
+            let result: BookImportResult = try await runBridgeJSON([
+                "--add-book", "--source-file", sourceURL.path,
+                "--title", title, "--author", author, "--slug", slug,
+            ])
+            guard !result.remoteRequestSent else {
+                throw BridgeError.message("Add Book нарушил offline contract.")
+            }
+            await reload(preferredBookID: result.bookID)
+            errorMessage = nil
+            return true
+        } catch {
+            showError(error)
+            return false
         }
     }
 
@@ -496,6 +522,12 @@ struct StudioView: View {
     @ObservedObject var model: StudioModel
     @Environment(\.openSettings) private var openSettings
     @State private var openedDiagnosticSettings = false
+    @State private var showBookImporter = false
+    @State private var showAddBookSheet = false
+    @State private var selectedSourceURL: URL?
+    @State private var newBookTitle = ""
+    @State private var newBookAuthor = ""
+    @State private var newBookSlug = ""
 
     var body: some View {
         NavigationSplitView {
@@ -512,14 +544,31 @@ struct StudioView: View {
                     }
                 }
                 Section {
-                    Label("Добавить книгу — скоро", systemImage: "plus")
-                        .foregroundStyle(.secondary)
+                    Button {
+                        showBookImporter = true
+                    } label: {
+                        Label("Добавить книгу", systemImage: "plus")
+                    }
+                    .disabled(model.isAddingBook)
                 }
             }
             .navigationSplitViewColumnWidth(min: 230, ideal: 280)
         } detail: {
             VStack(spacing: 0) {
                 Form {
+                    if let book = model.selectedBook, book.kind == "production" {
+                        Section("Книга") {
+                            LabeledContent("Название", value: book.title)
+                            LabeledContent("Автор", value: book.author)
+                            LabeledContent("Source filename", value: book.sourceFilename ?? "Недоступно")
+                            LabeledContent("Source SHA-256", value: book.sourceSHA256 ?? "Недоступно")
+                            LabeledContent("Source integrity", value: book.sourceIntegrity ?? "Недоступно")
+                            LabeledContent("TTS working copy", value: book.ttsWorkingCopyStatus == "CREATED" ? "Создана" : "Недоступно")
+                            LabeledContent("Backend", value: book.selectedBackend ?? "Не выбран")
+                            LabeledContent("Voice profile", value: book.selectedProfileID ?? "Не выбран")
+                        }
+                    }
+
                     Section("Подготовка озвучки") {
                         Picker("Движок", selection: $model.engine) {
                             ForEach(Engine.allCases) { engine in Text(engine.title).tag(engine) }
@@ -555,7 +604,10 @@ struct StudioView: View {
                     }
 
                     Section("Что озвучить") {
-                        if model.engine == .openai {
+                        if model.selectedBook?.jobs.isEmpty ?? true {
+                            Text("Подготовленных задач пока нет")
+                                .foregroundStyle(.secondary)
+                        } else if model.engine == .openai {
                             if let book = model.selectedBook, !book.jobs.isEmpty {
                                 Picker("Подготовленная задача", selection: $model.selectedJobID) {
                                     ForEach(book.jobs) { job in
@@ -690,9 +742,10 @@ struct StudioView: View {
                     }
                     Button(primaryButtonTitle(model)) { model.begin() }
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.isRunning || model.isLoading || (
-                            model.engine == .openai && (model.selectedBook?.jobs.isEmpty ?? true)
-                        ))
+                        .disabled(
+                            model.isRunning || model.isLoading || model.isAddingBook
+                                || (model.selectedBook?.jobs.isEmpty ?? true)
+                        )
                 }
                 .padding()
                 if let details = model.technicalDetails {
@@ -726,8 +779,93 @@ struct StudioView: View {
                 Text("Yandex SpeechKit\n\(model.profile.voice) · \(model.profile.role) · \(model.profile.speed)\n\(model.estimate?.segments ?? 0) сегмента\n\(formattedMoney(model.estimate?.estimatedRemainingCost, currency: "RUB", source: "local_estimate"))")
             }
             .modifier(OpenAIConfirmationDialogs(model: model))
+            .fileImporter(
+                isPresented: $showBookImporter,
+                allowedContentTypes: [.plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case let .success(urls):
+                    guard let url = urls.first else { return }
+                    selectedSourceURL = url
+                    newBookTitle = url.deletingPathExtension().lastPathComponent
+                    newBookAuthor = ""
+                    newBookSlug = suggestedBookSlug(newBookTitle)
+                    showAddBookSheet = true
+                case let .failure(error):
+                    model.errorMessage = "Не удалось выбрать TXT: \(error.localizedDescription)"
+                }
+            }
+            .sheet(isPresented: $showAddBookSheet) {
+                AddBookSheet(
+                    model: model,
+                    sourceURL: selectedSourceURL,
+                    title: $newBookTitle,
+                    author: $newBookAuthor,
+                    slug: $newBookSlug,
+                    isPresented: $showAddBookSheet
+                )
+            }
         }
     }
+}
+
+private struct AddBookSheet: View {
+    @ObservedObject var model: StudioModel
+    let sourceURL: URL?
+    @Binding var title: String
+    @Binding var author: String
+    @Binding var slug: String
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Добавить книгу").font(.title2.weight(.semibold))
+            LabeledContent("TXT-файл", value: sourceURL?.lastPathComponent ?? "Не выбран")
+            TextField("Название", text: $title)
+            TextField("Автор", text: $author)
+            TextField("ID / slug", text: $slug)
+            Text("Оригинал будет сохранён read-only. Для будущей подготовки создаётся отдельная TTS working copy.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Отмена", role: .cancel) { isPresented = false }
+                Button("Добавить") {
+                    guard let sourceURL else { return }
+                    Task {
+                        if await model.addBook(
+                            sourceURL: sourceURL,
+                            title: title,
+                            author: author,
+                            slug: slug
+                        ) {
+                            isPresented = false
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    sourceURL == nil || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || slug.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || model.isAddingBook
+                )
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+    }
+}
+
+private func suggestedBookSlug(_ value: String) -> String {
+    let lowered = value.lowercased()
+    let mapped = lowered.map { character -> Character in
+        character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "-"
+    }
+    let compact = String(mapped).replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
+    let trimmed = compact.trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
+    return trimmed.isEmpty ? "new-book" : String(trimmed.prefix(80))
 }
 
 private struct OpenAIConfirmationDialogs: ViewModifier {

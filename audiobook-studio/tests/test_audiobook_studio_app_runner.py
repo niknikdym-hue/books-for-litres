@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,6 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import audiobook_studio_app_runner as bridge
+from book_library import BookLibrary
+from workspace_paths import load_workspace_paths
+
+
+SCRIPT_ENV: dict[str, str] | None = None
 
 
 def run_script(script: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -20,10 +27,33 @@ def run_script(script: Path, *arguments: str) -> subprocess.CompletedProcess[str
         check=False,
         capture_output=True,
         text=True,
+        env=SCRIPT_ENV,
     )
 
 
 class UniversalBridgeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        global SCRIPT_ENV
+        cls.temporary = tempfile.TemporaryDirectory()
+        cls.workspace = Path(cls.temporary.name) / "workspace"
+        books = cls.workspace / "books"
+        books.mkdir(parents=True)
+        shutil.copy2(ROOT / "books/demo-book.json", books / "demo-book.json")
+        SCRIPT_ENV = dict(os.environ, AUDIOBOOK_STUDIO_HOME=str(cls.workspace))
+        cls.original_paths = bridge.WORKSPACE_PATHS
+        cls.original_library = bridge.BOOK_LIBRARY
+        bridge.WORKSPACE_PATHS = load_workspace_paths(env={"AUDIOBOOK_STUDIO_HOME": str(cls.workspace)})
+        bridge.BOOK_LIBRARY = BookLibrary(bridge.WORKSPACE_PATHS.books_root)
+
+    @classmethod
+    def tearDownClass(cls):
+        global SCRIPT_ENV
+        bridge.WORKSPACE_PATHS = cls.original_paths
+        bridge.BOOK_LIBRARY = cls.original_library
+        SCRIPT_ENV = None
+        cls.temporary.cleanup()
+
     def test_engine_catalog_contains_qwen_yandex_and_openai(self):
         completed = run_script(ROOT / "audiobook_studio_app_runner.py", "--list-engines")
         self.assertEqual(completed.returncode, 0, completed.stderr)
@@ -88,7 +118,7 @@ class UniversalBridgeTests(unittest.TestCase):
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):
-            self.assertEqual(bridge.main(["--list-books"]), 17)
+            self.assertEqual(bridge.main(["--list-jobs", "--book", "demo-book.json"]), 17)
         self.assertEqual(bridge.YANDEX_CONFIG.read_bytes(), before)
         self.assertTrue(bridge.yandex_demo_estimate()["backend_config_ok"])
 
@@ -214,6 +244,39 @@ class UniversalBridgeTests(unittest.TestCase):
             "label": "Безопасный короткий тест",
             "segment_count": 1,
         }])
+
+    def test_add_book_details_and_restart_snapshot_are_machine_readable_and_offline(self):
+        source = self.workspace / "bridge-source.txt"
+        source.write_text("Новая книга для bridge acceptance.\n", encoding="utf-8")
+        added = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--add-book", "--source-file", str(source),
+            "--title", "Bridge Book", "--author", "Author", "--slug", "bridge-book",
+        )
+        self.assertEqual(added.returncode, 0, added.stderr)
+        result = json.loads(added.stdout)
+        self.assertEqual(result["book_id"], "bridge-book.json")
+        self.assertEqual(result["status"], "NO_PREPARED_JOBS")
+        self.assertEqual(result["source_integrity"], "OK")
+        self.assertFalse(result["remote_request_sent"])
+
+        details = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--book-details", "--book", "bridge-book.json",
+        )
+        self.assertEqual(details.returncode, 0, details.stderr)
+        self.assertEqual(json.loads(details.stdout)["source_integrity"], "OK")
+        self.assertFalse(json.loads(details.stdout)["remote_request_sent"])
+
+        restarted = run_script(ROOT / "audiobook_studio_app_runner.py", "--ui-snapshot")
+        self.assertEqual(restarted.returncode, 0, restarted.stderr)
+        snapshot = json.loads(restarted.stdout)
+        imported = next(book for book in snapshot["books"] if book["id"] == "bridge-book.json")
+        self.assertEqual(imported["jobs"], [])
+        self.assertEqual(imported["selected_backend"], "yandex")
+        self.assertEqual(imported["selected_profile_id"], "yandex_lera")
+        self.assertEqual(imported["source_integrity"], "OK")
+        self.assertFalse(snapshot["remote_request_sent"])
 
     def test_paid_plan_commands_are_separate_and_require_immutable_identity(self):
         prepared = bridge.build_parser().parse_args([

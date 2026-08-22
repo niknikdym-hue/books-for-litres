@@ -32,9 +32,65 @@ struct OneShotIntentGate {
 
 struct Book: Codable, Identifiable, Hashable {
     let id: String
+    let slug: String?
     let title: String
     let author: String
     let jobs: [PreparedJob]
+    let kind: String?
+    let enabled: Bool?
+    let status: String?
+    let selectedBackend: String?
+    let selectedProfileID: String?
+    let sourceFilename: String?
+    let sourcePath: String?
+    let sourceSHA256: String?
+    let sourceIntegrity: String?
+    let sourceImmutable: Bool?
+    let sourceReadOnly: Bool?
+    let ttsWorkingCopyPath: String?
+    let ttsWorkingCopyStatus: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, slug, title, author, jobs, kind, enabled, status
+        case selectedBackend = "selected_backend"
+        case selectedProfileID = "selected_profile_id"
+        case sourceFilename = "source_filename"
+        case sourcePath = "source_path"
+        case sourceSHA256 = "source_sha256"
+        case sourceIntegrity = "source_integrity"
+        case sourceImmutable = "source_immutable"
+        case sourceReadOnly = "source_read_only"
+        case ttsWorkingCopyPath = "tts_working_copy_path"
+        case ttsWorkingCopyStatus = "tts_working_copy_status"
+    }
+}
+
+struct BookImportResult: Codable {
+    let bookID: String
+    let slug: String
+    let title: String
+    let author: String
+    let sourceSHA256: String?
+    let sourcePath: String
+    let sourceIntegrity: String
+    let ttsWorkingCopyPath: String
+    let ttsWorkingCopyStatus: String
+    let selectedBackend: String
+    let selectedProfileID: String
+    let remoteRequestSent: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case slug, title, author
+        case bookID = "book_id"
+        case sourceSHA256 = "source_sha256"
+        case sourcePath = "source_path"
+        case sourceIntegrity = "source_integrity"
+        case ttsWorkingCopyPath = "tts_working_copy_path"
+        case ttsWorkingCopyStatus = "tts_working_copy_status"
+        case selectedBackend = "selected_backend"
+        case selectedProfileID = "selected_profile_id"
+        case remoteRequestSent = "remote_request_sent"
+    }
 }
 
 struct PreparedJob: Codable, Identifiable, Hashable {
