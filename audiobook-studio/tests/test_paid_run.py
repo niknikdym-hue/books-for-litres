@@ -239,6 +239,7 @@ class PaidRunTests(unittest.TestCase):
         result = service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
         self.assertEqual(self.calls, 1)
         self.assertEqual(result["network_requests"], 1)
+        self.assertIs(result["remote_request_sent"], True)
         self.assertEqual(result["manifest_state"], "PARTIAL")
         self.assertEqual(result["remaining_segments"], 1)
         manifest = json.loads(Path(result["manifest"]).read_text(encoding="utf-8"))
@@ -248,7 +249,10 @@ class PaidRunTests(unittest.TestCase):
         transaction = service.billing.ledger.transactions()[0]
         self.assertIsNone(transaction["actual_cost"])
         self.assertEqual(transaction["cost_source"], "unavailable")
-        self.assertEqual(service.store.load(plan["plan_id"])["state"], "CONSUMED")
+        stored = service.store.load(plan["plan_id"])
+        self.assertEqual(stored["state"], "CONSUMED")
+        self.assertEqual(stored["network_requests"], 1)
+        self.assertIs(stored["remote_request_sent"], True)
 
         with self.assertRaises(PaidRunError):
             service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
@@ -307,9 +311,14 @@ class PaidRunTests(unittest.TestCase):
         self.assertEqual(plan["decision"], "CACHE_ONLY")
         result = service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
         self.assertEqual(result["network_requests"], 0)
+        self.assertIs(result["remote_request_sent"], False)
         self.assertEqual(result["manifest_state"], "SUCCEEDED")
         self.assertEqual(self.calls, 0)
         self.assertEqual(service.billing.ledger.transactions(), [])
+        stored = service.store.load(plan["plan_id"])
+        self.assertEqual(stored["state"], "CONSUMED")
+        self.assertEqual(stored["network_requests"], 0)
+        self.assertIs(stored["remote_request_sent"], False)
 
     def test_ambiguous_and_failed_manifest_block_without_retry(self):
         service = self.service()
@@ -346,9 +355,17 @@ class PaidRunTests(unittest.TestCase):
         stored = service.store.load(plan["plan_id"])
         self.assertEqual(stored["state"], "CONSUMED")
         self.assertEqual(stored["network_requests"], 1)
+        self.assertIs(stored["remote_request_sent"], True)
         with self.assertRaises(PaidRunError):
             service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
         self.assertEqual(self.calls, 1)
+        manifest = json.loads(
+            (
+                service.backend.config.jobs_root
+                / "demo-book/job-1/openai/openai_onyx/MANIFEST.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["automatic_retry_count"], 0)
         forensic = list((service.backend.config.jobs_root / "demo-book/job-1/openai/openai_onyx/diagnostics").glob("*.ambiguous"))
         self.assertEqual(len(forensic), 1)
 

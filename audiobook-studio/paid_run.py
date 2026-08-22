@@ -476,5 +476,6 @@ class PaidRunService:
                 final_plan["state"] = "CONSUMED"
                 final_plan["consumed_at"] = _iso(self._now())
                 final_plan["network_requests"] = network_requests
+                final_plan["remote_request_sent"] = network_requests == 1
                 self.store.save(final_plan)
         return return_value
