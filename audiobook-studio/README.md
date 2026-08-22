@@ -14,20 +14,33 @@ Qwen, Yandex и OpenAI не являются отдельными Studio. Кни
 
 1. [`docs/AUDIOBOOK-STUDIO-ARCHITECTURE.md`](docs/AUDIOBOOK-STUDIO-ARCHITECTURE.md) — стабильная архитектура и производственный регламент;
 2. [`docs/OPENAI-TTS-BACKEND-CONTRACT.md`](docs/OPENAI-TTS-BACKEND-CONTRACT.md) — provider-specific contract OpenAI;
-3. [`docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md`](docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md) — фактическая текущая точка, принятые acceptance-факты, активный checkpoint и changelog.
+3. [`docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md`](docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md) — фактическая текущая точка, принятые acceptance-факты, launch readiness, активный checkpoint и changelog.
 
 Если старый authority-документ содержит устаревший **status** этапа, текущий status из `AUDIOBOOK-STUDIO-CURRENT-STATE.md` имеет приоритет. Стабильные архитектурные правила при этом не переопределяются. GitHub `main` является source of truth; chat не является source of truth проекта.
 
-## Текущая контрольная точка
+## Текущий статус запуска
 
-Safe native OpenAI paid workflow принят, находится в `main` и развёрнут в production Desktop app. Post-merge runtime provisioning, fresh build, strict codesign и zero-action production acceptance завершены; подробные forensic/acceptance сведения зафиксированы в current-state authority.
-
-Следующий порядок:
+Техническое ядро и установленная production Desktop Studio уже приняты:
 
 ```text
-BOOK LIBRARY / ADD BOOK
-→ immutable source + TTS working copy
+LEVEL A — technical core       PASS
+LEVEL B — installed Studio     PASS
+DEPLOY-0                       PASS
 ```
+
+Safe native OpenAI paid workflow принят, находится в `main` и развёрнут в production Desktop app. Post-merge runtime provisioning, fresh build, strict codesign и zero-action production acceptance завершены.
+
+Полный production launch для реальной книги end-to-end ещё не завершён. Активный checkpoint:
+
+```text
+BOOK_LIBRARY_ADD_BOOK_V1
+→ immutable source
+→ TTS working copy
+```
+
+После него по порядку: chapter production → QA/Review → assembly → mastering → Dilon Voices → export → LitRes profile → MP3/M4B → end-to-end acceptance на реальной книге.
+
+Definition of Done активного checkpoint хранится в `docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md`.
 
 Не переходить к mastering/export раньше готовности production book workflow.
 
@@ -110,4 +123,4 @@ Default output:
 ~/Documents/New project/Audiobook-Studio/builds/native-staging/Audiobook Studio.app
 ```
 
-Сборка staging artifact не устанавливает и не изменяет Desktop app. Production Desktop deployment является отдельным acceptance checkpoint.
+Staging artifact не заменяет production Desktop app автоматически. Production deployment/update остаётся отдельной fail-safe операцией, но текущий `DEPLOY-0` уже принят как PASS.
