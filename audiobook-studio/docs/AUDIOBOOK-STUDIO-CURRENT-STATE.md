@@ -4,33 +4,35 @@
 **Дата фиксации:** 2026-08-23  
 **Проект:** `audiobook-studio/`  
 **Repository:** `niknikdym-hue/books-for-litres`  
-**Code acceptance baseline:** `4fda7281c3e65195bf4b0fe8d0d0a12d359219e3`
+**Accepted code baseline:** `4fda7281c3e65195bf4b0fe8d0d0a12d359219e3`  
+**Repository authority baseline before this edit:** `a96b5e3472a110fd0ee6a4f9be8ac1f1f53ddde1`
 
 ---
 
 ## 1. Назначение и приоритет authority
 
-Этот документ хранит **фактическую текущую точку проекта** и должен использоваться вместе с двумя стабильными authority-документами:
+Этот документ хранит фактическую текущую точку Audiobook Studio и используется вместе с:
 
-1. `docs/AUDIOBOOK-STUDIO-ARCHITECTURE.md` — архитектура и производственный регламент;
+1. `docs/AUDIOBOOK-STUDIO-ARCHITECTURE.md` — стабильная архитектура и производственный регламент;
 2. `docs/OPENAI-TTS-BACKEND-CONTRACT.md` — provider-specific contract OpenAI;
-3. `docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md` — текущий статус, принятые acceptance-факты, активные checkpoints и исторические forensic-факты.
+3. `docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md` — актуальный status ledger, acceptance, active checkpoint и launch readiness.
 
-Правило приоритета:
+Правила:
 
-- стабильные архитектурные принципы не переопределяются этим status ledger;
-- если старый документ содержит устаревший **статус этапа** (`IMPLEMENTED OFFLINE`, `NOT PERFORMED`, старый HEAD и т. п.), текущий status в этом файле имеет приоритет;
-- historical manifests/plans не переписываются задним числом;
-- GitHub `main` является source of truth кода и authority-документов;
-- chat не является source of truth проекта.
-
-Не создавать параллельные handoff/task-документы для фактов, которые могут быть зафиксированы здесь или в существующих authority-файлах.
+- GitHub `main` является source of truth кода и authority;
+- chat не является source of truth;
+- перед каждым новым task сначала определять actual `origin/main`;
+- сохранённые SHA — checkpoint evidence, а не вечный HEAD;
+- старый status в стабильном документе уступает актуальному status здесь;
+- стабильные архитектурные принципы этим ledger не отменяются;
+- historical manifests, billing events и paid plans не переписываются задним числом;
+- не создавать параллельные handoff/task docs, если факт может быть зафиксирован здесь.
 
 ---
 
 ## 2. Что строим
 
-Audiobook Studio — **одно local-first macOS приложение** с тремя сменными TTS backend:
+Audiobook Studio — одно local-first macOS приложение:
 
 ```text
 Audiobook Studio
@@ -39,12 +41,10 @@ Audiobook Studio
 └── OpenAI TTS
 ```
 
-Не существуют и не должны создаваться три отдельные Studio.
-
-Общие слои:
+Общий pipeline:
 
 ```text
-books/source
+book/source
 → immutable source
 → TTS working copy / preprocessing
 → literary segmentation
@@ -55,56 +55,33 @@ books/source
 → QA/review
 → chapter assembly
 → mastering
+→ Dilon Voices audio identity
 → export
-→ native UI
+→ LitRes profile
 ```
 
-Нельзя создавать параллельные provider-specific:
+Не создавать provider-specific дубликаты book library, Voice Library, billing, manifest/Resume, QA, mastering, export или native app.
 
-- book libraries;
-- Voice Libraries;
-- billing layers;
-- manifest/Resume systems;
-- QA/mastering/export contours;
-- native apps.
+Собственный server/backend/cloud database/localhost daemon текущему продукту не нужен. Yandex и OpenAI — внешние cloud TTS providers; книги и production state остаются локальными.
 
 ---
 
-## 3. Local-first architecture
-
-Audiobook Studio является local-first macOS application.
-
-Собственный server/backend/cloud database/localhost daemon текущему продукту не нужен.
-
-Yandex и OpenAI — внешние cloud TTS providers. Книги, production state, cache, manifests, Resume, QA и exports остаются локальными.
-
-Canonical workspace на основном Mac:
+## 3. Canonical local workspace
 
 ```text
+Workspace:
 /Users/elenadymova/Documents/New project/Audiobook-Studio
-```
 
 Repository checkout:
-
-```text
 /Users/elenadymova/Documents/New project/books-for-litres
-```
 
-Production Desktop bundle:
-
-```text
+Production Desktop app:
 /Users/elenadymova/Desktop/Audiobook Studio.app
-```
 
 Staging artifact:
-
-```text
 /Users/elenadymova/Documents/New project/Audiobook-Studio/builds/native-staging/Audiobook Studio.app
-```
 
-Convenience staging symlink создан локально:
-
-```text
+Convenience staging symlink:
 /Users/elenadymova/Desktop/Audiobook Studio — STAGING.app
 → /Users/elenadymova/Documents/New project/Audiobook-Studio/builds/native-staging/Audiobook Studio.app
 ```
@@ -119,38 +96,20 @@ Staging symlink не является production deployment.
 
 - `git reset`;
 - force push;
-- blind merge;
-- blind rebase;
+- blind merge/rebase;
 - `git add .`;
 - `git add -A`;
 - `git add --all`.
 
-Stage только exact paths.
+Stage только exact paths. Перед push всегда `git fetch origin` и divergence check. Если `origin/main` ушёл вперёд — не делать автоматический merge/rebase.
 
-Перед push:
-
-```text
-git fetch origin
-→ проверить divergence
-→ если origin/main ушёл вперёд, не делать автоматический merge/rebase
-```
-
-Существующий local `?? .DS_Store` не является частью проекта и не должен stage-иться ради Audiobook Studio tasks.
+Local `?? .DS_Store` не является частью Audiobook Studio и не должен stage-иться ради проекта.
 
 ---
 
-## 5. Текущая repository точка
+## 5. Repository state
 
-На момент этой authority-фиксации GitHub показал:
-
-```text
-main == fix/audiobook-openai-explicit-prepare-gate
-code baseline = 4fda7281c3e65195bf4b0fe8d0d0a12d359219e3
-```
-
-То есть два принятых OpenAI safety fix уже находятся в `main`.
-
-Принятые commits:
+Принятые OpenAI safety commits:
 
 ```text
 ccd15f0ac21ab92850218749ffe47b8eb9eba303
@@ -160,7 +119,7 @@ Fix explicit OpenAI prepare user gate
 Persist OpenAI paid request execution fact
 ```
 
-Parent chain была проверена:
+Проверенная code parent chain:
 
 ```text
 c251818566318ed52821835fe2824edc27e5a03e
@@ -168,37 +127,41 @@ c251818566318ed52821835fe2824edc27e5a03e
 → 4fda7281c3e65195bf4b0fe8d0d0a12d359219e3
 ```
 
-Feature branch после попадания тех же commits в `main` больше не является отдельным authority contour.
+Canonical authority commits после code acceptance:
+
+```text
+e82c3c190c26f7737e875d16d345ad53a4f2caad
+Record current Audiobook Studio authority state
+
+c62d0cb30be401875aa07d9fe4701f3cb64af1c9
+Link Audiobook Studio current-state authority
+
+8d105bd3f36a6675d1ab427259de0c669adbc8fd
+Update accepted OpenAI native paid workflow contract
+
+a96b5e3472a110fd0ee6a4f9be8ac1f1f53ddde1
+Document accepted native OpenAI paid workflow
+```
+
+Feature branch `fix/audiobook-openai-explicit-prepare-gate` больше не является authority contour. Accepted code и deployment authority находятся в `main`.
 
 ---
 
 ## 6. Runtime provisioning contract
 
-Native app исполняет Python bridge из local runtime copy, а repository остаётся source of truth production code/config.
-
-Canonical runtime execution root:
+Native app исполняет Python bridge из local runtime copy:
 
 ```text
 /Users/elenadymova/Documents/New project/Audiobook-Studio/runtime/studio-workspace
 ```
 
-В ходе OAI acceptance был доказан provisioning gap: staging bundle сам по себе не синхронизирует repository execution contour в runtime workspace.
+Repository остаётся source of truth production code/config.
 
-Был выполнен bounded runtime sync current-main → local runtime для production execution contour, включая:
+Во время OAI acceptance был доказан provisioning gap: сборка `.app` сама по себе не синхронизирует repository execution contour в runtime workspace.
 
-- `audiobook_studio_app_runner.py`;
-- `cloud_billing.py`;
-- `openai_backend_runner.py`;
-- `paid_run.py`;
-- `studio.py`;
-- `studio_app_runner.py`;
-- `voice_library.py`;
-- `workspace_paths.py`;
-- `yandex_backend_runner.py`;
-- provider config/pricing JSON;
-- `backends/` code-only contour.
+Bounded current-main → runtime sync применяется только к production execution contour, включая Python runners, provider config/pricing JSON и `backends/` code-only contour.
 
-Пользовательские books/settings/billing/cache/jobs/audio/manifests/exports/engines не должны заменяться repository sync.
+Нельзя таким sync перезаписывать пользовательские books, settings, billing, cache, jobs, manifests, audio, exports или engines.
 
 Tracked safe demo profile:
 
@@ -211,17 +174,19 @@ segments = 1
 text length = 93
 ```
 
-Local runtime demo copy используется только для безопасных acceptance tests и не заменяет будущую Book Library.
+Post-merge DEPLOY-0 подтвердил bounded runtime provisioning current-main → production workspace по SHA без замены пользовательских данных.
 
-**Следствие для будущего deployment:** production installation/update flow должен иметь явный fail-safe runtime provisioning contract, чтобы Desktop app не зависела от ручного копирования execution files.
+Будущий production installation/update flow должен сохранять этот fail-safe provisioning contract и не зависеть от ручного копирования файлов.
 
 ---
 
-## 7. Qwen / MLX
+## 7. Backends и Voice Library
 
-Qwen остаётся локальным backend без API-расходов.
+### Qwen / MLX
 
-Canonical runtime voice set: 9 profiles:
+Active local backend, API cost = 0.
+
+9 runtime voices:
 
 - Vivian;
 - Serena;
@@ -233,24 +198,9 @@ Canonical runtime voice set: 9 profiles:
 - Ono_Anna;
 - Sohee.
 
-Qwen не переписывается ради Yandex/OpenAI и продолжает использовать общие books/manifest/QA/export semantics по мере развития общего pipeline.
+### Yandex SpeechKit v3
 
----
-
-## 8. Yandex SpeechKit
-
-Yandex SpeechKit v3 остаётся production cloud backend общей Studio.
-
-Подтверждённые слои:
-
-- segmentation;
-- streaming transport;
-- WAV validation;
-- fingerprint/cache;
-- manifest/Resume;
-- AMBIGUOUS safety;
-- pricing/hard limit;
-- Cloud Billing integration.
+Active production cloud backend. Подтверждены segmentation, streaming transport, WAV validation, fingerprint/cache, manifest/Resume, AMBIGUOUS safety, pricing/hard limit и Cloud Billing.
 
 Approved profiles:
 
@@ -259,119 +209,58 @@ Approved profiles:
 - `yandex_kirill`;
 - `yandex_anton`.
 
-Текущий production-default:
+Frozen/default LitRes production profile:
 
 ```text
-Lera
-neutral
-1.04
+Lera / neutral / 1.04
 ```
 
-Не менять frozen/approved Yandex profile из-за работ по OpenAI.
+### OpenAI
+
+Approved built-in profiles:
+
+- `openai_onyx`;
+- `openai_cedar`.
+
+Они равноправны. Synthetic `openai_female/openai_male` не используются. `gender` не является обязательным identity dimension. Custom Voice = `DEFERRED`.
 
 ---
 
-## 9. Voice Library
-
-Одна provider-neutral Voice Library.
-
-Approved cloud profiles:
-
-```text
-Yandex:
-- yandex_lera
-- yandex_ermil
-- yandex_kirill
-- yandex_anton
-
-OpenAI:
-- openai_onyx
-- openai_cedar
-```
-
-OpenAI Onyx и Cedar являются равноправными approved built-in profiles.
-
-Synthetic slots `openai_female` / `openai_male` не используются. `gender` не является обязательным identity dimension.
-
-OpenAI Custom Voice: `DEFERRED` до отдельного этапа.
-
----
-
-## 10. OpenAI production backend — validated transport
+## 8. OpenAI transport acceptance
 
 Canonical model:
 
 ```text
 gpt-4o-mini-tts
+response_format = wav
+credential = macOS Keychain / AudiobookStudio-OpenAI
 ```
 
-Canonical output:
-
-```text
-WAV
-```
-
-Credential:
-
-```text
-macOS Keychain
-service = AudiobookStudio-OpenAI
-```
-
-### 10.1. Historical smoke 1
-
-Первый controlled OpenAI smoke завершился:
+Historical smoke 1:
 
 ```text
 AMBIGUOUS / INCONCLUSIVE
 request_id = req_76fa9bd109ec440ebaf50506d675c309
 ```
 
-Причина: старый validator ошибочно интерпретировал legal streaming RIFF sentinel `0xFFFFFFFF` как конечный размер файла.
+Root cause: старый validator неверно трактовал legal streaming RIFF sentinel `0xFFFFFFFF`. Historical manifest не переписывается.
 
-Historical manifest не переписывается.
-
-После этого provider-neutral RIFF parser был исправлен и offline протестирован для finalized WAV, true truncation, RIFF/data sentinels, PCM validation, block alignment и forensic preservation.
-
-### 10.2. Historical Cedar production validation
-
-Второй controlled smoke завершился PASS:
+Historical Cedar validation PASS:
 
 ```text
 profile = openai_cedar
-model = gpt-4o-mini-tts
 HTTP = 200
 request_id = req_84ebe20c7c7842b79306c098fd69050e
-content_type = audio/wav
-response bytes = 328844
-Content-Length = absent
+WAV = 24 kHz / 16-bit PCM / mono / 6.85 sec
 RIFF sentinel = 0xFFFFFFFF
 data sentinel = 0xFFFFFFFF
-24 kHz
-16-bit PCM
-mono
-6.85 sec
 ```
 
-Подтверждено:
-
-- WAV validation PASS;
-- atomic final PASS;
-- cache PASS;
-- manifest `SUCCEEDED`;
-- Resume replay PASS;
-- second network request = 0;
-- billing ledger idempotent PASS.
-
-Это остаётся canonical evidence, что Cedar transport path работает.
+Подтверждены WAV validation, atomic final, cache, manifest `SUCCEEDED`, Resume replay без второго network request и idempotent ledger.
 
 ---
 
-## 11. Safe native OpenAI paid execution v1 — ACCEPTED
-
-Состояние `IMPLEMENTED OFFLINE / LIVE NOT PERFORMED` больше не актуально.
-
-Safe native paid execution прошёл offline, instrumented и live acceptance.
+## 9. Safe native OpenAI paid execution v1 — ACCEPTED AND DEPLOYED
 
 Global config остаётся:
 
@@ -379,14 +268,14 @@ Global config остаётся:
 paid_execution_enabled = false
 ```
 
-Никакого permanent/global paid unlock нет.
+Permanent/global unlock запрещён.
 
-### 11.1. Принятый native flow
+Canonical native flow:
 
 ```text
-primary OpenAI action
+explicit primary user action
 → LOCAL PREPARE confirmation
-→ one-shot intent consume
+→ memory-only one-shot intent consume
 → network-free immutable PREPARE
 → separate paid confirmation
 → revalidate same plan/digest
@@ -395,137 +284,98 @@ primary OpenAI action
 → CONSUMED
 ```
 
-Первый OpenAI action больше не имеет права непосредственно вызывать `--prepare-paid-run`.
-
 One-shot intent:
 
-- memory-only;
 - initially unarmed;
-- consume работает ровно один раз;
-- повторный consume запрещён;
-- cancel инвалидирует intent;
-- reload/error инвалидируют intent;
-- изменение engine/book/job/profile инвалидирует intent;
-- новый arm заменяет предыдущий intent.
+- consume один раз;
+- second consume forbidden;
+- cancel/reload/error инвалидируют;
+- изменение engine/book/job/profile инвалидирует;
+- новый arm заменяет предыдущий.
 
-CACHE_ONLY также требует явного user-initiated local action, но не требует paid confirmation и не выполняет provider network.
+CACHE_ONLY также требует explicit local user action, но provider network = 0 и paid confirmation не нужен.
 
-### 11.2. Zero-user-action invariant
+### Zero-user-action invariant
 
-После safety fix instrumented staging наблюдался более 6 минут после startup snapshot.
-
-Доказано:
+После fix instrumented staging и затем production Desktop startup доказали:
 
 ```text
-startup --ui-snapshot = 1
-prepare_paid_run_calls_without_user_action = 0
+PREPARE without explicit user action = 0
 --execute-paid-plan = 0
-new plans = 0
 provider requests = 0
-billing changes = 0
 ```
 
 Canonical invariant:
 
 ```text
 NO EXPLICIT USER ACTION
-→ NO PAID PLAN PREPARE
+→ NO PREPARE
 → NO PAID EXECUTION
 ```
 
-### 11.3. PREPARE plan semantics
+### Plan semantics
 
-Immutable plans хранятся local-only:
-
-```text
-Audiobook-Studio/runtime/paid-run-plans/<plan-id>.json
-```
-
-Default TTL: 10 minutes.
-
-States:
+Local-only plans:
 
 ```text
-PREPARED
-CONSUMING
-CONSUMED
-EXPIRED
-BLOCKED
+runtime/paid-run-plans/<plan-id>.json
+TTL default = 10 minutes
+max_network_requests = 1
+automatic retry = 0
 ```
 
-Decisions:
-
-```text
-READY_FOR_CONFIRMATION
-CACHE_ONLY
-BLOCKED
-```
-
-Один confirmation допускает максимум один новый provider request.
-
-Automatic retry для safe paid run = 0.
-
-`AMBIGUOUS` никогда автоматически не retry.
-
-Каждый следующий новый MISS/segment требует нового plan и нового confirmation.
+`AMBIGUOUS` автоматически не retry. Каждый следующий new MISS/segment требует нового plan и отдельного confirmation.
 
 ---
 
-## 12. Live native one-request acceptance — PASS
+## 10. Live native one-request acceptance — PASS
 
-Во время native acceptance пользователь случайно подтвердил paid action раньше отдельного Brain gate. Действие было принято как фактический controlled one-request smoke и исследовано forensic-only; повторный request не выполнялся.
+Во время native acceptance был выполнен ровно один фактический paid OpenAI request.
 
-Фактический execution использовал текущий process selection:
+Фактическая process selection была Onyx default:
 
 ```text
 profile = openai_onyx
-voice = onyx
-model = gpt-4o-mini-tts
 book = demo-book
 job = short-test
-execution segment = s0001
+segment = s0001
 characters = 93
 ```
 
-Этот Onyx result **не является доказательством backend profile substitution**. Новый process был запущен без deterministic Cedar launch env; Onyx является штатным OpenAI default. Historical Cedar transport validation уже существует, поэтому второй платный Cedar smoke не требуется.
+Это не признано backend profile-substitution defect: новый process был запущен без deterministic Cedar launch env, а historical Cedar transport PASS уже существует.
 
-Live native transport evidence:
+Live evidence:
 
 ```text
 HTTP = 200
 request_id = req_ec29b6810200449791be47c8aabf201f
 content_type = audio/wav
 response bytes = 376844
-audio data bytes = 376800
-Content-Length = absent
 24 kHz
 16-bit PCM
 mono
 7.85 sec
-frames = 188400
+attempt_count = 1
+automatic_retry_count = 0
 ```
 
-Принятые факты:
+PASS:
 
-- new OpenAI network requests = 1;
-- automatic retry count = 0;
-- attempt count = 1;
-- WAV validation PASS;
-- final WAV atomic PASS;
+- exactly one OpenAI request;
+- WAV validation;
+- atomic final;
 - cache STORED;
 - manifest `SUCCEEDED`;
 - plan `PREPARED → CONSUMING → CONSUMED`;
-- повторное execution того же consumed plan блокируется до сети;
-- billing получил ровно один новый event;
-- exact actual cost не был известен и не был сфабрикован.
+- second execute blocked before network;
+- billing one event;
+- exact actual cost не сфабрикован.
 
 Billing event:
 
 ```text
 actual_cost = null
 cost_source = unavailable
-known_local_actual_spend: 0 → 0
-unknown_cost_events: 1 → 2
 remaining = null
 remaining_source = unavailable
 ```
@@ -534,79 +384,65 @@ Unknown никогда не трактуется как `$0`.
 
 ---
 
-## 13. Persisted execution fact — accepted fix
+## 11. Persisted execution fact — FIXED + TESTED
 
-Live forensic выявил consistency defect: historical consumed plan имел фактический `network_requests=1`, но сохранял подготовительное `remote_request_sent=false`.
+Live forensic выявил pre-fix inconsistency: request был доказан, но historical plan сохранял `remote_request_sent=false`.
 
-Historical plan не переписывался задним числом.
+Historical plan не переписывался.
 
-Fix `4fda7281c3e65195bf4b0fe8d0d0a12d359219e3` устанавливает canonical final semantics:
-
-### Network request был отправлен
+Fix `4fda728…` задаёт новые canonical semantics:
 
 ```text
+NETWORK 1:
 state = CONSUMED
 network_requests = 1
 remote_request_sent = true
-```
 
-### CACHE_ONLY / network 0
-
-```text
+CACHE_ONLY / NETWORK 0:
 state = CONSUMED
 network_requests = 0
 remote_request_sent = false
-```
 
-### AMBIGUOUS после начала network request
-
-```text
+AMBIGUOUS after network started:
 state = CONSUMED
 network_requests = 1
 remote_request_sent = true
 automatic retry = 0
 ```
 
-Targeted paid-run suite после fix:
+Tests:
 
 ```text
-11 / 11 PASS
+Paid-run targeted = 11 / 11 PASS
+Full offline suite = 214 / 214 PASS
+Native contract = PASS
+Native staging build = PASS
+Strict codesign = PASS
 ```
 
-Full offline suite:
-
-```text
-214 / 214 PASS
-```
-
-Provider requests во время fix task: 0.
-
-Historical forensic plan bytes/SHA/mtime были сохранены неизменными.
+Provider requests during fix = 0.
 
 ---
 
-## 14. Forensic preservation
+## 12. Forensic preservation
 
-Нельзя переписывать задним числом:
+Не переписывать задним числом:
 
-- historical AMBIGUOUS manifest первого OpenAI smoke;
+- historical AMBIGUOUS manifest;
 - historical paid-run plans;
-- historical plan, в котором pre-fix `remote_request_sent=false` при доказанном request;
+- pre-fix `remote_request_sent=false` historical plan;
 - historical billing events.
 
-Forensic evidence хранит историю поведения системы, а новые contracts действуют только на новые executions.
+Forensic evidence хранит правду о старом поведении; новые contracts действуют на новые executions.
 
 ---
 
-## 15. Cloud Billing
+## 13. Cloud Billing
 
-Один provider-neutral Cloud Billing layer для Yandex и OpenAI.
-
-Money arithmetic: `Decimal` only.
-
-Currencies:
+Один provider-neutral layer для Yandex и OpenAI.
 
 ```text
+Money = Decimal only
 Yandex = RUB
 OpenAI = USD
 ```
@@ -623,105 +459,157 @@ unavailable
 
 Правила:
 
-- unknown balance никогда не превращается в 0;
-- estimate никогда не становится actual;
-- OpenAI exact prepaid balance не фабрикуется;
-- OpenAI future audio cost заранее точно не фабрикуется;
+- unknown balance не превращается в 0;
+- estimate не становится actual;
+- exact OpenAI prepaid balance не фабрикуется;
+- future audio cost не фабрикуется как exact;
 - ledger idempotent;
 - hard limit не является balance;
-- OpenAI default local hard limit на acceptance: `1.00 USD`.
+- OpenAI acceptance hard limit = 1.00 USD.
 
-OpenAI Admin metadata и TTS credential являются разными credential contours.
-
----
-
-## 16. Native UI
-
-Native macOS Studio имеет единый engine selector:
-
-```text
-Qwen
-Yandex
-OpenAI
-```
-
-OpenAI approved selections:
-
-```text
-Onyx
-Cedar
-```
-
-Cloud Billing интегрирован.
-
-Unknown money отображается как:
-
-```text
-Недоступно
-```
-
-а не `$0` / `₽0`.
-
-Production OpenAI paid UX после accepted fix имеет **два раздельных подтверждения**:
-
-1. локальное подтверждение подготовки plan — network-free;
-2. отдельное подтверждение максимум одного платного provider request.
-
-Нельзя добавлять:
-
-- `Always allow`;
-- `Don't ask again`;
-- persistent paid consent;
-- whole-book/chapter batch после одного confirmation;
-- automatic retry `AMBIGUOUS`.
+Unknown money в UI = `Недоступно`, а не `$0/₽0`.
 
 ---
 
-## 17. Tests и build baseline
+## 14. Production Desktop deployment — PASS
 
-После explicit prepare gate + persistence fix:
+Post-merge closeout завершён:
 
 ```text
-Native contract tests = PASS
-Paid-run targeted = 11 / 11 PASS
-Full offline suite = 214 / 214 PASS
-Native staging build = PASS
-Strict codesign = PASS
+full offline suite = 214 / 214 PASS
+fresh native staging build = PASS
+strict codesign = PASS
+bounded runtime provisioning = PASS
+production Desktop deployment = PASS
+zero-action production startup = PASS
 ```
 
-Offline tests не должны отправлять provider TTS requests.
+Production bundle:
+
+```text
+/Users/elenadymova/Desktop/Audiobook Studio.app
+```
+
+Он установлен fail-safe replacement из accepted staging artifact и прошёл strict codesign.
+
+Production startup вызвал только offline snapshot; доказано:
+
+```text
+automatic PREPARE = 0
+execute = 0
+provider requests = 0
+```
+
+Forensic plans, billing ledger, cache и jobs deployment-ом не изменялись.
+
+`DEPLOY-0 = PASS`.
 
 ---
 
-## 18. Desktop deployment status
+## 15. Что означает «проект запущен»
 
-Важно различать:
+Не смешивать три уровня готовности.
+
+### LEVEL A — техническое ядро
+
+**PASS.** Уже работают Qwen, Yandex, OpenAI, Voice Library, Cloud Billing, cache/fingerprint, manifest/Resume, safe paid workflow, native app и regression suite.
+
+### LEVEL B — установленная рабочая Studio
+
+**PASS.** DEPLOY-0 закрыт: актуальная production Desktop app установлена и проходит zero-action safety acceptance.
+
+На этом уровне Studio уже можно запускать как установленное приложение.
+
+### LEVEL C — полноценный production launch для изготовления реальной книги end-to-end
+
+**PENDING.** Осталось построить пользовательский production book workflow:
 
 ```text
-accepted code in main
-≠ staging build
-≠ production Desktop deployment
+BOOK LIBRARY / ADD BOOK
+→ immutable source
+→ TTS working copy
+→ chapter/segment production
+→ automatic QA + manual review
+→ chapter assembly
+→ mastering
+→ Dilon Voices audio identity
+→ export
+→ LitRes profile
+→ MP3 / M4B
+→ end-to-end real-book acceptance
 ```
 
-Post-merge closeout после `4fda728…` завершён: full offline suite `214/214 PASS`, fresh native staging build и strict codesign прошли, bounded runtime contour синхронизирован с current `main`, offline UI snapshot прошёл без provider request.
-
-Поэтому текущий статус:
-
-```text
-OPENAI SAFE NATIVE PAID WORKFLOW = ACCEPTED_AND_DEPLOYED
-PRODUCTION DESKTOP DEPLOYMENT = PASS
-ZERO-ACTION PRODUCTION ACCEPTANCE = PASS
-```
-
-Production bundle `/Users/elenadymova/Desktop/Audiobook Studio.app` установлен fail-safe replacement из accepted staging artifact и прошёл strict codesign. Production startup вызвал только `--ui-snapshot`: automatic PREPARE `0`, execute `0`, provider requests `0`; forensic plans, billing ledger, cache и jobs не изменились.
-
-Staging build не заменяет Desktop app автоматически.
+Только после end-to-end acceptance на реальной книге Audiobook Studio считается полностью запущенной производственной системой, а не только работающим TTS application core.
 
 ---
 
-## 19. Dilon Voices
+## 16. Active checkpoint — BOOK_LIBRARY_ADD_BOOK_V1
 
-Публичный narrator brand:
+Следующий обязательный product checkpoint:
+
+```text
+BOOK_LIBRARY_ADD_BOOK_V1
+```
+
+Цель: пользователь должен через native Studio добавить реальную книгу в local workspace без Terminal и получить канонический book project с immutable source и отдельной TTS working copy.
+
+Обязательные инварианты:
+
+- production books хранятся только в local workspace;
+- repository `books/` не является production user library;
+- source после импорта immutable/read-only для pipeline;
+- TTS working copy создаётся отдельно и может эволюционировать без изменения source;
+- одна canonical local book registry/library;
+- существующие Voice Library/backend/cache/manifest/Resume/QA/billing layers переиспользуются;
+- разные книги могут иметь разные backend/voice profiles;
+- никакого второго native app или provider-specific book registry;
+- import/add book не выполняет TTS provider request;
+- пользователь не обязан пользоваться Terminal.
+
+### Definition of Done V1
+
+`BOOK_LIBRARY_ADD_BOOK_V1 = PASS`, если через native UI можно:
+
+1. открыть Books/library view;
+2. нажать `Добавить книгу`;
+3. выбрать UTF-8 TXT source;
+4. ввести/подтвердить минимум title + author + slug/ID;
+5. импортировать source атомарно в canonical local book project;
+6. доказать immutable source hash;
+7. создать отдельную TTS working copy;
+8. увидеть новую книгу в library после restart приложения;
+9. открыть книгу и увидеть source metadata + selected backend/voice fields без provider request;
+10. удалить/повредить source через обычный TTS editing flow невозможно;
+11. existing demo profile и existing runtime data не повреждены;
+12. offline tests + native build/codesign PASS.
+
+V1 не обязан делать chapter synthesis, QA, mastering или export. Это следующие checkpoints.
+
+---
+
+## 17. Product sequence
+
+```text
+BOOK_LIBRARY_ADD_BOOK_V1
+→ immutable source + TTS working copy hardening
+→ chapter production
+→ QA / Review
+→ chapter assembly
+→ mastering
+→ Dilon Voices audio identity
+→ export
+→ LitRes profile
+→ MP3 / M4B
+→ end-to-end real-book acceptance
+```
+
+Не начинать mastering/export раньше готовности production book workflow.
+
+---
+
+## 18. Dilon Voices
+
+Public narrator brand:
 
 ```text
 Dilon Voices
@@ -737,34 +625,23 @@ Dilon Voices
 Yandex Lera / neutral / 1.04
 ```
 
-Opening credit для текущей книги:
+Opening credit текущей книги:
 
 > Елена Дилон. Хватит себя обесценивать. Читает Dilon Voices.
 
-Audio branding является отдельным downstream layer:
+Audio identity/music — downstream layer после clean TTS, QA и chapter assembly.
 
-```text
-clean TTS
-→ QA
-→ chapters
-→ audio identity/music
-→ mastering
-→ export
-```
-
-Кандидат signature asset:
+Candidate signature asset:
 
 ```text
 Lounge Vibes 05.7
 ```
 
-Не вмешивать audio branding/music в backend tasks до отдельного этапа.
+Не вмешивать branding/music в backend tasks раньше отдельного этапа.
 
 ---
 
-## 20. Finished audio target
-
-Целевая структура:
+## 19. Finished audio target
 
 ```text
 segments
@@ -777,81 +654,33 @@ segments
 → LitRes export profile
 ```
 
-Canonical master: lossless WAV.
-
-MP3 не является единственным master.
+Canonical master = lossless WAV. MP3 не является единственным master.
 
 ---
 
-## 21. Product sequence / active checkpoint
+## 20. Brain / owner governance
 
-Не превращать разработку в хаос и не перепрыгивать к mastering/export раньше готовности production book workflow.
+Главный Brain:
 
-OpenAI backend/paid execution и `DEPLOY-0` закрыты. Следующий крупный checkpoint:
+- самостоятельно закрывает безопасные, логичные и обратимые технические решения;
+- не спрашивает owner о каждом рутинном шаге;
+- ведёт работу от actual main + canonical authority;
+- не гоняет acceptance бесконечными микрошагами;
+- объединяет проверки в bounded checkpoints.
 
-```text
-BOOK LIBRARY / ADD BOOK
-+ IMMUTABLE SOURCE
-+ TTS WORKING COPY
-```
-
-Далее по порядку:
-
-```text
-Book Library / Add book
-→ immutable source + TTS working copy
-→ chapter production
-→ QA
-→ chapter assembly
-→ mastering
-→ Dilon Voices audio identity
-→ export
-→ LitRes profile
-→ MP3 / M4B
-```
-
----
-
-## 22. Book Library / Add book — архитектурные границы следующего этапа
-
-Следующий слой должен:
-
-- дать пользователю нормальный native Add book flow;
-- хранить immutable source отдельно от TTS working copy;
-- не использовать repository `books/` как production user library;
-- хранить production books в local workspace;
-- переиспользовать существующие Voice Library, backend, cache, manifest, Resume, QA и billing layers;
-- не создавать второй book registry;
-- сохранить возможность для разных книг иметь разные backend/voice profiles;
-- не начинать mastering/export раньше production book workflow.
-
-Детальная реализация этого checkpoint ещё не начата и должна опираться на актуальный `main` после DEPLOY-0.
-
----
-
-## 23. User/Brain governance
-
-Главный Brain проекта:
-
-- сам закрывает безопасные, логичные и обратимые технические решения;
-- не спрашивает пользователя о каждом рутинном шаге;
-- ведёт проект по canonical authority и actual `main`;
-- не гоняет acceptance бесконечными микрошагами, когда доказательства уже достаточны;
-- объединяет технические проверки в bounded checkpoints.
-
-Пользователь нужен только когда реально требуется:
+Owner нужен только при:
 
 - password/secret;
 - macOS security approval;
-- фактическое платное подтверждение;
-- существенное product/business решение;
-- необратимое действие вне согласованного scope.
+- фактическом paid confirmation;
+- существенном product/business fork;
+- необратимом действии вне согласованного scope.
 
-Для Codex задания должны передаваться **одним цельным сообщением для разового copy/paste**, а не фрагментами.
+Codex tasks передавать одним цельным copy/paste message.
 
 ---
 
-## 24. Current acceptance summary
+## 21. Current acceptance summary
 
 ```text
 Qwen / MLX                         ACTIVE LOCAL BACKEND
@@ -866,30 +695,33 @@ Automatic retry                   0 / PASS
 Paid plan one-shot consumption    PASS
 Persisted remote_request_sent     FIXED + TESTED
 Cloud Billing                     ACTIVE PROVIDER-NEUTRAL LAYER
-Full offline suite                214 / 214 PASS
-Code in main                      YES @ 4fda728… baseline
-Post-merge Desktop deployment     PASS
-Zero-action production startup    PASS / PREPARE 0 / EXECUTE 0
-Next product checkpoint           BOOK_LIBRARY_ADD_BOOK
+Full offline suite baseline       214 / 214 PASS
+Accepted code baseline            4fda728…
+DEPLOY-0                           PASS
+Production Desktop                ACCEPTED_AND_DEPLOYED
+Level A — technical core          PASS
+Level B — installed Studio        PASS
+Level C — real-book end-to-end    PENDING
+Active checkpoint                 BOOK_LIBRARY_ADD_BOOK_V1
 ```
 
 ---
 
-## 25. Change log
+## 22. Change log
 
 ### 2026-08-23
 
-- признан и исправлен autonomous/native PREPARE hazard;
-- добавлен explicit local PREPARE confirmation + memory-only one-shot intent;
-- доказано `PREPARE=0` без explicit user action;
-- проведён один live native paid OpenAI request: exactly one request, zero retry, WAV/cache/manifest/billing PASS;
-- execution использовал фактический Onyx default process selection; это не признано backend profile-substitution defect;
-- historical Cedar production transport validation остаётся отдельным PASS;
-- исправлена persistence семантика `remote_request_sent` после execution;
-- targeted `11/11`, full offline `214/214` PASS;
-- commits `ccd15f0…` и `4fda728…` находятся в `main`;
-- post-merge full offline suite `214/214`, fresh staging build и strict codesign повторно прошли;
-- bounded runtime provisioning current-main → production workspace проверен по SHA; пользовательские books/settings/billing/cache/jobs/audio/manifests не заменялись;
-- production Desktop bundle развёрнут fail-safe и прошёл zero-action acceptance: startup snapshot `1`, PREPARE `0`, execute `0`, provider requests `0`;
-- OpenAI native paid workflow классифицирован `ACCEPTED_AND_DEPLOYED`; следующий checkpoint — `BOOK_LIBRARY_ADD_BOOK`;
-- введён этот canonical current-state ledger, чтобы фактический статус проекта больше не зависел от chat и не требовал переписывания стабильной архитектуры при каждом acceptance checkpoint.
+- OpenAI explicit PREPARE hazard исправлен;
+- memory-only one-shot gate принят;
+- zero-user-action PREPARE = 0 доказан;
+- live native one-request safety = PASS;
+- historical Cedar transport = PASS;
+- persisted `remote_request_sent` исправлен и regression-tested;
+- paid-run targeted `11/11`, full offline baseline `214/214` PASS;
+- accepted code находится в `main`;
+- bounded runtime provisioning после merge прошёл;
+- production Desktop bundle развёрнут fail-safe и прошёл strict codesign + zero-action acceptance;
+- `DEPLOY-0 = PASS`;
+- feature branch перестал считаться authority после merge;
+- формально введены readiness levels A/B/C и определение «проект запущен»;
+- active checkpoint зафиксирован как `BOOK_LIBRARY_ADD_BOOK_V1` с Definition of Done.
