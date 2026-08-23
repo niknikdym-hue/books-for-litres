@@ -33,10 +33,10 @@ class FakeYandexBackend:
         self.blocked_reason = None
         self.estimate_calls = 0
         self.provider_requests = 0
+        self.extra_request = False
 
     def estimate(self, text: str, *, pricing, job_dir: Path, scope: str):
         self.estimate_calls += 1
-        self.assert_no_provider_request()
         segments = 3
         remaining = segments - self.cached_segments
         return {
@@ -51,9 +51,18 @@ class FakeYandexBackend:
             "blocked_reason": self.blocked_reason,
         }
 
-    def assert_no_provider_request(self) -> None:
-        if self.provider_requests:
-            raise AssertionError("Provider request occurred during offline chapter preflight")
+    def _request(self, text: str, request_id: str):
+        self.provider_requests += 1
+        return b"wav", {}
+
+    def run_text_job(self, text: str, job_dir: Path, *, job_id: str, pricing, scope: str) -> Path:
+        remaining = 3 - self.cached_segments
+        for index in range(remaining + (1 if self.extra_request else 0)):
+            self._request(f"segment-{index}", f"request-{index}")
+        job_dir.mkdir(parents=True, exist_ok=True)
+        output = job_dir / "chapter.wav"
+        output.write_bytes(b"fake")
+        return output
 
 
 class YandexChapterPlanTests(unittest.TestCase):
@@ -101,12 +110,18 @@ class YandexChapterPlanTests(unittest.TestCase):
 
     def test_cache_only_plan_requires_zero_new_requests(self) -> None:
         self.backend.cached_segments = 3
-        self.backend.allowed_to_start = False
-        self.backend.blocked_reason = "stale_tariff"
         plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
         self.assertEqual(plan["decision"], "CACHE_ONLY")
         self.assertEqual(plan["max_network_requests"], 0)
         self.assertEqual(plan["blockers"], [])
+
+    def test_pricing_gate_still_blocks_cache_only_until_backend_has_local_materializer(self) -> None:
+        self.backend.cached_segments = 3
+        self.backend.allowed_to_start = False
+        self.backend.blocked_reason = "stale_tariff"
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.assertEqual(plan["decision"], "BLOCKED")
+        self.assertIn("stale_tariff", plan["blockers"])
 
     def test_pricing_gate_blocks_plan_with_remaining_requests(self) -> None:
         self.backend.allowed_to_start = False
@@ -154,6 +169,40 @@ class YandexChapterPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(YandexChapterPlanError, "digest"):
             self.service.revalidate(plan_id=plan["plan_id"], plan_digest="0" * 64)
         self.assertEqual(self.backend.estimate_calls, calls_before)
+
+    def test_execute_consumes_plan_and_obeys_frozen_request_cap(self) -> None:
+        self.backend.cached_segments = 1
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        result = self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        self.assertEqual(result["network_requests"], 2)
+        self.assertEqual(result["max_network_requests"], 2)
+        self.assertTrue(result["remote_request_sent"])
+        stored = self.service.store.load(plan["plan_id"])
+        self.assertEqual(stored["state"], "CONSUMED")
+        self.assertEqual(stored["network_requests"], 2)
+        with self.assertRaisesRegex(YandexChapterPlanError, "consumed"):
+            self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        self.assertEqual(self.backend.provider_requests, 2)
+
+    def test_cache_only_execute_uses_zero_provider_requests(self) -> None:
+        self.backend.cached_segments = 3
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        result = self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        self.assertEqual(result["network_requests"], 0)
+        self.assertEqual(result["request_slots"], 0)
+        self.assertFalse(result["remote_request_sent"])
+        self.assertEqual(self.backend.provider_requests, 0)
+
+    def test_request_cap_blocks_extra_request_before_provider(self) -> None:
+        self.backend.cached_segments = 1
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.backend.extra_request = True
+        with self.assertRaisesRegex(YandexChapterPlanError, "cap"):
+            self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        self.assertEqual(self.backend.provider_requests, 2)
+        stored = self.service.store.load(plan["plan_id"])
+        self.assertEqual(stored["state"], "CONSUMED")
+        self.assertEqual(stored["network_requests"], 2)
 
 
 if __name__ == "__main__":
