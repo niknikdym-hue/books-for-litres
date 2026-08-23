@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -52,6 +53,12 @@ IMMUTABLE_PLAN_KEYS = (
     "job_dir",
     "confirmation_scope",
 )
+
+# YandexChapterPlanService temporarily replaces the backend request hook to enforce
+# a per-confirmation request cap. That replacement must never overlap another
+# chapter execution in the same process, even when different plan/service
+# instances share a backend. Serialize the full replace/run/restore interval.
+_BACKEND_EXECUTION_LOCK = threading.Lock()
 
 
 class YandexChapterPlanError(RuntimeError):
@@ -347,12 +354,12 @@ class YandexChapterPlanService:
         return plan, analysis
 
     def revalidate(self, *, plan_id: str, plan_digest: str) -> dict[str, Any]:
-        plan, _ = self._validate_prepared_plan(plan_id, plan_digest)
+        plan, analysis = self._validate_prepared_plan(plan_id, plan_digest)
         return {
             "plan_id": plan_id,
             "plan_digest": plan_digest,
             "decision": plan["decision"],
-            "max_network_requests": plan["max_network_requests"],
+            "max_network_requests": int(analysis["critical"].get("max_network_requests") or 0),
             "chapter_production_identity": plan["chapter_production_identity"],
             "remote_request_sent": False,
         }
@@ -368,62 +375,74 @@ class YandexChapterPlanService:
             plan, analysis = self._validate_prepared_plan(plan_id, plan_digest)
             if plan.get("decision") not in {"READY_FOR_CONFIRMATION", "CACHE_ONLY"}:
                 raise YandexChapterPlanError("Chapter plan is not executable.", category="plan_not_executable")
-            cap = int(plan.get("max_network_requests") or 0)
-            if cap < 0:
-                raise YandexChapterPlanError("Chapter request cap is invalid.", category="invalid_plan")
+            cap = int(analysis["critical"].get("max_network_requests") or 0)
+            if cap < 0 or cap != int(plan.get("max_network_requests") or 0):
+                raise YandexChapterPlanError("Chapter request cap changed after confirmation.", category="execution_facts_changed")
             plan["state"] = "CONSUMING"
             plan["consuming_at"] = _iso(self._now())
             self.store.save(plan)
 
         request_slots = 0
         network_requests = 0
-        original_request = getattr(self.backend, "_request", None)
-        if not callable(original_request):
-            with self.store.locked(plan_id):
-                final_plan = self.store.load(plan_id)
-                final_plan["state"] = "CONSUMED"
-                final_plan["consumed_at"] = _iso(self._now())
-                final_plan["request_slots"] = 0
-                final_plan["network_requests"] = 0
-                final_plan["remote_request_sent"] = False
-                self.store.save(final_plan)
-            raise YandexChapterPlanError("Yandex backend request hook is unavailable.", category="backend_contract")
-
-        def capped_request(text: str, request_id: str):
-            nonlocal request_slots, network_requests
-            if request_slots >= cap:
-                try:
-                    from backends.yandex_speechkit import YandexSpeechKitError
-                except ImportError:
-                    raise YandexChapterPlanError("Confirmed chapter request cap was exhausted.", category="request_cap_exceeded")
-                raise YandexSpeechKitError(
-                    "Confirmed chapter request cap was exhausted before network.",
-                    category="request_cap_exceeded",
-                    retryable=False,
-                    request_id=request_id,
-                )
-            request_slots += 1
-            try:
-                result = original_request(text, request_id)
-            except Exception as error:
-                category = getattr(error, "category", None)
-                if category not in {"credential", "config", "input", "segment_limit"}:
-                    network_requests += 1
-                raise
-            network_requests += 1
-            return result
 
         try:
-            setattr(self.backend, "_request", capped_request)
-            joined = self.backend.run_text_job(
-                analysis["text"],
-                analysis["job_dir"],
-                job_id=str(plan["job_id"]),
-                pricing=self.pricing,
-                scope="chapter",
-            )
+            with _BACKEND_EXECUTION_LOCK:
+                original_request = getattr(self.backend, "_request", None)
+                if not callable(original_request):
+                    raise YandexChapterPlanError("Yandex backend request hook is unavailable.", category="backend_contract")
+
+                def capped_request(text: str, request_id: str):
+                    nonlocal request_slots, network_requests
+                    if request_slots >= cap:
+                        try:
+                            from backends.yandex_speechkit import YandexSpeechKitError
+                        except ImportError:
+                            raise YandexChapterPlanError(
+                                "Confirmed chapter request cap was exhausted.",
+                                category="request_cap_exceeded",
+                            )
+                        raise YandexSpeechKitError(
+                            "Confirmed chapter request cap was exhausted before network.",
+                            category="request_cap_exceeded",
+                            retryable=False,
+                            request_id=request_id,
+                        )
+                    request_slots += 1
+                    try:
+                        response = original_request(text, request_id)
+                    except Exception as error:
+                        category = getattr(error, "category", None)
+                        if category not in {"credential", "config", "input", "segment_limit"}:
+                            network_requests += 1
+                        raise
+                    network_requests += 1
+                    return response
+
+                try:
+                    setattr(self.backend, "_request", capped_request)
+                    try:
+                        joined = self.backend.run_text_job(
+                            analysis["text"],
+                            analysis["job_dir"],
+                            job_id=str(plan["job_id"]),
+                            pricing=self.pricing,
+                            scope="chapter",
+                        )
+                    except Exception as error:
+                        if getattr(error, "category", None) == "request_cap_exceeded":
+                            raise YandexChapterPlanError(
+                                "Confirmed chapter request cap was exhausted before provider.",
+                                category="request_cap_exceeded",
+                            ) from error
+                        raise
+                finally:
+                    setattr(self.backend, "_request", original_request)
+
             if request_slots > cap or network_requests > cap:
-                raise YandexChapterPlanError("Yandex chapter exceeded its confirmed request cap.", category="request_cap_exceeded")
+                raise YandexChapterPlanError(
+                    "Yandex chapter exceeded its confirmed request cap.",
+                    category="request_cap_exceeded",
+                )
             result = {
                 "plan_id": plan_id,
                 "plan_digest": plan_digest,
@@ -437,7 +456,6 @@ class YandexChapterPlanService:
                 "remote_request_sent": network_requests > 0,
             }
         finally:
-            setattr(self.backend, "_request", original_request)
             with self.store.locked(plan_id):
                 final_plan = self.store.load(plan_id)
                 final_plan["state"] = "CONSUMED"
