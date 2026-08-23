@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - ci/audiobook-pr1-evidence-1b22ab3
+  pull_request:
+    branches:
+      - feature/audiobook-book-text-preparation-v1
 
 permissions:
   contents: read
@@ -19,15 +22,16 @@ jobs:
       - name: Checkout exact evidence branch
         uses: actions/checkout@v4
 
-      - name: Verify tested code parent
+      - name: Verify tested code is exact PR1 head plus workflow only
         shell: bash
         run: |
           set -euo pipefail
           git rev-parse HEAD
-          parent="$(git rev-parse HEAD^)"
-          test "$parent" = "1b22ab33426cab5b9bb72a62b4661106827bf24b"
-          changed="$(git diff --name-only "$parent" HEAD)"
+          base="1b22ab33426cab5b9bb72a62b4661106827bf24b"
+          changed="$(git diff --name-only "$base" HEAD)"
           test "$changed" = ".github/workflows/audiobook-pr1-evidence.yml"
+          test "$(git rev-parse "$base:audiobook-studio/book_library.py")" = "$(git rev-parse HEAD:audiobook-studio/book_library.py)"
+          test "$(git rev-parse "$base:audiobook-studio/book_text_preparation.py")" = "$(git rev-parse HEAD:audiobook-studio/book_text_preparation.py)"
 
       - name: Install Python provider-network guard
         shell: bash
@@ -37,9 +41,6 @@ jobs:
           mkdir -p "$guard"
           cat > "$guard/sitecustomize.py" <<'PY'
           import socket
-
-          _real_connect = socket.socket.connect
-          _real_create_connection = socket.create_connection
 
           def _blocked(*args, **kwargs):
               raise RuntimeError("PROVIDER_NETWORK_BLOCKED_BY_ACCEPTANCE_GUARD")
