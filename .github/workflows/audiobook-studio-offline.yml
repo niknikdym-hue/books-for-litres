@@ -85,3 +85,6 @@ jobs:
 
       - name: Swift native contract
         run: python -m unittest discover -s tests -p 'test_native_contracts.py' -v
+
+      - name: Build and strictly codesign native app
+        run: native/build_native_app.sh "$RUNNER_TEMP/Audiobook Studio.app"
