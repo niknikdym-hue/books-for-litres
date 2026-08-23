@@ -17,7 +17,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from backends.yandex_speechkit import YandexBackendConfig, YandexPricingConfig, YandexSpeechKitBackend
+from backends.yandex_speechkit import (
+    YandexBackendConfig,
+    YandexPricingConfig,
+    YandexSpeechKitBackend,
+    make_fingerprint,
+)
 from backends.yandex_speechkit import YandexSpeechKitError
 from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
@@ -168,7 +173,9 @@ class ChapterProductionTests(unittest.TestCase):
 
     def test_ambiguous_manifest_blocks_prepare(self) -> None:
         service = self.service()
-        plan = self.prepare(service)
+        book = service.library.load_book_for_execution("chapter-book")
+        text = "\n\n".join(segment["text"] for segment in book["jobs"]["chapter-ch001"]["segments"])
+        first_segment = service.backend.segment(text)[0]
         job_dir = service._job_dir(service.library.load_book_for_execution("chapter-book"), "chapter-ch001")
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "MANIFEST.json").write_text(json.dumps({
@@ -176,11 +183,35 @@ class ChapterProductionTests(unittest.TestCase):
             "engine": "yandex_speechkit_v3",
             "job_id": "chapter-ch001",
             "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
-            "segments": {"s0001": {"status": "AMBIGUOUS"}},
+            "segments": {first_segment.segment_id: {
+                "status": "AMBIGUOUS",
+                "fingerprint": make_fingerprint(first_segment.text, service.backend.profile),
+            }},
         }), encoding="utf-8")
         blocked = self.prepare(service)
         self.assertEqual(blocked["decision"], "BLOCKED")
         self.assertIn("ambiguous_segment_requires_resolution", blocked["blockers"])
+        self.assertEqual(self.requests, 0)
+
+    def test_obsolete_manifest_states_do_not_block_reprepared_chapter(self) -> None:
+        service = self.service()
+        job_dir = service._job_dir(service.library.load_book_for_execution("chapter-book"), "chapter-ch001")
+        job_dir.mkdir(parents=True, exist_ok=True)
+        (job_dir / "MANIFEST.json").write_text(json.dumps({
+            "schema_version": 1,
+            "engine": "yandex_speechkit_v3",
+            "job_id": "chapter-ch001",
+            "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segments": {
+                "s0001": {"status": "AMBIGUOUS", "fingerprint": "obsolete"},
+                "s9999": {"status": "FAILED", "fingerprint": "surplus"},
+            },
+        }), encoding="utf-8")
+
+        plan = self.prepare(service)
+        self.assertEqual(plan["decision"], "READY_FOR_CONFIRMATION")
+        self.assertNotIn("ambiguous_segment_requires_resolution", plan["blockers"])
+        self.assertNotIn("failed_segment_requires_resolution", plan["blockers"])
         self.assertEqual(self.requests, 0)
 
     def test_changed_working_copy_invalidates_plan_before_request(self) -> None:

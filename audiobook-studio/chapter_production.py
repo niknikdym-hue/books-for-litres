@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from backends.yandex_speechkit import YandexSpeechKitError
+from backends.yandex_speechkit import YandexSpeechKitError, make_fingerprint
 from book_library import BookLibrary, BookLibraryError
 from cloud_billing import CloudBillingService, decimal_text, decimal_value
 from paid_run import PaidRunPlanStore
@@ -140,7 +140,7 @@ class YandexChapterProductionService:
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
-    def _manifest_blockers(self, job_dir: Path, *, job_id: str) -> list[str]:
+    def _manifest_blockers(self, job_dir: Path, *, job_id: str, text: str) -> list[str]:
         path = job_dir / "MANIFEST.json"
         if not path.exists():
             return []
@@ -161,9 +161,16 @@ class YandexChapterProductionService:
             or not isinstance(manifest.get("segments"), dict)
         ):
             return ["manifest_mismatch"]
+        current_fingerprints = {
+            segment.segment_id: make_fingerprint(segment.text, self.backend.profile)
+            for segment in self.backend.segment(text)
+        }
         blockers: list[str] = []
-        for entry in manifest["segments"].values():
-            state = entry.get("status") if isinstance(entry, dict) else None
+        for segment_id, fingerprint in current_fingerprints.items():
+            entry = manifest["segments"].get(segment_id)
+            if not isinstance(entry, dict) or entry.get("fingerprint") != fingerprint:
+                continue
+            state = entry.get("status")
             if state in {"AMBIGUOUS", "IN_FLIGHT"}:
                 blockers.append("ambiguous_segment_requires_resolution")
             elif state == "FAILED":
@@ -193,7 +200,7 @@ class YandexChapterProductionService:
         total_segments = int(estimate.get("segments") or 0)
         cached_segments = int(estimate.get("cached_segments") or 0)
         request_cap = max(0, total_segments - cached_segments)
-        blockers = self._manifest_blockers(job_dir, job_id=job_id)
+        blockers = self._manifest_blockers(job_dir, job_id=job_id, text=text)
         blocked_reason = estimate.get("blocked_reason")
         if request_cap and not estimate.get("allowed_to_start"):
             blockers.append(str(blocked_reason or "pricing_blocked"))

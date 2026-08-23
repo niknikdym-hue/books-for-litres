@@ -293,6 +293,8 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn("struct YandexChapterRunPlan", contracts)
         self.assertIn("struct YandexChapterRunResult", contracts)
         self.assertIn("Автоматический повтор запрещён", contracts)
+        self.assertIn("if engine == .yandex, let plan = yandexChapterPlan", source)
+        self.assertIn("return plan.billing", source)
 
 
 if __name__ == "__main__":

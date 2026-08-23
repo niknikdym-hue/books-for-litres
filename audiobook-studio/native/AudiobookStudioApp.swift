@@ -119,7 +119,12 @@ final class StudioModel: ObservableObject {
     var chapterJobs: [PreparedJob] { selectedBook?.jobs.filter { $0.kind == "chapter" } ?? [] }
     var availableProfiles: [VoiceProfile] { voiceLibrary.profiles(for: engine) }
     var selectedProfile: VoiceProfile? { availableProfiles.first { $0.profileID == selectedProfileID } }
-    var selectedBilling: CloudBillingSnapshot? { cloudBilling?.providers[engine] }
+    var selectedBilling: CloudBillingSnapshot? {
+        if engine == .yandex, let plan = yandexChapterPlan {
+            return plan.billing
+        }
+        return cloudBilling?.providers[engine]
+    }
 
     func reload(preferredBookID: String? = nil) async {
         invalidateOpenAIIntent()
