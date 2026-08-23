@@ -53,6 +53,10 @@ class WorkspacePathContractTests(unittest.TestCase):
                 paths.billing_provider_cache,
                 Path(directory).resolve() / "runtime/billing/provider-cache.json",
             )
+            self.assertEqual(
+                paths.yandex_chapter_plans,
+                Path(directory).resolve() / "runtime/yandex-chapter-plans",
+            )
 
     def test_absolute_test_paths_remain_supported(self):
         with tempfile.TemporaryDirectory() as directory:
