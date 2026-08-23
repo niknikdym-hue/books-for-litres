@@ -1,10 +1,13 @@
-"""Local-only Qwen chapter execution over the persistent manifest contract."""
+"""Local-only Qwen chapter segment production over the persistent manifest contract.
+
+This service stops at integrity-checked WAV segments. Chapter assembly is intentionally a
+later gate after automatic QA and manual review acceptance.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import os
-import wave
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -19,53 +22,6 @@ class QwenChapterExecutionError(RuntimeError):
 
 def _sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _atomic_join_wavs(inputs: list[dict[str, Any]], destination: Path) -> Path:
-    if not inputs:
-        raise QwenChapterExecutionError("No Qwen chapter WAV inputs are available for assembly.")
-    destination = Path(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_suffix(destination.suffix + ".part")
-    if temporary.exists():
-        temporary.unlink()
-    expected: tuple[int, int, int] | None = None
-    try:
-        with wave.open(str(temporary), "wb") as output:
-            for item in inputs:
-                source_path = Path(item["wav_path"])
-                metadata = inspect_pcm_wav(source_path)
-                current = (metadata.channels, metadata.sample_width_bytes, metadata.sample_rate_hz)
-                if expected is None:
-                    expected = current
-                    output.setnchannels(metadata.channels)
-                    output.setsampwidth(metadata.sample_width_bytes)
-                    output.setframerate(metadata.sample_rate_hz)
-                elif current != expected:
-                    raise QwenChapterExecutionError("Qwen chapter segment WAV formats do not match.")
-                with wave.open(str(source_path), "rb") as source:
-                    while True:
-                        frames = source.readframes(8192)
-                        if not frames:
-                            break
-                        output.writeframesraw(frames)
-                pause_ms = int(item.get("pause_after_ms") or 0)
-                if pause_ms > 0:
-                    silence_frames = round(metadata.sample_rate_hz * pause_ms / 1000)
-                    frame = b"\x00" * metadata.block_align
-                    chunk = frame * min(silence_frames, 8192)
-                    remaining = silence_frames
-                    while remaining > 0:
-                        count = min(remaining, 8192)
-                        output.writeframesraw(chunk[: count * metadata.block_align])
-                        remaining -= count
-        inspect_pcm_wav(temporary)
-        os.replace(temporary, destination)
-        inspect_pcm_wav(destination)
-        return destination
-    finally:
-        if temporary.exists():
-            temporary.unlink()
 
 
 class QwenChapterExecutionService:
@@ -99,7 +55,6 @@ class QwenChapterExecutionService:
         job_id: str,
         profile_id: str,
         synthesis_identity: Mapping[str, Any],
-        chapter_output: Path,
     ) -> dict[str, Any]:
         self.manifest.prepare(
             book_id=book_id,
@@ -184,17 +139,12 @@ class QwenChapterExecutionService:
             synthesis_identity=synthesis_identity,
         )
         if not final_status["complete"]:
-            raise QwenChapterExecutionError("Qwen chapter is not complete after local execution.")
-        inputs = self.manifest.assembly_inputs(
-            book_id=book_id,
-            job_id=job_id,
-            profile_id=profile_id,
-            synthesis_identity=synthesis_identity,
-        )
-        final_path = _atomic_join_wavs(inputs, Path(chapter_output))
+            raise QwenChapterExecutionError("Qwen segment production is not complete after local execution.")
         return {
             **final_status,
             "generated_segments": generated,
-            "output_path": str(final_path),
+            "segment_job_dir": final_status["job_dir"],
+            "chapter_assembly_performed": False,
+            "next_gate": "AUTOMATIC_QA",
             "remote_request_sent": False,
         }
