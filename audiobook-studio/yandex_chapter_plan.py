@@ -1,6 +1,6 @@
 """Immutable Yandex chapter confirmation plans with one-shot execution safety.
 
-The service freezes the current prepared chapter identity, cache-aware remaining provider
+The service freezes the current prepared chapter identity, exact cache-aware provider
 work, pricing identity and a maximum number of new provider requests. Execution exists at
 the service layer only; bridge/native wiring must provide the separate explicit user
 confirmation before calling it.
@@ -40,6 +40,7 @@ IMMUTABLE_PLAN_KEYS = (
     "preparation_identity",
     "preparation_revision",
     "backend_identity",
+    "provider_segment_states",
     "provider_segments",
     "cached_segments",
     "max_network_requests",
@@ -54,10 +55,10 @@ IMMUTABLE_PLAN_KEYS = (
     "confirmation_scope",
 )
 
-# YandexChapterPlanService temporarily replaces the backend request hook to enforce
-# a per-confirmation request cap. That replacement must never overlap another
-# chapter execution in the same process, even when different plan/service
-# instances share a backend. Serialize the full replace/run/restore interval.
+# Chapter execution temporarily installs a backend dispatch gate that enforces the
+# immutable per-confirmation request cap at the actual HTTP-dispatch boundary.
+# Different plans sharing one backend must never overlap that install/run/restore
+# interval, so serialize it for the whole process.
 _BACKEND_EXECUTION_LOCK = threading.Lock()
 
 
@@ -225,6 +226,50 @@ class YandexChapterPlanService:
             },
         }
 
+    def _provider_segment_facts(self, text: str, job_dir: Path) -> tuple[list[dict[str, str]], list[str]]:
+        loader = getattr(self.backend, "segment_execution_facts", None)
+        if not callable(loader):
+            raise YandexChapterPlanError(
+                "Yandex backend does not expose exact segment execution facts.",
+                category="backend_contract",
+            )
+        try:
+            raw_facts = loader(text, job_dir=job_dir)
+        except Exception as error:
+            raise YandexChapterPlanError(
+                "Yandex segment execution facts are unavailable.",
+                category="backend_contract",
+            ) from error
+        if not isinstance(raw_facts, list) or not raw_facts:
+            raise YandexChapterPlanError(
+                "Yandex segment execution facts are invalid.",
+                category="backend_contract",
+            )
+
+        states: list[dict[str, str]] = []
+        blockers: list[str] = []
+        seen_ids: set[str] = set()
+        for raw in raw_facts:
+            if not isinstance(raw, Mapping):
+                raise YandexChapterPlanError("Yandex segment fact is invalid.", category="backend_contract")
+            segment_id = str(raw.get("segment_id") or "")
+            fingerprint = str(raw.get("fingerprint") or "")
+            cache_state = str(raw.get("cache_state") or "")
+            manifest_status = str(raw.get("manifest_status") or "")
+            if not segment_id or segment_id in seen_ids or not fingerprint or cache_state not in {"HIT", "MISS"}:
+                raise YandexChapterPlanError("Yandex segment fact identity is invalid.", category="backend_contract")
+            seen_ids.add(segment_id)
+            states.append({
+                "segment_id": segment_id,
+                "fingerprint": fingerprint,
+                "cache_state": cache_state,
+            })
+            if manifest_status == "AMBIGUOUS":
+                blockers.append("ambiguous_provider_state")
+            elif manifest_status == "IN_FLIGHT" and cache_state == "MISS":
+                blockers.append("in_flight_provider_state")
+        return states, blockers
+
     def _analyze(self, *, book_id: str, job_id: str, profile_id: str) -> dict[str, Any]:
         try:
             chapter = self.chapter_production.plan(
@@ -244,15 +289,22 @@ class YandexChapterPlanService:
         book, text = self._load_job_text(book_id, job_id)
         slug = str(book.get("slug") or chapter["book_id"])
         job_dir = self.backend.config.output_root / slug / job_id / "yandex" / profile_id
+        provider_segment_states, segment_blockers = self._provider_segment_facts(text, job_dir)
+        blockers.extend(segment_blockers)
+
         estimate = self.backend.estimate(
             text,
             pricing=self.pricing,
             job_dir=job_dir,
             scope="chapter",
         )
-        provider_segments = int(estimate.get("segments") or 0)
-        cached_segments = int(estimate.get("cached_segments") or 0)
-        if provider_segments <= 0 or cached_segments < 0 or cached_segments > provider_segments:
+        provider_segments = len(provider_segment_states)
+        cached_segments = sum(1 for item in provider_segment_states if item["cache_state"] == "HIT")
+        if (
+            provider_segments <= 0
+            or int(estimate.get("segments") or 0) != provider_segments
+            or int(estimate.get("cached_segments") or 0) != cached_segments
+        ):
             blockers.append("invalid_provider_estimate")
         max_network_requests = max(0, provider_segments - cached_segments)
 
@@ -281,6 +333,7 @@ class YandexChapterPlanService:
             "preparation_identity": chapter["preparation_identity"],
             "preparation_revision": chapter["preparation_revision"],
             "backend_identity": self._backend_identity(),
+            "provider_segment_states": provider_segment_states,
             "provider_segments": provider_segments,
             "cached_segments": cached_segments,
             "max_network_requests": max_network_requests,
@@ -388,11 +441,14 @@ class YandexChapterPlanService:
 
         try:
             with _BACKEND_EXECUTION_LOCK:
-                original_request = getattr(self.backend, "_request", None)
-                if not callable(original_request):
-                    raise YandexChapterPlanError("Yandex backend request hook is unavailable.", category="backend_contract")
+                if not hasattr(self.backend, "_network_dispatch_gate"):
+                    raise YandexChapterPlanError(
+                        "Yandex backend dispatch-gate contract is unavailable.",
+                        category="backend_contract",
+                    )
+                original_gate = getattr(self.backend, "_network_dispatch_gate")
 
-                def capped_request(text: str, request_id: str):
+                def dispatch_gate(request_id: str) -> None:
                     nonlocal request_slots, network_requests
                     if request_slots >= cap:
                         try:
@@ -403,33 +459,16 @@ class YandexChapterPlanService:
                                 category="request_cap_exceeded",
                             )
                         raise YandexSpeechKitError(
-                            "Confirmed chapter request cap was exhausted before network.",
+                            "Confirmed chapter request cap was exhausted before provider dispatch.",
                             category="request_cap_exceeded",
                             retryable=False,
                             request_id=request_id,
                         )
                     request_slots += 1
-                    try:
-                        response = original_request(text, request_id)
-                    except Exception as error:
-                        category = getattr(error, "category", None)
-                        pre_network_categories = {
-                            "credential",
-                            "credentials",
-                            "credentials_duplicate",
-                            "platform",
-                            "config",
-                            "input",
-                            "segment_limit",
-                        }
-                        if category not in pre_network_categories:
-                            network_requests += 1
-                        raise
                     network_requests += 1
-                    return response
 
                 try:
-                    setattr(self.backend, "_request", capped_request)
+                    setattr(self.backend, "_network_dispatch_gate", dispatch_gate)
                     try:
                         manifest_path = self.backend.run_text_job(
                             analysis["text"],
@@ -447,7 +486,7 @@ class YandexChapterPlanService:
                             ) from error
                         raise
                 finally:
-                    setattr(self.backend, "_request", original_request)
+                    setattr(self.backend, "_network_dispatch_gate", original_gate)
 
             if request_slots > cap or network_requests > cap:
                 raise YandexChapterPlanError(
