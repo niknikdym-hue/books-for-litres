@@ -20,11 +20,11 @@ SUPPORTED_ENGINES = {"qwen", "yandex", "openai"}
 
 _ENGINE_POLICIES: dict[str, dict[str, Any]] = {
     "qwen": {
-        "execution_mode": "LOCAL_FULL_CHAPTER",
+        "execution_mode": "LOCAL_RESUMABLE_SEGMENTS",
         "confirmation_scope": "chapter",
         "max_network_requests": 0,
         "requires_cost_preflight": False,
-        "resume_authority": "chapter_production_manifest",
+        "resume_authority": "qwen_chapter_manifest",
     },
     "yandex": {
         "execution_mode": "CLOUD_CHAPTER_BATCH",
@@ -171,11 +171,11 @@ class ChapterProductionService:
         policy = dict(_ENGINE_POLICIES[engine])
         blockers: list[str] = []
         if engine == "qwen":
-            # Current Qwen runner creates a unique new render and cannot resume a
-            # canonical chapter manifest after interruption. Do not advertise it
-            # as production-ready until that adapter exists.
-            blockers.append("qwen_persistent_resume_adapter_pending")
-            decision = "ADAPTER_PENDING"
+            # Qwen now has a canonical persistent per-segment manifest and a
+            # resumable local execution adapter. Chapter assembly remains a later
+            # gate after automatic QA/manual review and is deliberately not part
+            # of this production decision.
+            decision = "READY_FOR_LOCAL_SEGMENT_PRODUCTION"
         elif engine == "yandex":
             decision = "READY_FOR_PROVIDER_PREFLIGHT"
         else:
