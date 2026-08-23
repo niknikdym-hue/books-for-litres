@@ -26,6 +26,32 @@ SCHEMA_VERSION = 1
 DEFAULT_TTL_SECONDS = 600
 PLAN_STATES = {"PREPARED", "CONSUMING", "CONSUMED", "BLOCKED", "EXPIRED"}
 PLAN_DECISIONS = {"READY_FOR_CONFIRMATION", "CACHE_ONLY", "BLOCKED"}
+IMMUTABLE_PLAN_KEYS = (
+    "schema_version",
+    "plan_id",
+    "created_at",
+    "expires_at",
+    "provider",
+    "book_id",
+    "job_id",
+    "profile_id",
+    "chapter_production_identity",
+    "preparation_identity",
+    "preparation_revision",
+    "backend_identity",
+    "provider_segments",
+    "cached_segments",
+    "max_network_requests",
+    "pricing_identity",
+    "estimated_remaining_cost",
+    "billable_remaining_units",
+    "hard_limit_rub",
+    "decision",
+    "blockers",
+    "estimate",
+    "job_dir",
+    "confirmation_scope",
+)
 
 
 class YandexChapterPlanError(RuntimeError):
@@ -42,6 +68,10 @@ def _canonical_hash(value: Mapping[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _plan_digest(plan: Mapping[str, Any]) -> str:
+    return _canonical_hash({key: plan.get(key) for key in IMMUTABLE_PLAN_KEYS})
 
 
 def _iso(value: datetime) -> str:
@@ -157,9 +187,35 @@ class YandexChapterPlanService:
             "unit": str(getattr(self.pricing, "unit", "billing_unit")),
             "unit_price": None if getattr(self.pricing, "unit_price", None) is None else str(self.pricing.unit_price),
             "pricing_model": str(getattr(self.pricing, "pricing_model", "")),
+            "source_region": str(getattr(self.pricing, "source_region", "")),
             "verified_at": verified_at.isoformat() if verified_at is not None else None,
             "source_url": str(getattr(self.pricing, "source_url", "")),
+            "max_age_days": int(getattr(self.pricing, "max_age_days", 0)),
             "hard_limit_rub": None if getattr(self.pricing, "hard_limit_rub", None) is None else str(self.pricing.hard_limit_rub),
+            "demo_hard_limit_rub": None if getattr(self.pricing, "demo_hard_limit_rub", None) is None else str(self.pricing.demo_hard_limit_rub),
+        }
+
+    def _backend_identity(self) -> dict[str, Any]:
+        profile = self.backend.profile
+        config = self.backend.config
+        return {
+            "endpoint": str(getattr(config, "endpoint", "")),
+            "keychain_service": str(getattr(config, "keychain_service", "")),
+            "keychain_account": str(getattr(config, "keychain_account", "")),
+            "output_root": str(getattr(config, "output_root", "")),
+            "segmentation": {
+                "max_chars": int(getattr(config, "max_chars", 0)),
+                "max_words": int(getattr(config, "max_words", 0)),
+                "sentence_pause_ms": int(getattr(config, "sentence_pause_ms", 0)),
+                "paragraph_pause_ms": int(getattr(config, "paragraph_pause_ms", 0)),
+            },
+            "profile": {
+                "voice": str(getattr(profile, "voice", "")),
+                "role": str(getattr(profile, "role", "")),
+                "speed": str(getattr(profile, "speed", "")),
+                "output_container": str(getattr(profile, "output_container", "")),
+                "loudness_normalization": str(getattr(profile, "loudness_normalization", "")),
+            },
         }
 
     def _analyze(self, *, book_id: str, job_id: str, profile_id: str) -> dict[str, Any]:
@@ -217,9 +273,7 @@ class YandexChapterPlanService:
             "chapter_production_identity": chapter["chapter_production_identity"],
             "preparation_identity": chapter["preparation_identity"],
             "preparation_revision": chapter["preparation_revision"],
-            "provider_voice": str(self.backend.profile.voice),
-            "provider_role": str(self.backend.profile.role),
-            "provider_speed": str(self.backend.profile.speed),
+            "backend_identity": self._backend_identity(),
             "provider_segments": provider_segments,
             "cached_segments": cached_segments,
             "max_network_requests": max_network_requests,
@@ -245,7 +299,6 @@ class YandexChapterPlanService:
         plan = {
             "schema_version": SCHEMA_VERSION,
             "plan_id": str(uuid.uuid4()),
-            "plan_digest": _canonical_hash(critical),
             "state": "BLOCKED" if analysis["decision"] == "BLOCKED" else "PREPARED",
             "created_at": _iso(created),
             "expires_at": _iso(created + timedelta(seconds=self.ttl_seconds)),
@@ -257,6 +310,7 @@ class YandexChapterPlanService:
             "confirmation_scope": "chapter",
             "remote_request_sent": False,
         }
+        plan["plan_digest"] = _plan_digest(plan)
         self.store.save(plan)
         return plan
 
@@ -266,6 +320,8 @@ class YandexChapterPlanService:
             raise YandexChapterPlanError("Chapter plan schema is invalid.", category="invalid_plan")
         if plan.get("plan_digest") != plan_digest:
             raise YandexChapterPlanError("Chapter plan digest does not match.", category="plan_digest_mismatch")
+        if _plan_digest(plan) != plan_digest:
+            raise YandexChapterPlanError("Persisted chapter plan immutable fields were modified.", category="plan_integrity")
         if plan.get("state") != "PREPARED":
             raise YandexChapterPlanError("Chapter plan has already been consumed or is blocked.", category="plan_not_prepared")
         if self._now().astimezone(timezone.utc) >= _parse_time(str(plan.get("expires_at"))):
@@ -280,7 +336,13 @@ class YandexChapterPlanService:
         )
         if analysis["decision"] != plan.get("decision") or analysis["blockers"]:
             raise YandexChapterPlanError("Chapter execution facts are no longer eligible.", category="execution_facts_changed")
-        if _canonical_hash(analysis["critical"]) != plan_digest:
+        current = dict(plan)
+        current.update(analysis["critical"])
+        current["decision"] = analysis["decision"]
+        current["blockers"] = analysis["blockers"]
+        current["estimate"] = analysis["estimate"]
+        current["job_dir"] = str(analysis["job_dir"])
+        if _plan_digest(current) != plan_digest:
             raise YandexChapterPlanError("Chapter execution facts changed after confirmation plan.", category="execution_facts_changed")
         return plan, analysis
 
@@ -330,8 +392,6 @@ class YandexChapterPlanService:
         def capped_request(text: str, request_id: str):
             nonlocal request_slots, network_requests
             if request_slots >= cap:
-                # Raise the provider error type when available so run_text_job()
-                # records FAILED rather than leaving a false IN_FLIGHT ambiguity.
                 try:
                     from backends.yandex_speechkit import YandexSpeechKitError
                 except ImportError:
@@ -347,7 +407,6 @@ class YandexChapterPlanService:
                 result = original_request(text, request_id)
             except Exception as error:
                 category = getattr(error, "category", None)
-                # These categories are known to fail locally before urlopen.
                 if category not in {"credential", "config", "input", "segment_limit"}:
                     network_requests += 1
                 raise
