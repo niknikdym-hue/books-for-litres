@@ -73,16 +73,19 @@ class ChapterProductionTests(unittest.TestCase):
         self.assertEqual(plan["execution_policy"]["max_network_requests"], 1)
         self.assertFalse(plan["remote_request_sent"])
 
-    def test_qwen_is_not_falsely_advertised_as_resumable(self) -> None:
+    def test_qwen_uses_persistent_resume_manifest_without_network(self) -> None:
         plan = self.service.plan(
             book_id="book",
             job_id="chapter-ch001",
             engine="qwen",
             profile_id="qwen_vivian",
         )
-        self.assertEqual(plan["decision"], "ADAPTER_PENDING")
-        self.assertIn("qwen_persistent_resume_adapter_pending", plan["blockers"])
+        self.assertEqual(plan["decision"], "READY_FOR_LOCAL_SEGMENT_PRODUCTION")
+        self.assertEqual(plan["blockers"], [])
+        self.assertEqual(plan["execution_policy"]["execution_mode"], "LOCAL_RESUMABLE_SEGMENTS")
+        self.assertEqual(plan["execution_policy"]["resume_authority"], "qwen_chapter_manifest")
         self.assertEqual(plan["execution_policy"]["max_network_requests"], 0)
+        self.assertFalse(plan["remote_request_sent"])
 
     def test_preview_job_is_rejected_for_chapter_production(self) -> None:
         with self.assertRaisesRegex(ChapterProductionError, "only prepared chapter jobs"):
