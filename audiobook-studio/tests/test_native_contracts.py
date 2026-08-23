@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class NativeContractTests(unittest.TestCase):
+    @unittest.skipUnless(
+        sys.platform == "darwin" and shutil.which("xcrun") is not None,
+        "requires macOS Swift toolchain",
+    )
     def test_swift_decodes_canonical_snapshot_and_renders_billing_honestly(self):
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
