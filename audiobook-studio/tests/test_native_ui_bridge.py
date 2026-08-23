@@ -288,6 +288,8 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"--plan-digest", plan.planDigest', execute)
         self.assertIn("currentYandexChapterSelection() == plannedSelection", execute)
         self.assertIn("yandexChapterPlanSelection = nil", execute)
+        self.assertIn('yandexChapterStatusText = ""', execute)
+        self.assertIn("showYandexChapterConfirmation = false", execute)
         self.assertIn('"Озвучить подготовленную главу?"', source)
         self.assertIn("Новых запросов: максимум", source)
         self.assertIn("struct YandexChapterRunPlan", contracts)

@@ -349,6 +349,10 @@ final class StudioModel: ObservableObject {
                     : "Глава озвучена. Provider-запросов: \(result.networkRequests)."
                 errorMessage = nil
             } catch {
+                yandexChapterPlan = nil
+                yandexChapterPlanSelection = nil
+                yandexChapterStatusText = ""
+                showYandexChapterConfirmation = false
                 showError(error)
             }
         }

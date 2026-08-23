@@ -214,6 +214,29 @@ class ChapterProductionTests(unittest.TestCase):
         self.assertNotIn("failed_segment_requires_resolution", plan["blockers"])
         self.assertEqual(self.requests, 0)
 
+    def test_shifted_segment_id_still_blocks_matching_ambiguous_fingerprint(self) -> None:
+        service = self.service()
+        book = service.library.load_book_for_execution("chapter-book")
+        text = "\n\n".join(segment["text"] for segment in book["jobs"]["chapter-ch001"]["segments"])
+        current_segment = service.backend.segment(text)[0]
+        job_dir = service._job_dir(book, "chapter-ch001")
+        job_dir.mkdir(parents=True, exist_ok=True)
+        (job_dir / "MANIFEST.json").write_text(json.dumps({
+            "schema_version": 1,
+            "engine": "yandex_speechkit_v3",
+            "job_id": "chapter-ch001",
+            "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segments": {"s9999": {
+                "status": "AMBIGUOUS",
+                "fingerprint": make_fingerprint(current_segment.text, service.backend.profile),
+            }},
+        }), encoding="utf-8")
+
+        blocked = self.prepare(service)
+        self.assertEqual(blocked["decision"], "BLOCKED")
+        self.assertIn("ambiguous_segment_requires_resolution", blocked["blockers"])
+        self.assertEqual(self.requests, 0)
+
     def test_changed_working_copy_invalidates_plan_before_request(self) -> None:
         service = self.service()
         plan = self.prepare(service)
