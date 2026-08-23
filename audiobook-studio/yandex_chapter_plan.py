@@ -413,7 +413,16 @@ class YandexChapterPlanService:
                         response = original_request(text, request_id)
                     except Exception as error:
                         category = getattr(error, "category", None)
-                        if category not in {"credential", "config", "input", "segment_limit"}:
+                        pre_network_categories = {
+                            "credential",
+                            "credentials",
+                            "credentials_duplicate",
+                            "platform",
+                            "config",
+                            "input",
+                            "segment_limit",
+                        }
+                        if category not in pre_network_categories:
                             network_requests += 1
                         raise
                     network_requests += 1
