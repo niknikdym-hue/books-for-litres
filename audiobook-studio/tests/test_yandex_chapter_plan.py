@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -19,15 +19,30 @@ class FakePricing:
     unit: str = "billing_unit"
     unit_price: Decimal | None = Decimal("1.00")
     pricing_model: str = "per_segment"
+    source_region: str = "ru-central1"
     verified_at: date | None = date(2026, 8, 23)
     source_url: str = "https://example.invalid/pricing"
+    max_age_days: int = 30
     hard_limit_rub: Decimal | None = Decimal("100.00")
+    demo_hard_limit_rub: Decimal | None = Decimal("5.00")
 
 
 class FakeYandexBackend:
     def __init__(self, root: Path) -> None:
-        self.config = SimpleNamespace(output_root=root / "renders")
-        self.profile = SimpleNamespace(voice="lera", role="neutral", speed="1.04")
+        self.config = SimpleNamespace(
+            output_root=root / "renders",
+            endpoint="https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis",
+            keychain_service="AudiobookStudio-YandexSpeechKit",
+            keychain_account="tester",
+            max_chars=220,
+            max_words=34,
+            sentence_pause_ms=380,
+            paragraph_pause_ms=700,
+        )
+        self.profile = SimpleNamespace(
+            voice="lera", role="neutral", speed="1.04",
+            output_container="WAV", loudness_normalization="LUFS",
+        )
         self.cached_segments = 0
         self.allowed_to_start = True
         self.blocked_reason = None
@@ -203,6 +218,44 @@ class YandexChapterPlanTests(unittest.TestCase):
         stored = self.service.store.load(plan["plan_id"])
         self.assertEqual(stored["state"], "CONSUMED")
         self.assertEqual(stored["network_requests"], 2)
+
+    def test_expiry_tamper_breaks_plan_integrity(self) -> None:
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        stored = self.service.store.load(plan["plan_id"])
+        stored["expires_at"] = "2026-08-24T12:00:00+00:00"
+        self.service.store.save(stored)
+        with self.assertRaisesRegex(YandexChapterPlanError, "immutable fields"):
+            self.service.revalidate(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+
+    def test_output_container_change_invalidates_plan(self) -> None:
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.backend.profile.output_container = "OGG_OPUS"
+        with self.assertRaisesRegex(YandexChapterPlanError, "changed"):
+            self.service.revalidate(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+
+    def test_loudness_change_invalidates_plan(self) -> None:
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.backend.profile.loudness_normalization = "PEAK"
+        with self.assertRaisesRegex(YandexChapterPlanError, "changed"):
+            self.service.revalidate(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+
+    def test_segmentation_policy_change_invalidates_plan(self) -> None:
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.backend.config.max_chars = 221
+        with self.assertRaisesRegex(YandexChapterPlanError, "changed"):
+            self.service.revalidate(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+
+    def test_pricing_age_policy_change_invalidates_plan(self) -> None:
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.service.pricing = replace(self.service.pricing, max_age_days=31)
+        with self.assertRaisesRegex(YandexChapterPlanError, "changed"):
+            self.service.revalidate(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+
+    def test_pricing_provenance_change_invalidates_plan(self) -> None:
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.service.pricing = replace(self.service.pricing, source_region="other-region")
+        with self.assertRaisesRegex(YandexChapterPlanError, "changed"):
+            self.service.revalidate(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
 
 
 if __name__ == "__main__":
