@@ -1,13 +1,14 @@
-"""Immutable, network-free Yandex chapter preflight plans.
+"""Immutable Yandex chapter confirmation plans with one-shot execution safety.
 
-Execution is intentionally not implemented here. The plan freezes the current prepared
-chapter identity, cache-aware remaining provider work, pricing identity and a maximum
-number of new provider requests so a later explicit confirmation can be revalidated
-without silently widening scope.
+The service freezes the current prepared chapter identity, cache-aware remaining provider
+work, pricing identity and a maximum number of new provider requests. Execution exists at
+the service layer only; bridge/native wiring must provide the separate explicit user
+confirmation before calling it.
 """
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -23,7 +24,7 @@ from chapter_production import ChapterProductionError, ChapterProductionService
 
 SCHEMA_VERSION = 1
 DEFAULT_TTL_SECONDS = 600
-PLAN_STATES = {"PREPARED", "BLOCKED", "EXPIRED"}
+PLAN_STATES = {"PREPARED", "CONSUMING", "CONSUMED", "BLOCKED", "EXPIRED"}
 PLAN_DECISIONS = {"READY_FOR_CONFIRMATION", "CACHE_ONLY", "BLOCKED"}
 
 
@@ -88,9 +89,26 @@ class YandexChapterPlanStore:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
+    def locked(self, plan_id: str):
+        store = self
+
+        class Lock:
+            def __enter__(self) -> "Lock":
+                path = store.path(plan_id)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self.handle = path.with_suffix(".lock").open("a+")
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+                self.handle.close()
+
+        return Lock()
+
 
 class YandexChapterPlanService:
-    """Create and revalidate immutable Yandex chapter confirmation plans."""
+    """Create, revalidate and one-shot consume Yandex chapter confirmation plans."""
 
     def __init__(
         self,
@@ -175,7 +193,11 @@ class YandexChapterPlanService:
             blockers.append("invalid_provider_estimate")
         max_network_requests = max(0, provider_segments - cached_segments)
 
-        if max_network_requests > 0 and not estimate.get("allowed_to_start"):
+        # Keep parity with the current Yandex backend: even CACHE_ONLY
+        # materialization goes through run_text_job(), whose pricing gate must be
+        # satisfied. A future dedicated cache-only materializer can relax this
+        # without ever authorizing a provider request.
+        if not estimate.get("allowed_to_start"):
             blockers.append(str(estimate.get("blocked_reason") or "pricing_gate"))
 
         blockers = list(dict.fromkeys(blockers))
@@ -211,6 +233,7 @@ class YandexChapterPlanService:
             "chapter": chapter,
             "estimate": estimate,
             "job_dir": job_dir,
+            "text": text,
             "decision": decision,
             "blockers": blockers,
         }
@@ -237,14 +260,14 @@ class YandexChapterPlanService:
         self.store.save(plan)
         return plan
 
-    def revalidate(self, *, plan_id: str, plan_digest: str) -> dict[str, Any]:
+    def _validate_prepared_plan(self, plan_id: str, plan_digest: str) -> tuple[dict[str, Any], dict[str, Any]]:
         plan = self.store.load(plan_id)
         if plan.get("schema_version") != SCHEMA_VERSION or plan.get("state") not in PLAN_STATES:
             raise YandexChapterPlanError("Chapter plan schema is invalid.", category="invalid_plan")
         if plan.get("plan_digest") != plan_digest:
             raise YandexChapterPlanError("Chapter plan digest does not match.", category="plan_digest_mismatch")
         if plan.get("state") != "PREPARED":
-            raise YandexChapterPlanError("Chapter plan is blocked or unavailable.", category="plan_not_prepared")
+            raise YandexChapterPlanError("Chapter plan has already been consumed or is blocked.", category="plan_not_prepared")
         if self._now().astimezone(timezone.utc) >= _parse_time(str(plan.get("expires_at"))):
             plan["state"] = "EXPIRED"
             self.store.save(plan)
@@ -259,6 +282,10 @@ class YandexChapterPlanService:
             raise YandexChapterPlanError("Chapter execution facts are no longer eligible.", category="execution_facts_changed")
         if _canonical_hash(analysis["critical"]) != plan_digest:
             raise YandexChapterPlanError("Chapter execution facts changed after confirmation plan.", category="execution_facts_changed")
+        return plan, analysis
+
+    def revalidate(self, *, plan_id: str, plan_digest: str) -> dict[str, Any]:
+        plan, _ = self._validate_prepared_plan(plan_id, plan_digest)
         return {
             "plan_id": plan_id,
             "plan_digest": plan_digest,
@@ -267,3 +294,97 @@ class YandexChapterPlanService:
             "chapter_production_identity": plan["chapter_production_identity"],
             "remote_request_sent": False,
         }
+
+    def execute(self, *, plan_id: str, plan_digest: str) -> dict[str, Any]:
+        """Consume one confirmed plan and run at most its frozen request cap.
+
+        The native/bridge layer is responsible for obtaining explicit chapter
+        confirmation before calling this method. This method itself is fail-closed
+        and one-shot, and never retries automatically.
+        """
+        with self.store.locked(plan_id):
+            plan, analysis = self._validate_prepared_plan(plan_id, plan_digest)
+            if plan.get("decision") not in {"READY_FOR_CONFIRMATION", "CACHE_ONLY"}:
+                raise YandexChapterPlanError("Chapter plan is not executable.", category="plan_not_executable")
+            cap = int(plan.get("max_network_requests") or 0)
+            if cap < 0:
+                raise YandexChapterPlanError("Chapter request cap is invalid.", category="invalid_plan")
+            plan["state"] = "CONSUMING"
+            plan["consuming_at"] = _iso(self._now())
+            self.store.save(plan)
+
+        request_slots = 0
+        network_requests = 0
+        original_request = getattr(self.backend, "_request", None)
+        if not callable(original_request):
+            with self.store.locked(plan_id):
+                final_plan = self.store.load(plan_id)
+                final_plan["state"] = "CONSUMED"
+                final_plan["consumed_at"] = _iso(self._now())
+                final_plan["request_slots"] = 0
+                final_plan["network_requests"] = 0
+                final_plan["remote_request_sent"] = False
+                self.store.save(final_plan)
+            raise YandexChapterPlanError("Yandex backend request hook is unavailable.", category="backend_contract")
+
+        def capped_request(text: str, request_id: str):
+            nonlocal request_slots, network_requests
+            if request_slots >= cap:
+                # Raise the provider error type when available so run_text_job()
+                # records FAILED rather than leaving a false IN_FLIGHT ambiguity.
+                try:
+                    from backends.yandex_speechkit import YandexSpeechKitError
+                except ImportError:
+                    raise YandexChapterPlanError("Confirmed chapter request cap was exhausted.", category="request_cap_exceeded")
+                raise YandexSpeechKitError(
+                    "Confirmed chapter request cap was exhausted before network.",
+                    category="request_cap_exceeded",
+                    retryable=False,
+                    request_id=request_id,
+                )
+            request_slots += 1
+            try:
+                result = original_request(text, request_id)
+            except Exception as error:
+                category = getattr(error, "category", None)
+                # These categories are known to fail locally before urlopen.
+                if category not in {"credential", "config", "input", "segment_limit"}:
+                    network_requests += 1
+                raise
+            network_requests += 1
+            return result
+
+        try:
+            setattr(self.backend, "_request", capped_request)
+            joined = self.backend.run_text_job(
+                analysis["text"],
+                analysis["job_dir"],
+                job_id=str(plan["job_id"]),
+                pricing=self.pricing,
+                scope="chapter",
+            )
+            if request_slots > cap or network_requests > cap:
+                raise YandexChapterPlanError("Yandex chapter exceeded its confirmed request cap.", category="request_cap_exceeded")
+            result = {
+                "plan_id": plan_id,
+                "plan_digest": plan_digest,
+                "state": "CONSUMED",
+                "decision": plan["decision"],
+                "chapter_production_identity": plan["chapter_production_identity"],
+                "output_path": str(joined),
+                "request_slots": request_slots,
+                "network_requests": network_requests,
+                "max_network_requests": cap,
+                "remote_request_sent": network_requests > 0,
+            }
+        finally:
+            setattr(self.backend, "_request", original_request)
+            with self.store.locked(plan_id):
+                final_plan = self.store.load(plan_id)
+                final_plan["state"] = "CONSUMED"
+                final_plan["consumed_at"] = _iso(self._now())
+                final_plan["request_slots"] = request_slots
+                final_plan["network_requests"] = network_requests
+                final_plan["remote_request_sent"] = network_requests > 0
+                self.store.save(final_plan)
+        return result
