@@ -140,13 +140,18 @@ class QwenChapterExecutionService:
                 raise QwenChapterExecutionError("Prepared Qwen segment text changed after claim.")
             output_path = Path(claim["output_path"])
             output_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path = output_path.with_suffix(output_path.suffix + ".part")
+            if temporary_path.exists():
+                temporary_path.unlink()
             try:
                 self.synthesize_segment(
                     text=text,
-                    output_path=output_path,
+                    output_path=temporary_path,
                     seed=int(claim["seed"]),
                     segment_id=segment_id,
                 )
+                inspect_pcm_wav(temporary_path)
+                os.replace(temporary_path, output_path)
                 inspect_pcm_wav(output_path)
                 self.manifest.complete(
                     book_id=book_id,
@@ -169,6 +174,9 @@ class QwenChapterExecutionService:
                 except QwenChapterManifestError:
                     pass
                 raise
+            finally:
+                if temporary_path.exists():
+                    temporary_path.unlink()
         final_status = self.manifest.status(
             book_id=book_id,
             job_id=job_id,
