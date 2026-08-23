@@ -52,6 +52,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_qwen_chapter_execution.py' -v
           python -m unittest discover -s tests -p 'test_qwen_chapter_runner.py' -v
           python -m unittest discover -s tests -p 'test_yandex_chapter_plan.py' -v
+          python -m unittest discover -s tests -p 'test_yandex_chapter_backend_safety.py' -v
           python -m unittest discover -s tests -p 'test_yandex_chapter_runner.py' -v
           python -m unittest discover -s tests -p 'test_yandex_speechkit.py' -v
 
