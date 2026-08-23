@@ -1,0 +1,86 @@
+name: Audiobook Studio PR1 Evidence
+
+on:
+  push:
+    branches:
+      - ci/audiobook-pr1-evidence-1b22ab3
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: audiobook-studio
+    steps:
+      - name: Checkout exact evidence branch
+        uses: actions/checkout@v4
+
+      - name: Verify tested code parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD
+          parent="$(git rev-parse HEAD^)"
+          test "$parent" = "1b22ab33426cab5b9bb72a62b4661106827bf24b"
+          changed="$(git diff --name-only "$parent" HEAD)"
+          test "$changed" = ".github/workflows/audiobook-pr1-evidence.yml"
+
+      - name: Install Python provider-network guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          guard="$RUNNER_TEMP/audiobook-network-guard"
+          mkdir -p "$guard"
+          cat > "$guard/sitecustomize.py" <<'PY'
+          import socket
+
+          _real_connect = socket.socket.connect
+          _real_create_connection = socket.create_connection
+
+          def _blocked(*args, **kwargs):
+              raise RuntimeError("PROVIDER_NETWORK_BLOCKED_BY_ACCEPTANCE_GUARD")
+
+          socket.socket.connect = _blocked
+          socket.create_connection = _blocked
+          PY
+          echo "PYTHONPATH=$guard:${PYTHONPATH:-}" >> "$GITHUB_ENV"
+          unset OPENAI_API_KEY YANDEX_API_KEY YC_API_KEY || true
+
+      - name: Full offline Python suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Validate native plist
+        shell: bash
+        run: |
+          set -euo pipefail
+          plutil -lint native/Info.plist
+
+      - name: Fresh native build and strict codesign
+        shell: bash
+        env:
+          AUDIOBOOK_STUDIO_HOME: ${{ runner.temp }}/Audiobook-Studio
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/native-staging/Audiobook Studio.app"
+          native/build_native_app.sh "$output"
+          plutil -lint "$output/Contents/Info.plist"
+          codesign --verify --deep --strict --verbose=2 "$output"
+
+      - name: Record provider-free evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PROVIDER_CREDENTIALS_PRESENT=0"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${YANDEX_API_KEY:-}"
+          test -z "${YC_API_KEY:-}"
+          echo "PROVIDER_NETWORK_GUARD=ENABLED"
+          echo "PRODUCTION_WORKSPACE_MOUNTED=0"
+          echo "PRODUCTION_BILLING_LEDGER_TOUCHED=0"
