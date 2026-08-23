@@ -140,6 +140,7 @@ class QwenChapterManifestService:
         job_dir = self._job_dir(book_id, job_id, profile_id)
         path = job_dir / "MANIFEST.json"
         with self._locked(job_dir):
+            reuse_existing = False
             if path.exists():
                 try:
                     old = json.loads(path.read_text(encoding="utf-8"))
@@ -148,31 +149,28 @@ class QwenChapterManifestService:
                 if not isinstance(old, dict):
                     raise QwenChapterManifestError("Existing Qwen chapter manifest is invalid.")
                 if old.get("production_identity") == identity:
-                    return self.status(
-                        book_id=book_id,
-                        job_id=job_id,
-                        profile_id=profile_id,
-                        synthesis_identity=synthesis_identity,
-                    )
-                self._archive_manifest(job_dir, old)
+                    reuse_existing = True
+                else:
+                    self._archive_manifest(job_dir, old)
 
-            entries = {
-                item["id"]: {**item, "state": "PENDING", "updated_at": _utc_now()}
-                for item in segments
-            }
-            manifest = {
-                "schema_version": SCHEMA_VERSION,
-                "engine": "qwen",
-                "book_id": plan["book_id"],
-                "job_id": job_id,
-                "profile_id": profile_id,
-                "chapter_production_identity": plan["chapter_production_identity"],
-                "production_identity": identity,
-                "synthesis_identity": dict(synthesis_identity),
-                "created_at": _utc_now(),
-                "segments": entries,
-            }
-            atomic_write_json(path, manifest)
+            if not reuse_existing:
+                entries = {
+                    item["id"]: {**item, "state": "PENDING", "updated_at": _utc_now()}
+                    for item in segments
+                }
+                manifest = {
+                    "schema_version": SCHEMA_VERSION,
+                    "engine": "qwen",
+                    "book_id": plan["book_id"],
+                    "job_id": job_id,
+                    "profile_id": profile_id,
+                    "chapter_production_identity": plan["chapter_production_identity"],
+                    "production_identity": identity,
+                    "synthesis_identity": dict(synthesis_identity),
+                    "created_at": _utc_now(),
+                    "segments": entries,
+                }
+                atomic_write_json(path, manifest)
         return self.status(
             book_id=book_id,
             job_id=job_id,
@@ -272,16 +270,18 @@ class QwenChapterManifestService:
         profile_id: str,
         synthesis_identity: Mapping[str, Any],
     ) -> dict[str, Any]:
-        job_dir, manifest = self._load_current(
-            book_id=book_id,
-            job_id=job_id,
-            profile_id=profile_id,
-            synthesis_identity=synthesis_identity,
-        )
-        self._reconcile_done_integrity(job_dir, manifest)
-        counts = {state: 0 for state in STATES}
-        for entry in manifest["segments"].values():
-            counts[entry["state"]] += 1
+        job_dir = self._job_dir(book_id, job_id, profile_id)
+        with self._locked(job_dir):
+            _, manifest = self._load_current(
+                book_id=book_id,
+                job_id=job_id,
+                profile_id=profile_id,
+                synthesis_identity=synthesis_identity,
+            )
+            self._reconcile_done_integrity(job_dir, manifest)
+            counts = {state: 0 for state in STATES}
+            for entry in manifest["segments"].values():
+                counts[entry["state"]] += 1
         return {
             "schema_version": SCHEMA_VERSION,
             "book_id": manifest["book_id"],
@@ -401,27 +401,29 @@ class QwenChapterManifestService:
         profile_id: str,
         synthesis_identity: Mapping[str, Any],
     ) -> list[dict[str, Any]]:
-        job_dir, manifest = self._load_current(
-            book_id=book_id,
-            job_id=job_id,
-            profile_id=profile_id,
-            synthesis_identity=synthesis_identity,
-        )
-        result: list[dict[str, Any]] = []
-        for entry in manifest["segments"].values():
-            if entry.get("state") != "DONE":
-                raise QwenChapterManifestError("Qwen chapter is not complete for assembly.")
-            wav_path = job_dir / entry["wav"]
-            metadata = inspect_pcm_wav(wav_path)
-            result.append({
-                "id": entry["id"],
-                "wav_path": str(wav_path),
-                "pause_after_ms": int(entry["pause_after_ms"]),
-                "sample_rate_hz": metadata.sample_rate_hz,
-                "channels": metadata.channels,
-                "sample_width_bytes": metadata.sample_width_bytes,
-            })
-        return result
+        job_dir = self._job_dir(book_id, job_id, profile_id)
+        with self._locked(job_dir):
+            _, manifest = self._load_current(
+                book_id=book_id,
+                job_id=job_id,
+                profile_id=profile_id,
+                synthesis_identity=synthesis_identity,
+            )
+            result: list[dict[str, Any]] = []
+            for entry in manifest["segments"].values():
+                if entry.get("state") != "DONE":
+                    raise QwenChapterManifestError("Qwen chapter is not complete for assembly.")
+                wav_path = job_dir / entry["wav"]
+                metadata = inspect_pcm_wav(wav_path)
+                result.append({
+                    "id": entry["id"],
+                    "wav_path": str(wav_path),
+                    "pause_after_ms": int(entry["pause_after_ms"]),
+                    "sample_rate_hz": metadata.sample_rate_hz,
+                    "channels": metadata.channels,
+                    "sample_width_bytes": metadata.sample_width_bytes,
+                })
+            return result
 
     def retry_failed(
         self,
