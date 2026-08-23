@@ -49,6 +49,14 @@ struct Book: Codable, Identifiable, Hashable {
     let sourceReadOnly: Bool?
     let ttsWorkingCopyPath: String?
     let ttsWorkingCopyStatus: String?
+    let ttsWorkingCopyCurrentSHA256: String?
+    let preparationStatus: String?
+    let preparationRevision: Int?
+    let preparationIdentity: String?
+    let preparedAt: String?
+    let normalizedSHA256: String?
+    let chapterCount: Int?
+    let preparedSegmentCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, slug, title, author, jobs, kind, enabled, status
@@ -62,6 +70,53 @@ struct Book: Codable, Identifiable, Hashable {
         case sourceReadOnly = "source_read_only"
         case ttsWorkingCopyPath = "tts_working_copy_path"
         case ttsWorkingCopyStatus = "tts_working_copy_status"
+        case ttsWorkingCopyCurrentSHA256 = "tts_working_copy_current_sha256"
+        case preparationStatus = "preparation_status"
+        case preparationRevision = "preparation_revision"
+        case preparationIdentity = "preparation_identity"
+        case preparedAt = "prepared_at"
+        case normalizedSHA256 = "normalized_sha256"
+        case chapterCount = "chapter_count"
+        case preparedSegmentCount = "prepared_segment_count"
+    }
+}
+
+struct BookTextPreparationResult: Codable {
+    let schemaVersion: Int
+    let bookID: String
+    let slug: String
+    let sourceIntegrity: String
+    let workingCopySHA256: String?
+    let preparationStatus: String
+    let preparationRevision: Int?
+    let preparationIdentity: String?
+    let preparedAt: String?
+    let normalizedSHA256: String?
+    let chapterCount: Int
+    let segmentCount: Int
+    let jobs: [PreparedJob]
+    let normalizedPath: String?
+    let structurePath: String?
+    let segmentsPath: String?
+    let remoteRequestSent: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case slug, jobs
+        case schemaVersion = "schema_version"
+        case bookID = "book_id"
+        case sourceIntegrity = "source_integrity"
+        case workingCopySHA256 = "working_copy_sha256"
+        case preparationStatus = "preparation_status"
+        case preparationRevision = "preparation_revision"
+        case preparationIdentity = "preparation_identity"
+        case preparedAt = "prepared_at"
+        case normalizedSHA256 = "normalized_sha256"
+        case chapterCount = "chapter_count"
+        case segmentCount = "segment_count"
+        case normalizedPath = "normalized_path"
+        case structurePath = "structure_path"
+        case segmentsPath = "segments_path"
+        case remoteRequestSent = "remote_request_sent"
     }
 }
 

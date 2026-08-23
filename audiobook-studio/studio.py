@@ -71,7 +71,7 @@ def list_book_profiles() -> list[Path]:
 
 
 def load_book(path: Path | str) -> dict[str, Any]:
-    return BOOK_LIBRARY.load_book_profile(Path(path).name)
+    return BOOK_LIBRARY.load_book_for_execution(Path(path).name)
 
 
 def load_voices() -> list[dict[str, Any]]:

@@ -59,6 +59,37 @@ struct NativeContractTests {
         require(!openai.paidExecutionEnabled, "OpenAI paid execution disabled")
         require(!snapshot.remoteRequestSent, "UI snapshot is offline")
 
+        let preparationJSON = """
+        {
+          "schema_version": 1,
+          "book_id": "native-preparation.json",
+          "slug": "native-preparation",
+          "source_integrity": "OK",
+          "working_copy_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preparation_status": "READY",
+          "preparation_revision": 2,
+          "preparation_identity": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "prepared_at": "2026-08-23T12:00:00+00:00",
+          "normalized_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "chapter_count": 2,
+          "segment_count": 3,
+          "jobs": [{"id":"short-test","label":"Безопасный короткий тест","segment_count":1}],
+          "normalized_path": "prepared/normalized.txt",
+          "structure_path": "prepared/structure.json",
+          "segments_path": "prepared/segments.json",
+          "remote_request_sent": false
+        }
+        """
+        let preparation = try JSONDecoder().decode(
+            BookTextPreparationResult.self,
+            from: Data(preparationJSON.utf8)
+        )
+        require(preparation.preparationStatus == "READY", "preparation status decodes")
+        require(preparation.preparationRevision == 2, "preparation revision decodes")
+        require(preparation.chapterCount == 2 && preparation.segmentCount == 3, "preparation counts decode")
+        require(preparation.normalizedPath == "prepared/normalized.txt", "preparation paths remain relative")
+        require(!preparation.remoteRequestSent, "text preparation is offline")
+
         let staleJSON = """
         {
           "schema_version": 1,

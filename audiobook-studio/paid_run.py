@@ -159,7 +159,7 @@ class PaidRunService:
     def _load_source(self, book_name: str, job_id: str) -> tuple[Path, dict[str, Any], dict[str, Any], str]:
         try:
             path = self.book_library.resolve_book_profile(book_name)
-            book = self.book_library.load_book_profile(book_name)
+            book = self.book_library.load_book_for_execution(book_name)
         except BookLibraryError as error:
             raise PaidRunError("Book profile is invalid.", category="invalid_book_job") from error
         jobs = book.get("jobs") if isinstance(book, dict) else None
