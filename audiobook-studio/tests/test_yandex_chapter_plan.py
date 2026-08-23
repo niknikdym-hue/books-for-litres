@@ -48,27 +48,61 @@ class FakeYandexBackend:
             output_container="WAV", loudness_normalization="LUFS",
         )
         self.cached_segments = 0
+        self.cached_segment_ids: set[str] | None = None
+        self.ambiguous_segment_ids: set[str] = set()
+        self.in_flight_segment_ids: set[str] = set()
         self.allowed_to_start = True
         self.blocked_reason = None
         self.estimate_calls = 0
         self.provider_requests = 0
         self.extra_request = False
         self.request_error_category: str | None = None
+        self.request_error_uncategorized = False
         self.run_delay_seconds = 0.0
         self.assemble_values: list[bool] = []
+        self._network_dispatch_gate = None
         self._activity_lock = threading.Lock()
         self.active_runs = 0
         self.max_active_runs = 0
 
+    @staticmethod
+    def _segment_ids() -> list[str]:
+        return ["provider-001", "provider-002", "provider-003"]
+
+    def segment_execution_facts(self, text: str, *, job_dir: Path | None = None):
+        segment_ids = self._segment_ids()
+        if self.cached_segment_ids is None:
+            cached_ids = set(segment_ids[: self.cached_segments])
+        else:
+            cached_ids = set(self.cached_segment_ids)
+        facts = []
+        for index, segment_id in enumerate(segment_ids, 1):
+            if segment_id in self.ambiguous_segment_ids:
+                manifest_status = "AMBIGUOUS"
+            elif segment_id in self.in_flight_segment_ids:
+                manifest_status = "IN_FLIGHT"
+            else:
+                manifest_status = "DONE" if segment_id in cached_ids else None
+            facts.append({
+                "segment_id": segment_id,
+                "fingerprint": f"fake-fingerprint-{index:03d}",
+                "cache_state": "HIT" if segment_id in cached_ids else "MISS",
+                "cache_source": "fake" if segment_id in cached_ids else None,
+                "manifest_status": manifest_status,
+            })
+        return facts
+
     def estimate(self, text: str, *, pricing, job_dir: Path, scope: str):
         self.estimate_calls += 1
-        segments = 3
-        remaining = segments - self.cached_segments
+        facts = self.segment_execution_facts(text, job_dir=job_dir)
+        segments = len(facts)
+        cached = sum(1 for fact in facts if fact["cache_state"] == "HIT")
+        remaining = segments - cached
         return {
             "engine": "yandex",
             "characters": len(text),
             "segments": segments,
-            "cached_segments": self.cached_segments,
+            "cached_segments": cached,
             "billable_remaining_units": remaining,
             "estimated_remaining_cost": str(Decimal(remaining) * Decimal("1.00")),
             "hard_limit_rub": str(pricing.hard_limit_rub) if pricing.hard_limit_rub is not None else None,
@@ -84,6 +118,10 @@ class FakeYandexBackend:
                 retryable=False,
                 request_id=request_id,
             )
+        if self.request_error_uncategorized:
+            raise ValueError("uncategorized pre-dispatch failure")
+        if self._network_dispatch_gate is not None:
+            self._network_dispatch_gate(request_id)
         self.provider_requests += 1
         return b"wav", {}
 
@@ -104,7 +142,8 @@ class FakeYandexBackend:
         try:
             if self.run_delay_seconds:
                 time.sleep(self.run_delay_seconds)
-            remaining = 3 - self.cached_segments
+            facts = self.segment_execution_facts(text, job_dir=job_dir)
+            remaining = sum(1 for fact in facts if fact["cache_state"] == "MISS")
             for index in range(remaining + (1 if self.extra_request else 0)):
                 self._request(f"segment-{index}", f"request-{index}")
             job_dir.mkdir(parents=True, exist_ok=True)
@@ -159,6 +198,10 @@ class YandexChapterPlanTests(unittest.TestCase):
         self.assertEqual(plan["provider_segments"], 3)
         self.assertEqual(plan["cached_segments"], 1)
         self.assertEqual(plan["max_network_requests"], 2)
+        self.assertEqual(
+            [item["cache_state"] for item in plan["provider_segment_states"]],
+            ["HIT", "MISS", "MISS"],
+        )
         self.assertEqual(plan["confirmation_scope"], "chapter")
         self.assertFalse(plan["remote_request_sent"])
         self.assertEqual(self.backend.provider_requests, 0)
@@ -218,6 +261,33 @@ class YandexChapterPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(YandexChapterPlanError, "changed"):
             self.service.revalidate(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
 
+    def test_exact_cache_hit_swap_invalidates_plan_even_when_counts_and_cost_match(self) -> None:
+        self.backend.cached_segment_ids = {"provider-001"}
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.assertEqual(plan["cached_segments"], 1)
+        self.assertEqual(plan["max_network_requests"], 2)
+        self.backend.cached_segment_ids = {"provider-002"}
+        with self.assertRaisesRegex(YandexChapterPlanError, "changed"):
+            self.service.revalidate(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        self.assertEqual(self.backend.provider_requests, 0)
+
+    def test_ambiguous_provider_state_blocks_new_plan_and_invalidates_existing_plan(self) -> None:
+        original = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.backend.ambiguous_segment_ids = {"provider-001"}
+        with self.assertRaisesRegex(YandexChapterPlanError, "eligible"):
+            self.service.revalidate(plan_id=original["plan_id"], plan_digest=original["plan_digest"])
+        blocked = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.assertEqual(blocked["state"], "BLOCKED")
+        self.assertIn("ambiguous_provider_state", blocked["blockers"])
+        self.assertEqual(self.backend.provider_requests, 0)
+
+    def test_unresolved_in_flight_miss_blocks_confirmation(self) -> None:
+        self.backend.in_flight_segment_ids = {"provider-001"}
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        self.assertEqual(plan["state"], "BLOCKED")
+        self.assertIn("in_flight_provider_state", plan["blockers"])
+        self.assertEqual(self.backend.provider_requests, 0)
+
     def test_digest_mismatch_is_rejected_before_reanalysis(self) -> None:
         plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
         calls_before = self.backend.estimate_calls
@@ -230,6 +300,7 @@ class YandexChapterPlanTests(unittest.TestCase):
         plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
         result = self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
         self.assertEqual(result["network_requests"], 2)
+        self.assertEqual(result["request_slots"], 2)
         self.assertEqual(result["max_network_requests"], 2)
         self.assertTrue(result["remote_request_sent"])
         self.assertFalse(result["chapter_assembly_performed"])
@@ -265,11 +336,24 @@ class YandexChapterPlanTests(unittest.TestCase):
                     self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
                 stored = self.service.store.load(plan["plan_id"])
                 self.assertEqual(stored["state"], "CONSUMED")
-                self.assertEqual(stored["request_slots"], 1)
+                self.assertEqual(stored["request_slots"], 0)
                 self.assertEqual(stored["network_requests"], 0)
                 self.assertFalse(stored["remote_request_sent"])
                 self.assertEqual(self.backend.provider_requests, 0)
         self.backend.request_error_category = None
+
+    def test_uncategorized_pre_dispatch_failure_does_not_report_remote_request(self) -> None:
+        self.backend.cached_segments = 2
+        self.backend.request_error_uncategorized = True
+        plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        with self.assertRaisesRegex(ValueError, "pre-dispatch"):
+            self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        stored = self.service.store.load(plan["plan_id"])
+        self.assertEqual(stored["state"], "CONSUMED")
+        self.assertEqual(stored["request_slots"], 0)
+        self.assertEqual(stored["network_requests"], 0)
+        self.assertFalse(stored["remote_request_sent"])
+        self.assertEqual(self.backend.provider_requests, 0)
 
     def test_request_cap_blocks_extra_request_before_provider(self) -> None:
         self.backend.cached_segments = 1
@@ -280,9 +364,10 @@ class YandexChapterPlanTests(unittest.TestCase):
         self.assertEqual(self.backend.provider_requests, 2)
         stored = self.service.store.load(plan["plan_id"])
         self.assertEqual(stored["state"], "CONSUMED")
+        self.assertEqual(stored["request_slots"], 2)
         self.assertEqual(stored["network_requests"], 2)
 
-    def test_concurrent_plans_serialize_backend_hook_execution(self) -> None:
+    def test_concurrent_plans_serialize_backend_dispatch_execution(self) -> None:
         self.backend.cached_segments = 2
         self.backend.run_delay_seconds = 0.05
         first = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
@@ -315,6 +400,7 @@ class YandexChapterPlanTests(unittest.TestCase):
         self.assertEqual(self.backend.provider_requests, 2)
         self.assertEqual(self.backend.assemble_values, [False, False])
         self.assertTrue(all(result["network_requests"] == 1 for result in results))
+        self.assertTrue(all(result["request_slots"] == 1 for result in results))
         self.assertTrue(all(result["chapter_assembly_performed"] is False for result in results))
 
     def test_expiry_tamper_breaks_plan_integrity(self) -> None:
