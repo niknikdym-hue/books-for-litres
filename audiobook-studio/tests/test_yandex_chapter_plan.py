@@ -11,6 +11,7 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
+from backends.yandex_speechkit import YandexSpeechKitError
 from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
 from yandex_chapter_plan import YandexChapterPlanError, YandexChapterPlanService
@@ -52,6 +53,7 @@ class FakeYandexBackend:
         self.estimate_calls = 0
         self.provider_requests = 0
         self.extra_request = False
+        self.request_error_category: str | None = None
         self.run_delay_seconds = 0.0
         self.assemble_values: list[bool] = []
         self._activity_lock = threading.Lock()
@@ -75,6 +77,13 @@ class FakeYandexBackend:
         }
 
     def _request(self, text: str, request_id: str):
+        if self.request_error_category:
+            raise YandexSpeechKitError(
+                "pre-network request failure",
+                category=self.request_error_category,
+                retryable=False,
+                request_id=request_id,
+            )
         self.provider_requests += 1
         return b"wav", {}
 
@@ -245,6 +254,22 @@ class YandexChapterPlanTests(unittest.TestCase):
         self.assertFalse(result["chapter_assembly_performed"])
         self.assertEqual(self.backend.assemble_values, [False])
         self.assertEqual(self.backend.provider_requests, 0)
+
+    def test_pre_network_credential_failures_do_not_report_remote_requests(self) -> None:
+        self.backend.cached_segments = 2
+        for category in ("credentials", "credentials_duplicate", "platform"):
+            with self.subTest(category=category):
+                self.backend.request_error_category = category
+                plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+                with self.assertRaises(YandexSpeechKitError):
+                    self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+                stored = self.service.store.load(plan["plan_id"])
+                self.assertEqual(stored["state"], "CONSUMED")
+                self.assertEqual(stored["request_slots"], 1)
+                self.assertEqual(stored["network_requests"], 0)
+                self.assertFalse(stored["remote_request_sent"])
+                self.assertEqual(self.backend.provider_requests, 0)
+        self.backend.request_error_category = None
 
     def test_request_cap_blocks_extra_request_before_provider(self) -> None:
         self.backend.cached_segments = 1
