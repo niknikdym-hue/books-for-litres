@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import tempfile
+import threading
+import time
 import unittest
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
@@ -49,6 +51,10 @@ class FakeYandexBackend:
         self.estimate_calls = 0
         self.provider_requests = 0
         self.extra_request = False
+        self.run_delay_seconds = 0.0
+        self._activity_lock = threading.Lock()
+        self.active_runs = 0
+        self.max_active_runs = 0
 
     def estimate(self, text: str, *, pricing, job_dir: Path, scope: str):
         self.estimate_calls += 1
@@ -71,13 +77,22 @@ class FakeYandexBackend:
         return b"wav", {}
 
     def run_text_job(self, text: str, job_dir: Path, *, job_id: str, pricing, scope: str) -> Path:
-        remaining = 3 - self.cached_segments
-        for index in range(remaining + (1 if self.extra_request else 0)):
-            self._request(f"segment-{index}", f"request-{index}")
-        job_dir.mkdir(parents=True, exist_ok=True)
-        output = job_dir / "chapter.wav"
-        output.write_bytes(b"fake")
-        return output
+        with self._activity_lock:
+            self.active_runs += 1
+            self.max_active_runs = max(self.max_active_runs, self.active_runs)
+        try:
+            if self.run_delay_seconds:
+                time.sleep(self.run_delay_seconds)
+            remaining = 3 - self.cached_segments
+            for index in range(remaining + (1 if self.extra_request else 0)):
+                self._request(f"segment-{index}", f"request-{index}")
+            job_dir.mkdir(parents=True, exist_ok=True)
+            output = job_dir / "chapter.wav"
+            output.write_bytes(b"fake")
+            return output
+        finally:
+            with self._activity_lock:
+                self.active_runs -= 1
 
 
 class YandexChapterPlanTests(unittest.TestCase):
@@ -218,6 +233,39 @@ class YandexChapterPlanTests(unittest.TestCase):
         stored = self.service.store.load(plan["plan_id"])
         self.assertEqual(stored["state"], "CONSUMED")
         self.assertEqual(stored["network_requests"], 2)
+
+    def test_concurrent_plans_serialize_backend_hook_execution(self) -> None:
+        self.backend.cached_segments = 2
+        self.backend.run_delay_seconds = 0.05
+        first = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        second = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
+        results: list[dict[str, object]] = []
+        errors: list[BaseException] = []
+
+        def execute(plan: dict[str, object]) -> None:
+            try:
+                results.append(self.service.execute(
+                    plan_id=str(plan["plan_id"]),
+                    plan_digest=str(plan["plan_digest"]),
+                ))
+            except BaseException as error:  # capture thread failures for the main assertion
+                errors.append(error)
+
+        threads = [
+            threading.Thread(target=execute, args=(first,)),
+            threading.Thread(target=execute, args=(second,)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=2)
+
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 2)
+        self.assertEqual(self.backend.max_active_runs, 1)
+        self.assertEqual(self.backend.provider_requests, 2)
+        self.assertTrue(all(result["network_requests"] == 1 for result in results))
 
     def test_expiry_tamper_breaks_plan_integrity(self) -> None:
         plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
