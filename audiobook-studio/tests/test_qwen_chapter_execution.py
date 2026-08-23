@@ -65,16 +65,21 @@ class QwenChapterExecutionTests(unittest.TestCase):
             job_id="chapter-ch001",
             profile_id="qwen_vivian",
             synthesis_identity=self.identity,
-            chapter_output=self.root / "chapter.wav",
         )
 
-    def test_run_generates_each_pending_segment_once_and_assembles_streaming_wav(self) -> None:
+    def test_run_generates_each_pending_segment_once_and_stops_before_qa_assembly(self) -> None:
         result = self.run_service(self.service())
         self.assertTrue(result["complete"])
         self.assertEqual(result["generated_segments"], result["segment_count"])
         self.assertEqual(len(self.calls), result["segment_count"])
         self.assertFalse(result["remote_request_sent"])
-        self.assertGreater(inspect_pcm_wav(Path(result["output_path"])).duration_seconds, 0)
+        self.assertFalse(result["chapter_assembly_performed"])
+        self.assertEqual(result["next_gate"], "AUTOMATIC_QA")
+        self.assertNotIn("output_path", result)
+        self.assertFalse((self.root / "chapter.wav").exists())
+        segment_wavs = list((Path(result["segment_job_dir"]) / "segments").glob("*.wav"))
+        self.assertEqual(len(segment_wavs), result["segment_count"])
+        self.assertTrue(all(inspect_pcm_wav(path).duration_seconds > 0 for path in segment_wavs))
 
     def test_resume_skips_already_done_segments(self) -> None:
         self.manifest.prepare(
