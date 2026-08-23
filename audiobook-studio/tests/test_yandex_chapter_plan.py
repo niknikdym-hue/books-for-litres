@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import threading
 import time
@@ -52,6 +53,7 @@ class FakeYandexBackend:
         self.provider_requests = 0
         self.extra_request = False
         self.run_delay_seconds = 0.0
+        self.assemble_values: list[bool] = []
         self._activity_lock = threading.Lock()
         self.active_runs = 0
         self.max_active_runs = 0
@@ -76,7 +78,17 @@ class FakeYandexBackend:
         self.provider_requests += 1
         return b"wav", {}
 
-    def run_text_job(self, text: str, job_dir: Path, *, job_id: str, pricing, scope: str) -> Path:
+    def run_text_job(
+        self,
+        text: str,
+        job_dir: Path,
+        *,
+        job_id: str,
+        pricing,
+        scope: str,
+        assemble: bool = True,
+    ) -> Path:
+        self.assemble_values.append(assemble)
         with self._activity_lock:
             self.active_runs += 1
             self.max_active_runs = max(self.max_active_runs, self.active_runs)
@@ -87,6 +99,10 @@ class FakeYandexBackend:
             for index in range(remaining + (1 if self.extra_request else 0)):
                 self._request(f"segment-{index}", f"request-{index}")
             job_dir.mkdir(parents=True, exist_ok=True)
+            if not assemble:
+                manifest = job_dir / "MANIFEST.json"
+                manifest.write_text(json.dumps({"status": "SEGMENTS_DONE"}), encoding="utf-8")
+                return manifest
             output = job_dir / "chapter.wav"
             output.write_bytes(b"fake")
             return output
@@ -200,13 +216,18 @@ class YandexChapterPlanTests(unittest.TestCase):
             self.service.revalidate(plan_id=plan["plan_id"], plan_digest="0" * 64)
         self.assertEqual(self.backend.estimate_calls, calls_before)
 
-    def test_execute_consumes_plan_and_obeys_frozen_request_cap(self) -> None:
+    def test_execute_consumes_plan_and_obeys_frozen_request_cap_without_assembly(self) -> None:
         self.backend.cached_segments = 1
         plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
         result = self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
         self.assertEqual(result["network_requests"], 2)
         self.assertEqual(result["max_network_requests"], 2)
         self.assertTrue(result["remote_request_sent"])
+        self.assertFalse(result["chapter_assembly_performed"])
+        self.assertEqual(result["next_gate"], "AUTOMATIC_QA")
+        self.assertEqual(Path(result["segment_manifest"]).name, "MANIFEST.json")
+        self.assertEqual(self.backend.assemble_values, [False])
+        self.assertFalse((Path(plan["job_dir"]) / "chapter.wav").exists())
         stored = self.service.store.load(plan["plan_id"])
         self.assertEqual(stored["state"], "CONSUMED")
         self.assertEqual(stored["network_requests"], 2)
@@ -214,13 +235,15 @@ class YandexChapterPlanTests(unittest.TestCase):
             self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
         self.assertEqual(self.backend.provider_requests, 2)
 
-    def test_cache_only_execute_uses_zero_provider_requests(self) -> None:
+    def test_cache_only_execute_uses_zero_provider_requests_and_no_assembly(self) -> None:
         self.backend.cached_segments = 3
         plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
         result = self.service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
         self.assertEqual(result["network_requests"], 0)
         self.assertEqual(result["request_slots"], 0)
         self.assertFalse(result["remote_request_sent"])
+        self.assertFalse(result["chapter_assembly_performed"])
+        self.assertEqual(self.backend.assemble_values, [False])
         self.assertEqual(self.backend.provider_requests, 0)
 
     def test_request_cap_blocks_extra_request_before_provider(self) -> None:
@@ -265,7 +288,9 @@ class YandexChapterPlanTests(unittest.TestCase):
         self.assertEqual(len(results), 2)
         self.assertEqual(self.backend.max_active_runs, 1)
         self.assertEqual(self.backend.provider_requests, 2)
+        self.assertEqual(self.backend.assemble_values, [False, False])
         self.assertTrue(all(result["network_requests"] == 1 for result in results))
+        self.assertTrue(all(result["chapter_assembly_performed"] is False for result in results))
 
     def test_expiry_tamper_breaks_plan_integrity(self) -> None:
         plan = self.service.prepare(book_id="book", job_id="chapter-ch001", profile_id="yandex_lera")
