@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -119,6 +121,25 @@ class YandexChapterProductionService:
         slug = str(book.get("slug") or "book")
         return Path(self.backend.config.output_root) / slug / job_id / PROFILE_ID
 
+    @contextmanager
+    def _chapter_execution_locked(self, plan: Mapping[str, Any]):
+        """Serialize every plan that targets the same production chapter."""
+        lock_key = _canonical_hash({
+            "provider": plan.get("provider"),
+            "book_file": plan.get("book_file"),
+            "job_id": plan.get("job_id"),
+            "profile_id": plan.get("profile_id"),
+            "output_root": str(Path(self.backend.config.output_root).resolve()),
+        })
+        lock_path = self.store.root / "chapter-execution-locks" / f"{lock_key}.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
     def _manifest_blockers(self, job_dir: Path, *, job_id: str) -> list[str]:
         path = job_dir / "MANIFEST.json"
         if not path.exists():
@@ -148,6 +169,18 @@ class YandexChapterProductionService:
             elif state == "FAILED":
                 blockers.append("failed_segment_requires_resolution")
         return list(dict.fromkeys(blockers))
+
+    @staticmethod
+    def _validate_plan_header(plan: Mapping[str, Any], plan_digest: str) -> None:
+        if (
+            plan.get("schema_version") != SCHEMA_VERSION
+            or plan.get("provider") != "yandex"
+            or plan.get("state") not in PLAN_STATES
+            or plan.get("decision") not in PLAN_DECISIONS
+        ):
+            raise ChapterProductionError("Chapter production plan is invalid.", category="invalid_plan")
+        if plan.get("plan_digest") != plan_digest:
+            raise ChapterProductionError("Chapter plan digest does not match.", category="plan_digest_mismatch")
 
     def _analyze(self, book_name: str, job_id: str, profile_id: str) -> dict[str, Any]:
         if profile_id != PROFILE_ID:
@@ -295,88 +328,86 @@ class YandexChapterProductionService:
     def execute(self, *, plan_id: str, plan_digest: str) -> dict[str, Any]:
         with self.store.locked(plan_id):
             plan = self.store.load(plan_id)
-            if (
-                plan.get("schema_version") != SCHEMA_VERSION
-                or plan.get("provider") != "yandex"
-                or plan.get("state") not in PLAN_STATES
-                or plan.get("decision") not in PLAN_DECISIONS
-            ):
-                raise ChapterProductionError("Chapter production plan is invalid.", category="invalid_plan")
-            if plan.get("plan_digest") != plan_digest:
-                raise ChapterProductionError("Chapter plan digest does not match.", category="plan_digest_mismatch")
-            if plan.get("state") != "PREPARED":
-                raise ChapterProductionError("Chapter plan is no longer executable.", category="plan_not_prepared")
-            if self._now().astimezone(timezone.utc) >= _parse_time(str(plan.get("expires_at"))):
-                plan["state"] = "EXPIRED"
-                self.store.save(plan)
-                raise ChapterProductionError("Chapter plan has expired.", category="plan_expired")
-            try:
-                analysis = self._analyze(
-                    str(plan["book_file"]),
-                    str(plan["job_id"]),
-                    str(plan["profile_id"]),
-                )
-            except ChapterProductionError as error:
-                raise ChapterProductionError(
-                    "Chapter execution facts changed.",
-                    category="execution_facts_changed",
-                ) from error
-            if analysis["decision"] != plan.get("decision") or analysis["blockers"]:
-                raise ChapterProductionError("Chapter execution facts changed.", category="execution_facts_changed")
-            expected_digest = _plan_digest(
-                analysis["critical"],
-                plan_id=str(plan["plan_id"]),
-                created_at=str(plan["created_at"]),
-                expires_at=str(plan["expires_at"]),
-            )
-            if expected_digest != plan_digest:
-                raise ChapterProductionError("Chapter execution facts changed.", category="execution_facts_changed")
-            request_cap = int(analysis["critical"]["max_network_requests"])
-            if request_cap < 0 or int(plan.get("max_network_requests") or 0) != request_cap:
-                raise ChapterProductionError("Chapter request cap is invalid.", category="invalid_plan")
-            plan["state"] = "CONSUMING"
-            plan["consuming_at"] = _iso(self._now())
-            self.store.save(plan)
+            self._validate_plan_header(plan, plan_digest)
 
-        network_requests = 0
-        original_request = self.backend._request
-
-        def capped_request(text: str, request_id: str) -> Any:
-            nonlocal network_requests
-            if network_requests >= request_cap:
-                raise ChapterProductionError("Chapter request cap was exhausted.", category="request_cap_exceeded")
-            network_requests += 1
-            return original_request(text, request_id)
-
-        self.backend._request = capped_request
-        try:
-            output_path = self.backend.run_text_job(
-                analysis["text"],
-                analysis["job_dir"],
-                job_id=str(plan["job_id"]),
-                pricing=self.pricing,
-                scope="book",
-            )
-            if network_requests > request_cap:
-                raise ChapterProductionError("Chapter request cap was exceeded.", category="request_cap_exceeded")
-            result = {
-                "schema_version": SCHEMA_VERSION,
-                "plan_id": plan_id,
-                "state": "CONSUMED",
-                "decision": plan["decision"],
-                "manifest": str(analysis["job_dir"] / "MANIFEST.json"),
-                "output_path": str(output_path),
-                "network_requests": network_requests,
-                "max_network_requests": request_cap,
-                "remote_request_sent": network_requests > 0,
-            }
-        finally:
-            self.backend._request = original_request
+        with self._chapter_execution_locked(plan):
             with self.store.locked(plan_id):
-                final_plan = self.store.load(plan_id)
-                final_plan["state"] = "CONSUMED"
-                final_plan["consumed_at"] = _iso(self._now())
-                final_plan["network_requests"] = network_requests
-                final_plan["remote_request_sent"] = network_requests > 0
-                self.store.save(final_plan)
-        return result
+                plan = self.store.load(plan_id)
+                self._validate_plan_header(plan, plan_digest)
+                if plan.get("state") != "PREPARED":
+                    raise ChapterProductionError("Chapter plan is no longer executable.", category="plan_not_prepared")
+                if self._now().astimezone(timezone.utc) >= _parse_time(str(plan.get("expires_at"))):
+                    plan["state"] = "EXPIRED"
+                    self.store.save(plan)
+                    raise ChapterProductionError("Chapter plan has expired.", category="plan_expired")
+                try:
+                    analysis = self._analyze(
+                        str(plan["book_file"]),
+                        str(plan["job_id"]),
+                        str(plan["profile_id"]),
+                    )
+                except ChapterProductionError as error:
+                    raise ChapterProductionError(
+                        "Chapter execution facts changed.",
+                        category="execution_facts_changed",
+                    ) from error
+                if analysis["decision"] != plan.get("decision") or analysis["blockers"]:
+                    raise ChapterProductionError("Chapter execution facts changed.", category="execution_facts_changed")
+                expected_digest = _plan_digest(
+                    analysis["critical"],
+                    plan_id=str(plan["plan_id"]),
+                    created_at=str(plan["created_at"]),
+                    expires_at=str(plan["expires_at"]),
+                )
+                if expected_digest != plan_digest:
+                    raise ChapterProductionError("Chapter execution facts changed.", category="execution_facts_changed")
+                request_cap = int(analysis["critical"]["max_network_requests"])
+                if request_cap < 0 or int(plan.get("max_network_requests") or 0) != request_cap:
+                    raise ChapterProductionError("Chapter request cap is invalid.", category="invalid_plan")
+                plan["state"] = "CONSUMING"
+                plan["consuming_at"] = _iso(self._now())
+                self.store.save(plan)
+
+            network_requests = 0
+            original_request = self.backend._request
+
+            def capped_request(text: str, request_id: str) -> Any:
+                nonlocal network_requests
+                if network_requests >= request_cap:
+                    raise ChapterProductionError("Chapter request cap was exhausted.", category="request_cap_exceeded")
+                network_requests += 1
+                return original_request(text, request_id)
+
+            self.backend._request = capped_request
+            try:
+                output_path = self.backend.run_text_job(
+                    analysis["text"],
+                    analysis["job_dir"],
+                    job_id=str(plan["job_id"]),
+                    pricing=self.pricing,
+                    scope="book",
+                    cache_only=request_cap == 0,
+                )
+                if network_requests > request_cap:
+                    raise ChapterProductionError("Chapter request cap was exceeded.", category="request_cap_exceeded")
+                result = {
+                    "schema_version": SCHEMA_VERSION,
+                    "plan_id": plan_id,
+                    "state": "CONSUMED",
+                    "decision": plan["decision"],
+                    "manifest": str(analysis["job_dir"] / "MANIFEST.json"),
+                    "output_path": str(output_path),
+                    "network_requests": network_requests,
+                    "max_network_requests": request_cap,
+                    "remote_request_sent": network_requests > 0,
+                }
+            finally:
+                self.backend._request = original_request
+                with self.store.locked(plan_id):
+                    final_plan = self.store.load(plan_id)
+                    final_plan["state"] = "CONSUMED"
+                    final_plan["consumed_at"] = _iso(self._now())
+                    final_plan["network_requests"] = network_requests
+                    final_plan["remote_request_sent"] = network_requests > 0
+                    self.store.save(final_plan)
+            return result

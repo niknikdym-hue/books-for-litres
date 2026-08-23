@@ -104,6 +104,7 @@ final class StudioModel: ObservableObject {
     private var pendingOpenAIIntentToken: OneShotIntentToken?
     private var pendingOpenAIAction: PendingOpenAIAction?
     private var pendingBookTextPreparationID: String?
+    private var yandexChapterPlanSelection: YandexChapterSelection?
 
     init() {
         if let requested = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_ENGINE"],
@@ -231,7 +232,8 @@ final class StudioModel: ObservableObject {
             errorMessage = "Для Qwen выберите подготовленную задачу. Автоматический запуск литературного master-а отключён."
             return
         }
-        if yandexChapterPlan?.canExecute == true {
+        if yandexChapterPlan?.canExecute == true,
+           yandexChapterPlanSelection == currentYandexChapterSelection() {
             showYandexChapterConfirmation = true
         } else {
             prepareYandexChapterRun()
@@ -249,7 +251,10 @@ final class StudioModel: ObservableObject {
         selectedProfileID = availableProfiles.first(where: { $0.profileID == preferred })?.profileID
             ?? availableProfiles.first?.profileID ?? ""
         paidPlan = nil
+        yandexChapterPlan = nil
+        yandexChapterPlanSelection = nil
         showPaidConfirmation = false
+        showYandexChapterConfirmation = false
     }
 
     func selectDefaultJob() {
@@ -259,6 +264,7 @@ final class StudioModel: ObservableObject {
             : (selectedBook?.jobs.first?.id ?? "")
         paidPlan = nil
         yandexChapterPlan = nil
+        yandexChapterPlanSelection = nil
         showPaidConfirmation = false
         showYandexChapterConfirmation = false
     }
@@ -278,11 +284,18 @@ final class StudioModel: ObservableObject {
                     "--job", selection.jobID,
                     "--profile-id", selection.profileID,
                 ])
-                yandexChapterPlan = plan
-                technicalDetails = nil
                 guard !plan.remoteRequestSent else {
                     throw BridgeError.message("Подготовка Yandex-плана нарушила offline contract.")
                 }
+                guard currentYandexChapterSelection() == selection else {
+                    yandexChapterPlan = nil
+                    yandexChapterPlanSelection = nil
+                    showYandexChapterConfirmation = false
+                    throw BridgeError.message("Выбор главы изменился. Подготовьте Yandex-план заново.")
+                }
+                yandexChapterPlan = plan
+                yandexChapterPlanSelection = selection
+                technicalDetails = nil
                 if plan.canExecute {
                     yandexChapterStatusText = plan.decision == "CACHE_ONLY"
                         ? "Глава уже есть в проверенном кэше; новый запрос не требуется."
@@ -300,10 +313,17 @@ final class StudioModel: ObservableObject {
     }
 
     func confirmYandexChapterRun() {
-        guard let plan = yandexChapterPlan, plan.canExecute else {
-            errorMessage = yandexChapterPlan?.isExpired == true
+        let planExpired = yandexChapterPlan?.isExpired == true
+        guard let plan = yandexChapterPlan,
+              plan.canExecute,
+              let plannedSelection = yandexChapterPlanSelection,
+              currentYandexChapterSelection() == plannedSelection else {
+            yandexChapterPlan = nil
+            yandexChapterPlanSelection = nil
+            showYandexChapterConfirmation = false
+            errorMessage = planExpired
                 ? "Срок действия плана главы истёк. Подготовьте запуск заново."
-                : "Сначала подготовьте действующий план главы."
+                : "Выбор главы или профиль изменился. Подготовьте Yandex-план заново."
             return
         }
         showYandexChapterConfirmation = false
@@ -317,6 +337,7 @@ final class StudioModel: ObservableObject {
                     "--plan-digest", plan.planDigest,
                 ])
                 yandexChapterPlan = nil
+                yandexChapterPlanSelection = nil
                 completedOutput = URL(fileURLWithPath: result.outputPath)
                 yandexChapterStatusText = result.networkRequests == 0
                     ? "Глава материализована из кэша без нового запроса."
@@ -566,6 +587,7 @@ final class StudioModel: ObservableObject {
         invalidateOpenAIIntent()
         paidPlan = nil
         yandexChapterPlan = nil
+        yandexChapterPlanSelection = nil
         yandexChapterStatusText = ""
         showPaidConfirmation = false
         showYandexChapterConfirmation = false

@@ -489,10 +489,14 @@ class YandexSpeechKitBackend:
         job_id: str = "yandex-text-job",
         pricing: YandexPricingConfig,
         scope: str = "book",
+        cache_only: bool = False,
     ) -> Path:
-        self.require_allowed_to_start(
-            self.estimate(text, pricing=pricing, job_dir=job_dir, scope=scope)
+        estimate = self.estimate(text, pricing=pricing, job_dir=job_dir, scope=scope)
+        fully_cached = int(estimate.get("segments") or 0) > 0 and (
+            int(estimate.get("cached_segments") or 0) == int(estimate.get("segments") or 0)
         )
+        if not (cache_only and fully_cached):
+            self.require_allowed_to_start(estimate)
         segments = self.segment(text)
         if not segments:
             raise YandexSpeechKitError("После сегментации нет текста.", category="input")
