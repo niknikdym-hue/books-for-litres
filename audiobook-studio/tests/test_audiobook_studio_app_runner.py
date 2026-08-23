@@ -119,6 +119,35 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertFalse(args.yandex_check)
         self.assertFalse(args.yandex_estimate_demo)
 
+    def test_yandex_chapter_prepare_and_execute_are_separate_plan_commands(self):
+        service = mock.Mock()
+        service.prepare.return_value = {"decision": "READY_FOR_CONFIRMATION", "remote_request_sent": False}
+        service.execute.return_value = {"state": "CONSUMED", "remote_request_sent": True}
+        with mock.patch.object(bridge, "_yandex_chapter_service", return_value=service):
+            with mock.patch("builtins.print"):
+                self.assertEqual(bridge.main([
+                    "--prepare-yandex-chapter-run",
+                    "--book", "chapter-book",
+                    "--job", "chapter-ch001",
+                    "--profile-id", "yandex_lera",
+                ]), 0)
+                service.prepare.assert_called_once_with(
+                    book_name="chapter-book",
+                    job_id="chapter-ch001",
+                    profile_id="yandex_lera",
+                )
+                service.execute.assert_not_called()
+
+                self.assertEqual(bridge.main([
+                    "--execute-yandex-chapter-plan",
+                    "--plan-id", "a" * 32,
+                    "--plan-digest", "b" * 64,
+                ]), 0)
+                service.execute.assert_called_once_with(
+                    plan_id="a" * 32,
+                    plan_digest="b" * 64,
+                )
+
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):
