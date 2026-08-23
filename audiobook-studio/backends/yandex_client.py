@@ -15,7 +15,7 @@ import wave
 from dataclasses import asdict
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .yandex_segmenter import segment_text
 from .yandex_pricing import YandexPricingConfig, price_estimate
@@ -187,6 +187,11 @@ class YandexSpeechKitBackend:
         self.profile = config.profile
         self._api_key = api_key
         self._billing_ledger = billing_ledger
+        # Chapter production may install a short-lived gate here. The backend
+        # invokes it only after credentials/payload/Request construction succeeds
+        # and immediately before urllib dispatch, which makes request accounting
+        # exact instead of exception-category based.
+        self._network_dispatch_gate: Callable[[str], None] | None = None
 
     def _record_billing_event(
         self,
@@ -269,41 +274,78 @@ class YandexSpeechKitBackend:
             paragraph_pause_ms=self.config.paragraph_pause_ms,
         )
 
-    def _cached_segment_ids(self, segments: list[TextSegment], job_dir: Path | None) -> set[str]:
-        """Find only integrity-checked cache/Resume hits; never create audio."""
-        cached: set[str] = set()
+    def _segment_cache_facts(
+        self,
+        segments: list[TextSegment],
+        job_dir: Path | None,
+    ) -> list[dict[str, Any]]:
+        """Return exact integrity-checked cache/Resume facts without creating audio."""
         entries: dict[str, Any] = {}
         if job_dir is not None:
             manifest_path = Path(job_dir) / "MANIFEST.json"
             if manifest_path.exists():
                 try:
                     with manifest_path.open("r", encoding="utf-8") as source:
-                        entries = dict(json.load(source).get("segments", {}))
+                        payload = json.load(source)
+                    raw_entries = payload.get("segments", {}) if isinstance(payload, dict) else {}
+                    entries = dict(raw_entries) if isinstance(raw_entries, dict) else {}
                 except (OSError, ValueError, TypeError):
                     entries = {}
 
         cache_root = self.config.output_root / "_cache" / ENGINE_ID
+        facts: list[dict[str, Any]] = []
         for segment in segments:
             fingerprint = make_fingerprint(segment.text, self.profile)
-            entry = entries.get(segment.segment_id, {})
-            candidates: list[Path] = [cache_root / f"{fingerprint}.wav"]
+            raw_entry = entries.get(segment.segment_id, {})
+            entry = raw_entry if isinstance(raw_entry, dict) else {}
+            same_identity = entry.get("fingerprint") == fingerprint
+            manifest_status = str(entry.get("status") or "") if same_identity else ""
+            candidates: list[tuple[str, Path]] = []
             if (
                 job_dir is not None
-                and entry.get("fingerprint") == fingerprint
-                and entry.get("status") in {"DONE", "CACHED"}
+                and same_identity
+                and manifest_status in {"DONE", "CACHED"}
                 and isinstance(entry.get("wav"), str)
             ):
-                candidates.insert(0, Path(job_dir) / "segments" / entry["wav"])
-            for candidate in candidates:
+                candidates.append(("job_wav", Path(job_dir) / "segments" / entry["wav"]))
+            candidates.append(("global_cache", cache_root / f"{fingerprint}.wav"))
+
+            cache_source: str | None = None
+            for source_name, candidate in candidates:
                 if not candidate.exists():
                     continue
                 try:
                     wav_info(candidate)
                 except YandexSpeechKitError:
                     continue
-                cached.add(segment.segment_id)
+                cache_source = source_name
                 break
-        return cached
+
+            facts.append({
+                "segment_id": segment.segment_id,
+                "fingerprint": fingerprint,
+                "cache_state": "HIT" if cache_source is not None else "MISS",
+                "cache_source": cache_source,
+                "manifest_status": manifest_status or None,
+            })
+        return facts
+
+    def segment_execution_facts(
+        self,
+        text: str,
+        *,
+        job_dir: Path | None = None,
+    ) -> list[dict[str, Any]]:
+        """Provider-segment identity/cache facts used by immutable confirmation plans."""
+        return self._segment_cache_facts(self.segment(text), job_dir)
+
+    def _cached_segment_ids(self, segments: list[TextSegment], job_dir: Path | None) -> set[str]:
+        """Find only integrity-checked cache/Resume hits; never create audio."""
+        return {
+            str(fact["segment_id"])
+            for fact in self._segment_cache_facts(segments, job_dir)
+            if fact.get("cache_state") == "HIT"
+        }
 
     def estimate(
         self,
@@ -395,6 +437,9 @@ class YandexSpeechKitBackend:
             },
             method="POST",
         )
+        dispatch_gate = self._network_dispatch_gate
+        if dispatch_gate is not None:
+            dispatch_gate(request_id)
         try:
             with urllib.request.urlopen(req, timeout=60) as response:
                 headers = {
@@ -543,6 +588,14 @@ class YandexSpeechKitBackend:
                     wav_info(wav_path)
                     ordered.append((wav_path, seg.pause_after_ms))
                     continue
+
+            if existing.get("fingerprint") == fingerprint and existing.get("status") == "AMBIGUOUS":
+                raise YandexSpeechKitError(
+                    f"Сегмент {seg.segment_id} имеет AMBIGUOUS provider state. "
+                    "Автоматический повтор запрещён до явного разрешения состояния.",
+                    category="resume_ambiguous",
+                    request_id=existing.get("request_id"),
+                )
 
             if existing.get("fingerprint") == fingerprint and existing.get("status") == "IN_FLIGHT":
                 cache_path = cache_root / ENGINE_ID / f"{fingerprint}.wav"
