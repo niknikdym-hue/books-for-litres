@@ -45,7 +45,9 @@ def main() -> int:
 
     if args.list_books:
         for path in studio.list_book_profiles():
-            book = studio.load_book(path)
+            # Catalog discovery must remain available for unprepared or stale
+            # books; execution readiness is enforced only when jobs are loaded.
+            book = studio.BOOK_LIBRARY.book_details(path.name)
             print(f"{path.name}\t{book['title']} — {book['author']}")
         return 0
 

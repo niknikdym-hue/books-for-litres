@@ -90,9 +90,12 @@ final class StudioModel: ObservableObject {
     @Published var billingRefreshText = ""
     @Published var technicalDetails: String?
     @Published var isAddingBook = false
+    @Published var isPreparingBookText = false
+    @Published private(set) var showBookTextPreparationConfirmation = false
     private var openAIIntentGate = OneShotIntentGate()
     private var pendingOpenAIIntentToken: OneShotIntentToken?
     private var pendingOpenAIAction: PendingOpenAIAction?
+    private var pendingBookTextPreparationID: String?
 
     init() {
         if let requested = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_ENGINE"],
@@ -155,6 +158,54 @@ final class StudioModel: ObservableObject {
         } catch {
             showError(error)
             return false
+        }
+    }
+
+    func requestBookTextPreparation() {
+        guard let book = selectedBook, book.kind == "production" else {
+            errorMessage = "Подготовка текста доступна только для книг из production-библиотеки."
+            return
+        }
+        guard book.sourceIntegrity == "OK" else {
+            errorMessage = "Целостность исходного файла не подтверждена. Подготовка заблокирована."
+            return
+        }
+        pendingBookTextPreparationID = book.id
+        showBookTextPreparationConfirmation = true
+    }
+
+    func cancelBookTextPreparation() {
+        pendingBookTextPreparationID = nil
+        showBookTextPreparationConfirmation = false
+    }
+
+    func confirmBookTextPreparation() {
+        guard let bookID = pendingBookTextPreparationID,
+              selectedBookID == bookID,
+              selectedBook?.kind == "production" else {
+            cancelBookTextPreparation()
+            errorMessage = "Выбранная книга изменилась. Начните подготовку текста заново."
+            return
+        }
+        cancelBookTextPreparation()
+        Task {
+            isPreparingBookText = true
+            defer { isPreparingBookText = false }
+            do {
+                let result: BookTextPreparationResult = try await runBridgeJSON([
+                    "--prepare-book-text", "--book", bookID,
+                ])
+                guard !result.remoteRequestSent else {
+                    throw BridgeError.message("Подготовка текста нарушила offline contract.")
+                }
+                guard result.preparationStatus == "READY" else {
+                    throw BridgeError.message("Текст не достиг состояния READY.")
+                }
+                await reload(preferredBookID: bookID)
+                errorMessage = nil
+            } catch {
+                showError(error)
+            }
         }
     }
 
@@ -537,7 +588,9 @@ struct StudioView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(book.title).font(.headline)
                             Text(book.author).foregroundStyle(.secondary)
-                            Text("Готово к подготовке озвучки").font(.caption).foregroundStyle(.secondary)
+                            Text(bookPreparationSidebarLabel(book))
+                                .font(.caption)
+                                .foregroundStyle(book.preparationStatus == "STALE" ? .orange : .secondary)
                         }
                         .tag(book.id)
                         .padding(.vertical, 4)
@@ -566,6 +619,36 @@ struct StudioView: View {
                             LabeledContent("TTS working copy", value: book.ttsWorkingCopyStatus == "CREATED" ? "Создана" : "Недоступно")
                             LabeledContent("Backend", value: book.selectedBackend ?? "Не выбран")
                             LabeledContent("Voice profile", value: book.selectedProfileID ?? "Не выбран")
+                        }
+
+                        Section("Подготовка текста") {
+                            if book.sourceIntegrity != "OK" {
+                                Label("Целостность исходного файла не подтверждена", systemImage: "exclamationmark.shield")
+                                    .foregroundStyle(.red)
+                                Text("Подготовка заблокирована; сохранённый SHA исходника не изменяется автоматически.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else if book.preparationStatus == "READY" {
+                                Label("Текст подготовлен", systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                LabeledContent("Глав", value: String(book.chapterCount ?? 0))
+                                LabeledContent("Сегментов", value: String(book.preparedSegmentCount ?? 0))
+                                LabeledContent("Ревизия", value: String(book.preparationRevision ?? 0))
+                                LabeledContent("TTS working copy", value: "Актуальна")
+                            } else if book.preparationStatus == "STALE" {
+                                Label("Подготовка устарела", systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text("TTS working copy изменилась. Старые задачи скрыты и не могут быть запущены.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Button("Подготовить заново") { model.requestBookTextPreparation() }
+                                    .disabled(model.isPreparingBookText)
+                            } else {
+                                Text("Текст ещё не подготовлен")
+                                    .foregroundStyle(.secondary)
+                                Button("Подготовить текст") { model.requestBookTextPreparation() }
+                                    .disabled(model.isPreparingBookText)
+                            }
                         }
                     }
 
@@ -744,6 +827,7 @@ struct StudioView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(
                             model.isRunning || model.isLoading || model.isAddingBook
+                                || model.isPreparingBookText
                                 || (model.selectedBook?.jobs.isEmpty ?? true)
                         )
                 }
@@ -759,7 +843,10 @@ struct StudioView: View {
                 if model.isLoading { ProgressView("Загрузка Studio…") }
             }
             .navigationTitle(model.selectedBook?.title ?? "Audiobook Studio")
-            .onChange(of: model.selectedBookID) { _, _ in model.selectDefaultJob() }
+            .onChange(of: model.selectedBookID) { _, _ in
+                model.cancelBookTextPreparation()
+                model.selectDefaultJob()
+            }
             .toolbar { ToolbarItem { SettingsLink { Label("Настройки", systemImage: "gearshape") } } }
             .task {
                 if ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_OPEN_SETTINGS_ON_LAUNCH"] == "1",
@@ -779,6 +866,19 @@ struct StudioView: View {
                 Text("Yandex SpeechKit\n\(model.profile.voice) · \(model.profile.role) · \(model.profile.speed)\n\(model.estimate?.segments ?? 0) сегмента\n\(formattedMoney(model.estimate?.estimatedRemainingCost, currency: "RUB", source: "local_estimate"))")
             }
             .modifier(OpenAIConfirmationDialogs(model: model))
+            .confirmationDialog(
+                "Подготовить текст книги?",
+                isPresented: Binding(
+                    get: { model.showBookTextPreparationConfirmation },
+                    set: { if !$0 { model.cancelBookTextPreparation() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Подготовить текст") { model.confirmBookTextPreparation() }
+                Button("Отмена", role: .cancel) { model.cancelBookTextPreparation() }
+            } message: {
+                Text("Исходный файл не изменится. Будет обработана только TTS working copy. Платных и provider-запросов нет.")
+            }
             .fileImporter(
                 isPresented: $showBookImporter,
                 allowedContentTypes: [.plainText],
@@ -866,6 +966,16 @@ private func suggestedBookSlug(_ value: String) -> String {
     let compact = String(mapped).replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
     let trimmed = compact.trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
     return trimmed.isEmpty ? "new-book" : String(trimmed.prefix(80))
+}
+
+private func bookPreparationSidebarLabel(_ book: Book) -> String {
+    guard book.kind == "production" else { return "Готово к подготовке озвучки" }
+    if book.sourceIntegrity != "OK" { return "Проверка исходника не пройдена" }
+    switch book.preparationStatus {
+    case "READY": return "Текст подготовлен"
+    case "STALE": return "Подготовка устарела"
+    default: return "Текст ожидает подготовки"
+    }
 }
 
 private struct OpenAIConfirmationDialogs: ViewModifier {

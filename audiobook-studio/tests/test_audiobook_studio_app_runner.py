@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 import audiobook_studio_app_runner as bridge
 from book_library import BookLibrary
+from book_text_preparation import BookTextPreparationService
 from workspace_paths import load_workspace_paths
 
 
@@ -43,14 +44,17 @@ class UniversalBridgeTests(unittest.TestCase):
         SCRIPT_ENV = dict(os.environ, AUDIOBOOK_STUDIO_HOME=str(cls.workspace))
         cls.original_paths = bridge.WORKSPACE_PATHS
         cls.original_library = bridge.BOOK_LIBRARY
+        cls.original_preparation = bridge.BOOK_TEXT_PREPARATION
         bridge.WORKSPACE_PATHS = load_workspace_paths(env={"AUDIOBOOK_STUDIO_HOME": str(cls.workspace)})
         bridge.BOOK_LIBRARY = BookLibrary(bridge.WORKSPACE_PATHS.books_root)
+        bridge.BOOK_TEXT_PREPARATION = BookTextPreparationService(bridge.BOOK_LIBRARY)
 
     @classmethod
     def tearDownClass(cls):
         global SCRIPT_ENV
         bridge.WORKSPACE_PATHS = cls.original_paths
         bridge.BOOK_LIBRARY = cls.original_library
+        bridge.BOOK_TEXT_PREPARATION = cls.original_preparation
         SCRIPT_ENV = None
         cls.temporary.cleanup()
 
@@ -277,6 +281,59 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertEqual(imported["selected_profile_id"], "yandex_lera")
         self.assertEqual(imported["source_integrity"], "OK")
         self.assertFalse(snapshot["remote_request_sent"])
+
+    def test_prepare_book_text_status_and_snapshot_are_offline_and_restart_safe(self):
+        source = self.workspace / "text-preparation-source.txt"
+        source.write_text(
+            "Глава 1. Начало\n\nПервое предложение. Второе предложение.\n\n"
+            "Глава 2 — Финал\n\nЗаключительный абзац.\n",
+            encoding="utf-8",
+        )
+        added = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--add-book", "--source-file", str(source),
+            "--title", "Text Preparation", "--author", "Author", "--slug", "text-prep-bridge",
+        )
+        self.assertEqual(added.returncode, 0, added.stderr)
+
+        before = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--book-preparation-status", "--book", "text-prep-bridge",
+        )
+        self.assertEqual(before.returncode, 0, before.stderr)
+        self.assertEqual(json.loads(before.stdout)["preparation_status"], "NOT_PREPARED")
+
+        prepared = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--prepare-book-text", "--book", "text-prep-bridge",
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        result = json.loads(prepared.stdout)
+        self.assertEqual(result["preparation_status"], "READY")
+        self.assertEqual(result["chapter_count"], 2)
+        self.assertGreaterEqual(result["segment_count"], 2)
+        self.assertFalse(result["remote_request_sent"])
+
+        restarted = run_script(ROOT / "audiobook_studio_app_runner.py", "--ui-snapshot")
+        self.assertEqual(restarted.returncode, 0, restarted.stderr)
+        imported = next(
+            book for book in json.loads(restarted.stdout)["books"]
+            if book["id"] == "text-prep-bridge.json"
+        )
+        self.assertEqual(imported["preparation_status"], "READY")
+        self.assertEqual(imported["chapter_count"], 2)
+        self.assertEqual(imported["jobs"][0]["id"], "short-test")
+
+        working = self.workspace / "books/text-prep-bridge/tts/working.txt"
+        working.write_text(working.read_text(encoding="utf-8") + "\nРедакционная правка.\n", encoding="utf-8")
+        stale = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--book-preparation-status", "--book", "text-prep-bridge",
+        )
+        stale_result = json.loads(stale.stdout)
+        self.assertEqual(stale_result["preparation_status"], "STALE")
+        self.assertEqual(stale_result["jobs"], [])
+        self.assertFalse(stale_result["remote_request_sent"])
 
     def test_paid_plan_commands_are_separate_and_require_immutable_identity(self):
         prepared = bridge.build_parser().parse_args([

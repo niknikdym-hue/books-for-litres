@@ -27,7 +27,7 @@ PRICING_PATH = STUDIO_DIR / "openai-pricing.json"
 def load_book_job(book_name: str, job_id: str, *, library: BookLibrary | None = None) -> tuple[dict[str, Any], str]:
     selected_library = library or BookLibrary(load_workspace_paths().books_root)
     try:
-        book = selected_library.load_book_profile(book_name)
+        book = selected_library.load_book_for_execution(book_name)
     except BookLibraryError as error:
         raise OpenAITTSError(f"Book profile not found: {book_name}.", category="book") from error
     job = dict((book.get("jobs") or {}).get(job_id) or {})

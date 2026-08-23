@@ -244,6 +244,30 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn("struct BookImportResult", contracts)
         self.assertIn('case sourceSHA256 = "source_sha256"', contracts)
 
+    def test_native_book_text_preparation_has_local_gate_and_offline_bridge_only(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
+        request = swift_function_body(source, "func requestBookTextPreparation()")
+        confirm = swift_function_body(source, "func confirmBookTextPreparation()")
+
+        self.assertIn('Button("Подготовить текст") { model.requestBookTextPreparation() }', source)
+        self.assertIn('Button("Подготовить заново") { model.requestBookTextPreparation() }', source)
+        self.assertIn('"Подготовить текст книги?"', source)
+        self.assertIn("Исходный файл не изменится", source)
+        self.assertIn("только TTS working copy", source)
+        self.assertIn("Платных и provider-запросов нет", source)
+        self.assertIn("showBookTextPreparationConfirmation = true", request)
+        self.assertNotIn("runBridge", request)
+        self.assertIn('"--prepare-book-text", "--book", bookID', confirm)
+        self.assertIn("!result.remoteRequestSent", confirm)
+        self.assertNotIn("--prepare-paid-run", confirm)
+        self.assertNotIn("--execute-paid-plan", confirm)
+        self.assertNotIn("--run-", confirm)
+        self.assertIn("Подготовка устарела", source)
+        self.assertIn("Текст подготовлен", source)
+        self.assertIn("struct BookTextPreparationResult", contracts)
+        self.assertIn('case preparationStatus = "preparation_status"', contracts)
+
 
 if __name__ == "__main__":
     unittest.main()

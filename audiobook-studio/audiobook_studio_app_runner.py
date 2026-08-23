@@ -19,6 +19,7 @@ from voice_library import load_voice_library, normalize_qwen_profiles
 from workspace_paths import load_workspace_paths
 from cloud_billing import CloudBillingService, decimal_text, decimal_value, save_settings
 from book_library import BookLibrary
+from book_text_preparation import BookTextPreparationService
 from paid_run import PaidRunService
 
 STUDIO_DIR = Path(__file__).resolve().parent
@@ -30,6 +31,7 @@ YANDEX_PRICING_CONFIG = STUDIO_DIR / "yandex-pricing.json"
 USER_PRICING_CONFIG = Path.home() / "Library/Application Support/Audiobook Studio/yandex-pricing.local.json"
 WORKSPACE_PATHS = load_workspace_paths()
 BOOK_LIBRARY = BookLibrary(WORKSPACE_PATHS.books_root)
+BOOK_TEXT_PREPARATION = BookTextPreparationService(BOOK_LIBRARY)
 
 ENGINES = (
     ("qwen", "Qwen — локально"),
@@ -45,6 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--list-books", action="store_true")
     mode.add_argument("--add-book", action="store_true")
     mode.add_argument("--book-details", action="store_true")
+    mode.add_argument("--prepare-book-text", action="store_true")
+    mode.add_argument("--book-preparation-status", action="store_true")
     mode.add_argument("--list-jobs", action="store_true")
     mode.add_argument("--list-voices", action="store_true")
     mode.add_argument("--default-speaker", action="store_true")
@@ -128,7 +132,7 @@ def _paid_run_service() -> PaidRunService:
 
 
 def _load_book_job_text(book_name: str, job_id: str) -> tuple[dict[str, Any], str]:
-    book = BOOK_LIBRARY.load_book_profile(book_name)
+    book = BOOK_LIBRARY.load_book_for_execution(book_name)
     job = (book.get("jobs") or {}).get(job_id) if isinstance(book, dict) else None
     segments = job.get("segments") if isinstance(job, dict) else None
     if not isinstance(segments, list) or not segments:
@@ -281,6 +285,14 @@ def add_book(*, source_file: str, title: str, author: str, slug: str) -> dict[st
 
 def book_details(book_name: str) -> dict[str, Any]:
     return BOOK_LIBRARY.book_details(_require(book_name, "--book"))
+
+
+def prepare_book_text(book_name: str) -> dict[str, Any]:
+    return BOOK_TEXT_PREPARATION.prepare(_require(book_name, "--book"))
+
+
+def book_preparation_status(book_name: str) -> dict[str, Any]:
+    return BOOK_TEXT_PREPARATION.status(_require(book_name, "--book"))
 
 
 def voice_library_listing(engine: str) -> dict[str, Any]:
@@ -446,6 +458,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.book_details:
         print(json.dumps(book_details(args.book), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.prepare_book_text:
+        print(json.dumps(prepare_book_text(args.book), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.book_preparation_status:
+        print(json.dumps(book_preparation_status(args.book), ensure_ascii=False, indent=2))
         return 0
 
     if args.list_jobs:

@@ -9,6 +9,7 @@ import shutil
 import stat
 import tempfile
 import unicodedata
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -123,6 +124,21 @@ class BookLibrary:
         if "slug" in book and normalize_slug(str(book["slug"])) != path.stem:
             raise BookLibraryError(f"{path.name}: slug does not match profile filename")
         return book
+
+    def replace_book_profile(self, book_id: str | Path, book: Mapping[str, Any]) -> Path:
+        """Atomically replace one existing profile after validating its identity."""
+        path = self.resolve_book_profile(book_id)
+        payload = dict(book)
+        slug = normalize_slug(str(payload.get("slug") or path.stem))
+        if slug != path.stem:
+            raise BookLibraryError("Book slug does not match the profile being replaced.")
+        for key in ("title", "author", "language", "default_speaker", "audiobook_instruct", "jobs"):
+            if key not in payload:
+                raise BookLibraryError(f"{path.name}: missing {key}")
+        if not isinstance(payload["jobs"], dict):
+            raise BookLibraryError(f"{path.name}: jobs must be an object")
+        _atomic_write_json(path, payload)
+        return path
 
     def import_text_book(
         self,
@@ -243,6 +259,143 @@ class BookLibrary:
             return None
         return candidate
 
+    def resolve_book_asset(self, book_id: str | Path, relative_value: Any) -> Path:
+        profile_path = self.resolve_book_profile(book_id)
+        book = self.load_book_profile(profile_path.name)
+        slug = normalize_slug(str(book.get("slug") or profile_path.stem))
+        path = self._asset_path(slug, relative_value)
+        if path is None:
+            raise BookLibraryError("Book asset path is missing or unsafe.")
+        return path
+
+    def _preparation_facts(
+        self,
+        *,
+        slug: str,
+        book: Mapping[str, Any],
+        source_integrity: str,
+    ) -> dict[str, Any]:
+        preparation = book.get("preparation") if isinstance(book.get("preparation"), dict) else None
+        tts = book.get("tts_working_copy") if isinstance(book.get("tts_working_copy"), dict) else {}
+        working_path = self._asset_path(slug, tts.get("path"))
+        working_sha = sha256_file(working_path) if working_path is not None and working_path.is_file() else None
+        if source_integrity != "OK":
+            status = "SOURCE_INTEGRITY_ERROR"
+        elif preparation is None:
+            status = "NOT_PREPARED"
+        elif working_sha is None or working_sha != preparation.get("working_copy_sha256"):
+            status = "STALE"
+        else:
+            normalized_path = self._asset_path(slug, preparation.get("normalized_path"))
+            structure_path = self._asset_path(slug, preparation.get("structure_path"))
+            segments_path = self._asset_path(slug, preparation.get("segments_path"))
+            artifacts_present = all(
+                path is not None and path.is_file()
+                for path in (normalized_path, structure_path, segments_path)
+            )
+            normalized_matches = bool(
+                normalized_path is not None
+                and normalized_path.is_file()
+                and preparation.get("normalized_sha256")
+                and sha256_file(normalized_path) == preparation.get("normalized_sha256")
+            )
+            structure_identity_matches = False
+            if structure_path is not None and structure_path.is_file():
+                try:
+                    structure_payload = json.loads(structure_path.read_text(encoding="utf-8"))
+                    structure_identity_matches = (
+                        isinstance(structure_payload, dict)
+                        and structure_payload.get("preparation_identity") == preparation.get("identity_sha256")
+                        and isinstance(structure_payload.get("chapters"), list)
+                    )
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    structure_identity_matches = False
+            segments_identity_matches = False
+            if segments_path is not None and segments_path.is_file():
+                try:
+                    segments_payload = json.loads(segments_path.read_text(encoding="utf-8"))
+                    segments_identity_matches = (
+                        isinstance(segments_payload, dict)
+                        and segments_payload.get("preparation_identity") == preparation.get("identity_sha256")
+                    )
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    segments_identity_matches = False
+            status = (
+                "READY"
+                if preparation.get("status") == "READY"
+                and artifacts_present
+                and normalized_matches
+                and structure_identity_matches
+                and segments_identity_matches
+                else "STALE"
+            )
+        return {
+            "preparation_status": status,
+            "working_copy_current_sha256": working_sha,
+            "preparation_schema_version": preparation.get("schema_version") if preparation else None,
+            "preparation_revision": preparation.get("revision") if preparation else None,
+            "preparation_identity": preparation.get("identity_sha256") if preparation else None,
+            "prepared_at": preparation.get("prepared_at") if preparation else None,
+            "normalized_sha256": preparation.get("normalized_sha256") if preparation else None,
+            "normalized_path": preparation.get("normalized_path") if preparation else None,
+            "structure_path": preparation.get("structure_path") if preparation else None,
+            "segments_path": preparation.get("segments_path") if preparation else None,
+            "chapter_count": preparation.get("chapter_count") if preparation else 0,
+            "prepared_segment_count": preparation.get("segment_count") if preparation else 0,
+        }
+
+    def load_book_for_execution(self, book_id: str | Path) -> dict[str, Any]:
+        """Resolve lightweight prepared jobs to inline segments, failing closed if stale."""
+        profile_path = self.resolve_book_profile(book_id)
+        book = self.load_book_profile(profile_path.name)
+        preparation = book.get("preparation") if isinstance(book.get("preparation"), dict) else None
+        if preparation is None:
+            return book
+
+        details = self.book_details(profile_path.name)
+        if details["preparation_status"] != "READY":
+            raise BookLibraryError(
+                f"Book preparation is {details['preparation_status']}; synthesis was not started."
+            )
+        slug = normalize_slug(str(book.get("slug") or profile_path.stem))
+        segments_path = self._asset_path(slug, preparation.get("segments_path"))
+        if segments_path is None or not segments_path.is_file():
+            raise BookLibraryError("Prepared segment artifact is missing.")
+        try:
+            artifact = json.loads(segments_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise BookLibraryError("Prepared segment artifact is unreadable.") from error
+        if not isinstance(artifact, dict) or artifact.get("preparation_identity") != preparation.get("identity_sha256"):
+            raise BookLibraryError("Prepared segment identity does not match the book profile.")
+        entries = artifact.get("segments")
+        preview = artifact.get("preview")
+        if not isinstance(entries, list) or not all(isinstance(item, dict) for item in entries):
+            raise BookLibraryError("Prepared segment artifact has an invalid segment list.")
+        all_entries = list(entries)
+        if isinstance(preview, dict):
+            all_entries.append(preview)
+        by_id = {
+            str(item.get("id")): item
+            for item in all_entries
+            if isinstance(item.get("id"), str) and item.get("id")
+        }
+        resolved = deepcopy(book)
+        for job_id, job in resolved["jobs"].items():
+            if not isinstance(job, dict) or not isinstance(job.get("segment_ids"), list):
+                continue
+            if job.get("preparation_identity") != preparation.get("identity_sha256"):
+                raise BookLibraryError(f"Prepared job identity mismatch: {job_id}")
+            materialized: list[dict[str, Any]] = []
+            for segment_id in job["segment_ids"]:
+                entry = by_id.get(str(segment_id))
+                if entry is None or not isinstance(entry.get("text"), str) or not entry["text"].strip():
+                    raise BookLibraryError(f"Prepared job references an invalid segment: {segment_id}")
+                materialized.append(deepcopy(entry))
+            if not materialized:
+                raise BookLibraryError(f"Prepared job has no segments: {job_id}")
+            job["segments"] = materialized
+        return resolved
+
     def book_details(self, book_id: str | Path) -> dict[str, Any]:
         profile_path = self.resolve_book_profile(book_id)
         book = self.load_book_profile(profile_path.name)
@@ -259,17 +412,29 @@ class BookLibrary:
             source_integrity = "OK" if expected_sha and current_source_sha == expected_sha else "HASH_MISMATCH"
         tts_path = self._asset_path(slug, tts.get("path"))
         tts_status = "CREATED" if tts_path is not None and tts_path.is_file() else "MISSING"
+        preparation_facts = self._preparation_facts(
+            slug=slug,
+            book=book,
+            source_integrity=source_integrity,
+        )
+        jobs_available = (
+            not isinstance(book.get("preparation"), dict)
+            or preparation_facts["preparation_status"] == "READY"
+        )
         jobs = [
             {
                 "id": str(job_id),
                 "label": str(job.get("label") or job_id),
-                "segment_count": len(job.get("segments") or []),
+                "segment_count": len(job.get("segments") or job.get("segment_ids") or []),
             }
             for job_id, job in book["jobs"].items()
+            if jobs_available
             if isinstance(job_id, str)
             and isinstance(job, dict)
-            and isinstance(job.get("segments"), list)
-            and job["segments"]
+            and (
+                isinstance(job.get("segments"), list) and bool(job["segments"])
+                or isinstance(job.get("segment_ids"), list) and bool(job["segment_ids"])
+            )
         ]
         return {
             "schema_version": BOOK_SCHEMA_VERSION,
@@ -297,10 +462,12 @@ class BookLibrary:
             "source_integrity": source_integrity,
             "tts_working_copy_path": str(tts.get("path") or ""),
             "tts_working_copy_sha256": tts.get("sha256"),
+            "tts_working_copy_current_sha256": preparation_facts["working_copy_current_sha256"],
             "tts_working_copy_source_sha256": tts.get("source_sha256"),
             "tts_working_copy_revision": tts.get("revision"),
             "tts_working_copy_status": tts_status,
             "remote_request_sent": False,
+            **preparation_facts,
         }
 
     def list_book_summaries(self) -> list[dict[str, Any]]:
