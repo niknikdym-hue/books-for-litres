@@ -9,6 +9,7 @@ import time
 import unittest
 import wave
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -246,6 +247,18 @@ class ChapterProductionTests(unittest.TestCase):
             service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
         self.assertEqual(self.requests, 0)
 
+    def test_changed_segmentation_pause_invalidates_plan_before_request(self) -> None:
+        service = self.service()
+        plan = self.prepare(service)
+        service.backend.config = replace(
+            service.backend.config,
+            sentence_pause_ms=service.backend.config.sentence_pause_ms + 1,
+        )
+
+        with self.assertRaisesRegex(ChapterProductionError, "facts changed"):
+            service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        self.assertEqual(self.requests, 0)
+
     def test_ambiguous_execution_is_consumed_and_never_retried(self) -> None:
         service = self.service()
         plan = self.prepare(service)
@@ -313,6 +326,59 @@ class ChapterProductionTests(unittest.TestCase):
         second_service = self.service()
         first_plan = self.prepare(first_service)
         second_plan = self.prepare(second_service)
+        request_started = threading.Event()
+        release_request = threading.Event()
+        original_request = first_service.backend._request
+
+        def slow_request(text: str, request_id: str):
+            request_started.set()
+            if not release_request.wait(timeout=3):
+                raise AssertionError("test did not release the provider request")
+            return original_request(text, request_id)
+
+        first_service.backend._request = slow_request
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first_future = executor.submit(
+                first_service.execute,
+                plan_id=first_plan["plan_id"],
+                plan_digest=first_plan["plan_digest"],
+            )
+            self.assertTrue(request_started.wait(timeout=3))
+            second_future = executor.submit(
+                second_service.execute,
+                plan_id=second_plan["plan_id"],
+                plan_digest=second_plan["plan_digest"],
+            )
+            time.sleep(0.1)
+            self.assertFalse(second_future.done())
+            release_request.set()
+            first_result = first_future.result(timeout=5)
+            with self.assertRaises(ChapterProductionError):
+                second_future.result(timeout=5)
+
+        self.assertGreater(first_result["network_requests"], 0)
+        self.assertEqual(self.requests, first_result["network_requests"])
+
+    def test_two_chapters_with_shared_fingerprints_are_serialized(self) -> None:
+        library = BookLibrary(self.books)
+        library.import_text_book(
+            source_file=self.source,
+            title="Вторая книга с общим текстом",
+            author="Audiobook Studio Test",
+            slug="chapter-book-two",
+        )
+        BookTextPreparationService(
+            library,
+            now=lambda: "2026-08-23T10:00:00+00:00",
+        ).prepare("chapter-book-two")
+        first_service = self.service()
+        second_service = self.service()
+        first_plan = self.prepare(first_service)
+        second_plan = second_service.prepare(
+            book_name="chapter-book-two",
+            job_id="chapter-ch001",
+            profile_id="yandex_lera",
+        )
         request_started = threading.Event()
         release_request = threading.Event()
         original_request = first_service.backend._request
