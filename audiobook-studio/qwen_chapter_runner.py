@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicit local Qwen chapter production runner with persistent Resume state."""
+"""Explicit local Qwen chapter segment-production runner with persistent Resume state."""
 
 from __future__ import annotations
 
@@ -81,10 +81,6 @@ def _manifest_service(studio_module: Any, cfg: Mapping[str, Any]) -> QwenChapter
     )
 
 
-def _chapter_output(manifest: QwenChapterManifestService, *, book: str, job: str, profile_id: str) -> Path:
-    return manifest._job_dir(book, job, profile_id) / "chapter.wav"
-
-
 def _build_synthesizer(studio_module: Any, cfg: Mapping[str, Any], book: Mapping[str, Any], identity: Mapping[str, Any]):
     model_box: dict[str, Any] = {}
 
@@ -148,10 +144,7 @@ def main(argv: Sequence[str] | None = None, *, runtime_factory=_runtime_facts) -
             manifest=manifest,
             synthesize_segment=_build_synthesizer(studio_module, cfg, book_payload, identity),
         )
-        result = service.run(
-            **common,
-            chapter_output=_chapter_output(manifest, book=book, job=job, profile_id=profile_id),
-        )
+        result = service.run(**common)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
