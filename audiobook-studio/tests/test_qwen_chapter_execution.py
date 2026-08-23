@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import tempfile
+import threading
+import time
 import unittest
 import wave
 from pathlib import Path
@@ -80,6 +82,60 @@ class QwenChapterExecutionTests(unittest.TestCase):
         segment_wavs = list((Path(result["segment_job_dir"]) / "segments").glob("*.wav"))
         self.assertEqual(len(segment_wavs), result["segment_count"])
         self.assertTrue(all(inspect_pcm_wav(path).duration_seconds > 0 for path in segment_wavs))
+
+    def test_concurrent_live_runs_are_serialized_and_never_duplicate_segments(self) -> None:
+        activity_lock = threading.Lock()
+        active = 0
+        max_active = 0
+        calls: list[str] = []
+        results: list[dict[str, object]] = []
+        errors: list[BaseException] = []
+
+        def synthesize_segment(*, text: str, output_path: Path, seed: int, segment_id: str) -> None:
+            nonlocal active, max_active
+            with activity_lock:
+                active += 1
+                max_active = max(max_active, active)
+                calls.append(segment_id)
+            try:
+                time.sleep(0.05)
+                write_wav(output_path)
+            finally:
+                with activity_lock:
+                    active -= 1
+
+        services = [
+            QwenChapterExecutionService(
+                library=self.library,
+                manifest=self.manifest,
+                synthesize_segment=synthesize_segment,
+            ),
+            QwenChapterExecutionService(
+                library=self.library,
+                manifest=self.manifest,
+                synthesize_segment=synthesize_segment,
+            ),
+        ]
+
+        def run(service: QwenChapterExecutionService) -> None:
+            try:
+                results.append(self.run_service(service))
+            except BaseException as error:  # capture thread failures for main assertions
+                errors.append(error)
+
+        threads = [threading.Thread(target=run, args=(service,)) for service in services]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=3)
+
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 2)
+        self.assertEqual(max_active, 1)
+        self.assertEqual(len(calls), len(set(calls)))
+        self.assertEqual(sum(int(result["generated_segments"]) for result in results), len(calls))
+        self.assertTrue(all(result["complete"] for result in results))
 
     def test_resume_skips_already_done_segments(self) -> None:
         self.manifest.prepare(
