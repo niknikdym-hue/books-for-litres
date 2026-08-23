@@ -369,7 +369,8 @@ class YandexChapterPlanService:
 
         The native/bridge layer is responsible for obtaining explicit chapter
         confirmation before calling this method. This method itself is fail-closed
-        and one-shot, and never retries automatically.
+        and one-shot, and never retries automatically. Production stops at segment
+        WAVs; chapter assembly remains blocked until QA/review acceptance.
         """
         with self.store.locked(plan_id):
             plan, analysis = self._validate_prepared_plan(plan_id, plan_digest)
@@ -421,12 +422,13 @@ class YandexChapterPlanService:
                 try:
                     setattr(self.backend, "_request", capped_request)
                     try:
-                        joined = self.backend.run_text_job(
+                        manifest_path = self.backend.run_text_job(
                             analysis["text"],
                             analysis["job_dir"],
                             job_id=str(plan["job_id"]),
                             pricing=self.pricing,
                             scope="chapter",
+                            assemble=False,
                         )
                     except Exception as error:
                         if getattr(error, "category", None) == "request_cap_exceeded":
@@ -449,7 +451,9 @@ class YandexChapterPlanService:
                 "state": "CONSUMED",
                 "decision": plan["decision"],
                 "chapter_production_identity": plan["chapter_production_identity"],
-                "output_path": str(joined),
+                "segment_manifest": str(manifest_path),
+                "chapter_assembly_performed": False,
+                "next_gate": "AUTOMATIC_QA",
                 "request_slots": request_slots,
                 "network_requests": network_requests,
                 "max_network_requests": cap,
