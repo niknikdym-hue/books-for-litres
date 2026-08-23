@@ -393,6 +393,36 @@ class QwenChapterManifestService:
             synthesis_identity=synthesis_identity,
         )
 
+    def assembly_inputs(
+        self,
+        *,
+        book_id: str,
+        job_id: str,
+        profile_id: str,
+        synthesis_identity: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        job_dir, manifest = self._load_current(
+            book_id=book_id,
+            job_id=job_id,
+            profile_id=profile_id,
+            synthesis_identity=synthesis_identity,
+        )
+        result: list[dict[str, Any]] = []
+        for entry in manifest["segments"].values():
+            if entry.get("state") != "DONE":
+                raise QwenChapterManifestError("Qwen chapter is not complete for assembly.")
+            wav_path = job_dir / entry["wav"]
+            metadata = inspect_pcm_wav(wav_path)
+            result.append({
+                "id": entry["id"],
+                "wav_path": str(wav_path),
+                "pause_after_ms": int(entry["pause_after_ms"]),
+                "sample_rate_hz": metadata.sample_rate_hz,
+                "channels": metadata.channels,
+                "sample_width_bytes": metadata.sample_width_bytes,
+            })
+        return result
+
     def retry_failed(
         self,
         *,
