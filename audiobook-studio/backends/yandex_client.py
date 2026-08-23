@@ -489,7 +489,14 @@ class YandexSpeechKitBackend:
         job_id: str = "yandex-text-job",
         pricing: YandexPricingConfig,
         scope: str = "book",
+        assemble: bool = True,
     ) -> Path:
+        """Run a resumable Yandex text job.
+
+        ``assemble=True`` preserves the existing legacy/demo behavior. Production
+        chapter generation uses ``assemble=False`` so the pipeline stops at
+        integrity-checked segment WAVs until automatic QA/manual review succeeds.
+        """
         self.require_allowed_to_start(
             self.estimate(text, pricing=pricing, job_dir=job_dir, scope=scope)
         )
@@ -627,10 +634,16 @@ class YandexSpeechKitBackend:
             atomic_write_json(manifest_path, manifest)
             ordered.append((wav_path, seg.pause_after_ms))
 
+        manifest["finished_at"] = utc_now_iso()
+        if not assemble:
+            manifest.pop("joined_wav", None)
+            manifest["status"] = "SEGMENTS_DONE"
+            atomic_write_json(manifest_path, manifest)
+            return manifest_path
+
         joined = job_dir / f"{job_id}__{self.profile.voice}-{self.profile.role}-{self.profile.speed}.wav"
         join_wavs_with_pauses(ordered, joined)
         manifest["joined_wav"] = joined.name
-        manifest["finished_at"] = utc_now_iso()
         manifest["status"] = "DONE"
         atomic_write_json(manifest_path, manifest)
         return joined
