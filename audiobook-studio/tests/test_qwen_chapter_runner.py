@@ -17,9 +17,6 @@ class FakeManifest:
         self.root = root
         self.calls = []
 
-    def _job_dir(self, book, job, profile):
-        return self.root / book / job / profile
-
     def prepare(self, **kwargs):
         self.calls.append(("prepare", kwargs))
         return {"complete": False, "remote_request_sent": False}
@@ -39,7 +36,12 @@ class FakeExecution:
 
     def run(self, **kwargs):
         FakeExecution.last_run = kwargs
-        return {"complete": True, "remote_request_sent": False}
+        return {
+            "complete": True,
+            "chapter_assembly_performed": False,
+            "next_gate": "AUTOMATIC_QA",
+            "remote_request_sent": False,
+        }
 
 
 class QwenChapterRunnerTests(unittest.TestCase):
@@ -94,17 +96,21 @@ class QwenChapterRunnerTests(unittest.TestCase):
                 main(["--retry-failed", "--book", "book", "--job", "chapter-ch001", "--speaker", "Vivian"], runtime_factory=self.runtime)
         self.assertEqual(self.manifest.calls, [])
 
-    def test_run_is_separate_explicit_mode(self):
+    def test_run_is_separate_explicit_segment_mode_and_stops_before_assembly(self):
         output = io.StringIO()
         with patch("qwen_chapter_runner._manifest_service", return_value=self.manifest):
             with patch("qwen_chapter_runner._build_synthesizer", return_value=lambda **_: None):
                 with patch("qwen_chapter_runner.QwenChapterExecutionService", FakeExecution):
                     with contextlib.redirect_stdout(output):
                         code = main(["--run", "--book", "book", "--job", "chapter-ch001", "--speaker", "Vivian"], runtime_factory=self.runtime)
+        payload = json.loads(output.getvalue())
         self.assertEqual(code, 0)
         self.assertEqual(FakeExecution.last_run["book_id"], "book")
         self.assertEqual(FakeExecution.last_run["profile_id"], "qwen_vivian")
-        self.assertFalse(json.loads(output.getvalue())["remote_request_sent"])
+        self.assertNotIn("chapter_output", FakeExecution.last_run)
+        self.assertFalse(payload["chapter_assembly_performed"])
+        self.assertEqual(payload["next_gate"], "AUTOMATIC_QA")
+        self.assertFalse(payload["remote_request_sent"])
 
 
 if __name__ == "__main__":
