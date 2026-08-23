@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+import wave
+from pathlib import Path
+
+from backends.common import inspect_pcm_wav
+from book_library import BookLibrary
+from book_text_preparation import BookTextPreparationService
+from qwen_chapter_execution import QwenChapterExecutionError, QwenChapterExecutionService
+from qwen_chapter_manifest import QwenChapterManifestService
+
+
+def write_wav(path: Path, *, frames: int = 240) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(24000)
+        handle.writeframes(b"\x01\x00" * frames)
+
+
+class QwenChapterExecutionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        books = self.root / "books"
+        books.mkdir()
+        source = self.root / "source.txt"
+        source.write_text(
+            "Глава 1. Начало\n\nПервое. Второе.\n\nГлава 2. Далее\n\nТретье. Четвёрто.\n",
+            encoding="utf-8",
+        )
+        self.library = BookLibrary(books)
+        self.library.import_text_book(source_file=source, title="Книга", author="Автор", slug="book")
+        BookTextPreparationService(self.library).prepare("book")
+        self.manifest = QwenChapterManifestService(library=self.library, output_root=self.root / "renders")
+        self.identity = {
+            "model": "qwen",
+            "generation": {"temperature": 0.7},
+            "instruct": "read",
+            "base_seed": 10,
+        }
+        self.calls: list[tuple[str, int]] = []
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def service(self, *, fail_on: str | None = None) -> QwenChapterExecutionService:
+        def synthesize_segment(*, text: str, output_path: Path, seed: int, segment_id: str) -> None:
+            self.calls.append((segment_id, seed))
+            if segment_id == fail_on:
+                raise RuntimeError("synthesis failed")
+            write_wav(output_path)
+        return QwenChapterExecutionService(
+            library=self.library,
+            manifest=self.manifest,
+            synthesize_segment=synthesize_segment,
+        )
+
+    def run_service(self, service: QwenChapterExecutionService):
+        return service.run(
+            book_id="book",
+            job_id="chapter-ch001",
+            profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+            chapter_output=self.root / "chapter.wav",
+        )
+
+    def test_run_generates_each_pending_segment_once_and_assembles_streaming_wav(self) -> None:
+        result = self.run_service(self.service())
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["generated_segments"], result["segment_count"])
+        self.assertEqual(len(self.calls), result["segment_count"])
+        self.assertFalse(result["remote_request_sent"])
+        self.assertGreater(inspect_pcm_wav(Path(result["output_path"])).duration_seconds, 0)
+
+    def test_resume_skips_already_done_segments(self) -> None:
+        self.manifest.prepare(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+        )
+        claim = self.manifest.claim_next(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+        )
+        write_wav(Path(claim["output_path"]))
+        self.manifest.complete(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity, segment_id=claim["id"],
+        )
+        result = self.run_service(self.service())
+        self.assertEqual(result["generated_segments"], result["segment_count"] - 1)
+
+    def test_failed_segment_stops_and_requires_explicit_retry(self) -> None:
+        self.manifest.prepare(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+        )
+        first = self.manifest.claim_next(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+        )
+        self.manifest.fail(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity, segment_id=first["id"], error="old failure",
+        )
+        with self.assertRaisesRegex(QwenChapterExecutionError, "explicit retry"):
+            self.run_service(self.service())
+        self.assertEqual(self.calls, [])
+
+    def test_synthesis_failure_is_persisted_and_not_auto_retried(self) -> None:
+        self.manifest.prepare(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+        )
+        claim = self.manifest.claim_next(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+        )
+        self.manifest.recover_after_restart(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+        )
+        with self.assertRaisesRegex(RuntimeError, "synthesis failed"):
+            self.run_service(self.service(fail_on=claim["id"]))
+        status = self.manifest.status(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+        )
+        self.assertEqual(status["counts"]["FAILED"], 1)
+        calls_after_failure = list(self.calls)
+        with self.assertRaisesRegex(QwenChapterExecutionError, "explicit retry"):
+            self.run_service(self.service())
+        self.assertEqual(self.calls, calls_after_failure)
+
+    def test_restart_recovers_valid_running_wav_without_regeneration(self) -> None:
+        self.manifest.prepare(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+        )
+        claim = self.manifest.claim_next(
+            book_id="book", job_id="chapter-ch001", profile_id="qwen_vivian",
+            synthesis_identity=self.identity,
+        )
+        write_wav(Path(claim["output_path"]))
+        result = self.run_service(self.service())
+        self.assertEqual(result["generated_segments"], result["segment_count"] - 1)
+        self.assertNotIn(claim["id"], [segment_id for segment_id, _ in self.calls])
+
+
+if __name__ == "__main__":
+    unittest.main()
