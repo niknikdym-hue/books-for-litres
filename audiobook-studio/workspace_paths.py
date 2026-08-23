@@ -84,6 +84,10 @@ class WorkspacePaths:
         return self.root / "runtime" / "paid-run-plans"
 
     @property
+    def yandex_chapter_plans(self) -> Path:
+        return self.root / "runtime" / "yandex-chapter-plans"
+
+    @property
     def openai_casting_root(self) -> Path:
         return self.root / "casting" / "openai"
 
