@@ -128,7 +128,7 @@ class BookLibrary:
     def replace_book_profile(self, book_id: str | Path, book: Mapping[str, Any]) -> Path:
         """Atomically replace one existing profile after validating its identity."""
         path = self.resolve_book_profile(book_id)
-        payload = dict(book)
+        payload = deepcopy(dict(book))
         slug = normalize_slug(str(payload.get("slug") or path.stem))
         if slug != path.stem:
             raise BookLibraryError("Book slug does not match the profile being replaced.")
@@ -137,6 +137,23 @@ class BookLibrary:
                 raise BookLibraryError(f"{path.name}: missing {key}")
         if not isinstance(payload["jobs"], dict):
             raise BookLibraryError(f"{path.name}: jobs must be an object")
+
+        # A READY preparation is sealed only after its final serialized artifacts
+        # exist. This keeps the profile as the trust root without allowing the
+        # JSON artifacts to self-authorize by preserving an embedded identity.
+        preparation = payload.get("preparation")
+        if isinstance(preparation, dict) and preparation.get("status") == "READY":
+            for hash_key, path_key in (
+                ("structure_sha256", "structure_path"),
+                ("segments_sha256", "segments_path"),
+            ):
+                if preparation.get(hash_key):
+                    continue
+                artifact_path = self._asset_path(slug, preparation.get(path_key))
+                if artifact_path is None or not artifact_path.is_file():
+                    raise BookLibraryError(f"Prepared artifact is missing before profile publish: {path_key}")
+                preparation[hash_key] = sha256_file(artifact_path)
+
         _atomic_write_json(path, payload)
         return path
 
@@ -299,8 +316,20 @@ class BookLibrary:
                 and preparation.get("normalized_sha256")
                 and sha256_file(normalized_path) == preparation.get("normalized_sha256")
             )
+            structure_hash_matches = bool(
+                structure_path is not None
+                and structure_path.is_file()
+                and preparation.get("structure_sha256")
+                and sha256_file(structure_path) == preparation.get("structure_sha256")
+            )
+            segments_hash_matches = bool(
+                segments_path is not None
+                and segments_path.is_file()
+                and preparation.get("segments_sha256")
+                and sha256_file(segments_path) == preparation.get("segments_sha256")
+            )
             structure_identity_matches = False
-            if structure_path is not None and structure_path.is_file():
+            if structure_hash_matches and structure_path is not None:
                 try:
                     structure_payload = json.loads(structure_path.read_text(encoding="utf-8"))
                     structure_identity_matches = (
@@ -311,7 +340,7 @@ class BookLibrary:
                 except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                     structure_identity_matches = False
             segments_identity_matches = False
-            if segments_path is not None and segments_path.is_file():
+            if segments_hash_matches and segments_path is not None:
                 try:
                     segments_payload = json.loads(segments_path.read_text(encoding="utf-8"))
                     segments_identity_matches = (
@@ -325,6 +354,8 @@ class BookLibrary:
                 if preparation.get("status") == "READY"
                 and artifacts_present
                 and normalized_matches
+                and structure_hash_matches
+                and segments_hash_matches
                 and structure_identity_matches
                 and segments_identity_matches
                 else "STALE"
@@ -337,6 +368,8 @@ class BookLibrary:
             "preparation_identity": preparation.get("identity_sha256") if preparation else None,
             "prepared_at": preparation.get("prepared_at") if preparation else None,
             "normalized_sha256": preparation.get("normalized_sha256") if preparation else None,
+            "structure_sha256": preparation.get("structure_sha256") if preparation else None,
+            "segments_sha256": preparation.get("segments_sha256") if preparation else None,
             "normalized_path": preparation.get("normalized_path") if preparation else None,
             "structure_path": preparation.get("structure_path") if preparation else None,
             "segments_path": preparation.get("segments_path") if preparation else None,
@@ -362,8 +395,17 @@ class BookLibrary:
         if segments_path is None or not segments_path.is_file():
             raise BookLibraryError("Prepared segment artifact is missing.")
         try:
-            artifact = json.loads(segments_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            artifact_bytes = segments_path.read_bytes()
+        except OSError as error:
+            raise BookLibraryError("Prepared segment artifact is unreadable.") from error
+        if (
+            not isinstance(preparation.get("segments_sha256"), str)
+            or sha256_bytes(artifact_bytes) != preparation.get("segments_sha256")
+        ):
+            raise BookLibraryError("Prepared segment artifact hash does not match the book profile.")
+        try:
+            artifact = json.loads(artifact_bytes.decode("utf-8", errors="strict"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise BookLibraryError("Prepared segment artifact is unreadable.") from error
         if not isinstance(artifact, dict) or artifact.get("preparation_identity") != preparation.get("identity_sha256"):
             raise BookLibraryError("Prepared segment identity does not match the book profile.")
