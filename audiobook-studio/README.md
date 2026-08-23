@@ -30,15 +30,18 @@ DEPLOY-0                       PASS
 
 Safe native OpenAI paid workflow принят, находится в `main` и развёрнут в production Desktop app. Post-merge runtime provisioning, fresh build, strict codesign и zero-action production acceptance завершены.
 
-Полный production launch для реальной книги end-to-end ещё не завершён. Активный checkpoint:
+`BOOK_LIBRARY_ADD_BOOK_V1` принят, находится в `main` и развёрнут в production Desktop app:
 
 ```text
-BOOK_LIBRARY_ADD_BOOK_V1
-→ immutable source
-→ TTS working copy
+BOOK_LIBRARY_ADD_BOOK_V1 = ACCEPTED_AND_DEPLOYED
+canonical registry = <AUDIOBOOK_STUDIO_HOME>/books/*.json
+immutable source = books/<slug>/source/original.txt
+editable TTS copy = books/<slug>/tts/working.txt
 ```
 
-После него по порядку: chapter production → QA/Review → assembly → mastering → Dilon Voices → export → LitRes profile → MP3/M4B → end-to-end acceptance на реальной книге.
+Add Book работает через native file picker и offline bridge; импорт не выполняет provider request. Следующий checkpoint — `BOOK_TEXT_PREPARATION_V1`: conservative normalization, chapter detection, literary segmentation и prepared jobs без synthesis.
+
+Полный production launch для реальной книги end-to-end ещё не завершён. После text preparation по порядку: chapter production → QA/Review → assembly → mastering → Dilon Voices → export → LitRes profile → MP3/M4B → end-to-end acceptance на реальной книге.
 
 Definition of Done активного checkpoint хранится в `docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md`.
 
@@ -55,6 +58,16 @@ Definition of Done активного checkpoint хранится в `docs/AUDIO
 Единственный resolver находится в `workspace_paths.py`. Корень можно переопределить через `AUDIOBOOK_STUDIO_HOME` или общий JSON contract, указанный в `AUDIOBOOK_STUDIO_PATH_CONTRACT`. Локальный contract по умолчанию: `Audiobook-Studio/settings/workspace-paths.json`.
 
 Production-книги, WAV, manifests, cache, renders, masters и exports хранятся в локальном workspace, а не в Git. В `books/` репозитория остаются только template и безопасный demo profile.
+
+Canonical production book library:
+
+```text
+<AUDIOBOOK_STUDIO_HOME>/books/<slug>.json
+<AUDIOBOOK_STUDIO_HOME>/books/<slug>/source/original.txt
+<AUDIOBOOK_STUDIO_HOME>/books/<slug>/tts/working.txt
+```
+
+Единственный resolver/import/integrity authority — `book_library.py`. Старый `runtime/studio-workspace/books` и repository fixtures не являются параллельным production registry.
 
 Native app исполняет Python из local runtime copy. Repository остаётся source of truth для production code/config; installation/update flow должен синхронизировать bounded execution contour без перезаписи пользовательских книг, billing, cache, manifests и audio artifacts.
 
@@ -103,10 +116,10 @@ python3 -m unittest discover -s audiobook-studio/tests -v
 
 Команда не выполняет TTS synthesis и не отправляет provider API requests.
 
-Принятый baseline после OpenAI safety fixes:
+Принятый baseline после Book Library deployment:
 
 ```text
-214 / 214 PASS
+233 / 233 PASS
 ```
 
 ## Native staging app
@@ -123,4 +136,4 @@ Default output:
 ~/Documents/New project/Audiobook-Studio/builds/native-staging/Audiobook Studio.app
 ```
 
-Staging artifact не заменяет production Desktop app автоматически. Production deployment/update остаётся отдельной fail-safe операцией, но текущий `DEPLOY-0` уже принят как PASS.
+Staging artifact не заменяет production Desktop app автоматически. Production deployment/update остаётся отдельной fail-safe операцией. Текущие `DEPLOY-0` и `BOOK_LIBRARY_ADD_BOOK_V1` приняты и развёрнуты.

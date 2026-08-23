@@ -4,8 +4,8 @@
 **Дата фиксации:** 2026-08-23  
 **Проект:** `audiobook-studio/`  
 **Repository:** `niknikdym-hue/books-for-litres`  
-**Accepted code baseline:** `4fda7281c3e65195bf4b0fe8d0d0a12d359219e3`  
-**Repository authority baseline before this edit:** `a96b5e3472a110fd0ee6a4f9be8ac1f1f53ddde1`
+**Accepted code baseline:** `97298f0dc84dac6126bf9f283176b50552f7af3c`
+**Repository authority baseline before this edit:** `97298f0dc84dac6126bf9f283176b50552f7af3c`
 
 ---
 
@@ -504,6 +504,19 @@ Forensic plans, billing ledger, cache и jobs deployment-ом не изменя�
 
 `DEPLOY-0 = PASS`.
 
+Book Library post-merge deployment также завершён:
+
+```text
+accepted code = 97298f0dc84dac6126bf9f283176b50552f7af3c
+full offline suite = 233 / 233 PASS
+runtime provisioning including book_library.py = PASS / SHA equal
+fresh native build + strict codesign = PASS
+production Desktop deployment = PASS
+automatic PREPARE / execute / provider requests = 0
+```
+
+Canonical production registry находится только в `<AUDIOBOOK_STUDIO_HOME>/books/*.json`. `runtime/studio-workspace/books` и repository fixtures не являются параллельной production authority.
+
 ---
 
 ## 15. Что означает «проект запущен»
@@ -543,12 +556,12 @@ BOOK LIBRARY / ADD BOOK
 
 ---
 
-## 16. Active checkpoint — BOOK_LIBRARY_ADD_BOOK_V1
+## 16. BOOK_LIBRARY_ADD_BOOK_V1 — ACCEPTED_AND_DEPLOYED
 
-Следующий обязательный product checkpoint:
+Accepted product checkpoint:
 
 ```text
-BOOK_LIBRARY_ADD_BOOK_V1
+BOOK_LIBRARY_ADD_BOOK_V1 = ACCEPTED_AND_DEPLOYED
 ```
 
 Цель: пользователь должен через native Studio добавить реальную книгу в local workspace без Terminal и получить канонический book project с immutable source и отдельной TTS working copy.
@@ -583,15 +596,33 @@ BOOK_LIBRARY_ADD_BOOK_V1
 11. existing demo profile и existing runtime data не повреждены;
 12. offline tests + native build/codesign PASS.
 
-V1 не обязан делать chapter synthesis, QA, mastering или export. Это следующие checkpoints.
+Фактическая acceptance закрыла Definition of Done: provider-neutral `BookLibrary`, atomic strict UTF-8 import, immutable hash-protected source, отдельная writable TTS copy, native file picker/form, restart persistence, integrity states, empty-jobs UI, `233/233` tests и production deployment.
+
+Canonical layout:
+
+```text
+<AUDIOBOOK_STUDIO_HOME>/books/<slug>.json
+<AUDIOBOOK_STUDIO_HOME>/books/<slug>/source/original.txt
+<AUDIOBOOK_STUDIO_HOME>/books/<slug>/tts/working.txt
+```
+
+Legacy real-book profile `hvatit-sebya-obestsenivat.json` перенесён copy-preserving в canonical registry с одинаковым SHA-256; original old runtime copy сохранён. Demo/template fixtures автоматически не мигрировались.
+
+Следующий обязательный checkpoint:
+
+```text
+BOOK_TEXT_PREPARATION_V1
+```
+
+Он должен подготовить только TTS working copy: conservative normalization → chapter structure → provider-neutral literary segments → prepared jobs. Synthesis и provider requests в этот checkpoint не входят.
 
 ---
 
 ## 17. Product sequence
 
 ```text
-BOOK_LIBRARY_ADD_BOOK_V1
-→ immutable source + TTS working copy hardening
+BOOK_LIBRARY_ADD_BOOK_V1                  ACCEPTED_AND_DEPLOYED
+→ BOOK_TEXT_PREPARATION_V1                ACTIVE CHECKPOINT
 → chapter production
 → QA / Review
 → chapter assembly
@@ -695,14 +726,15 @@ Automatic retry                   0 / PASS
 Paid plan one-shot consumption    PASS
 Persisted remote_request_sent     FIXED + TESTED
 Cloud Billing                     ACTIVE PROVIDER-NEUTRAL LAYER
-Full offline suite baseline       214 / 214 PASS
-Accepted code baseline            4fda728…
+Full offline suite baseline       233 / 233 PASS
+Accepted code baseline            97298f0…
 DEPLOY-0                           PASS
 Production Desktop                ACCEPTED_AND_DEPLOYED
+Book Library / Add Book           ACCEPTED_AND_DEPLOYED
 Level A — technical core          PASS
 Level B — installed Studio        PASS
 Level C — real-book end-to-end    PENDING
-Active checkpoint                 BOOK_LIBRARY_ADD_BOOK_V1
+Active checkpoint                 BOOK_TEXT_PREPARATION_V1
 ```
 
 ---
@@ -711,6 +743,13 @@ Active checkpoint                 BOOK_LIBRARY_ADD_BOOK_V1
 
 ### 2026-08-23
 
+- `BOOK_LIBRARY_ADD_BOOK_V1` принят, fast-forward merged в `main` и развёрнут;
+- canonical production library зафиксирована как `<AUDIOBOOK_STUDIO_HOME>/books/*.json`;
+- immutable source и отдельная TTS working copy реализованы и проверены;
+- native `Добавить книгу` работает через offline bridge; provider requests при import = 0;
+- legacy real-book profile перенесён byte-identical без удаления original;
+- full offline suite после Book Library = `233/233 PASS`;
+- следующий checkpoint: `BOOK_TEXT_PREPARATION_V1` без synthesis;
 - OpenAI explicit PREPARE hazard исправлен;
 - memory-only one-shot gate принят;
 - zero-user-action PREPARE = 0 доказан;
@@ -724,4 +763,4 @@ Active checkpoint                 BOOK_LIBRARY_ADD_BOOK_V1
 - `DEPLOY-0 = PASS`;
 - feature branch перестал считаться authority после merge;
 - формально введены readiness levels A/B/C и определение «проект запущен»;
-- active checkpoint зафиксирован как `BOOK_LIBRARY_ADD_BOOK_V1` с Definition of Done.
+- предыдущий active checkpoint `BOOK_LIBRARY_ADD_BOOK_V1` закрыт как `ACCEPTED_AND_DEPLOYED`.

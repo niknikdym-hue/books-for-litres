@@ -1,8 +1,8 @@
 # Audiobook Studio — архитектура и производственный регламент
 
 **Статус:** основной архитектурный документ проекта  
-**Версия:** 1.6
-**Дата фиксации:** 2026-08-21
+**Версия:** 1.7
+**Дата фиксации:** 2026-08-23
 **Текущий проект:** `audiobook-studio/`
 **Целевая система:** универсальная **Audiobook Studio** с локальным Qwen/MLX и облачными Yandex SpeechKit v3 и OpenAI TTS.
 
@@ -141,6 +141,11 @@ API keys Yandex и OpenAI не хранятся в книге, JSON-профил
 - единая Voice Library schema v1 без обязательного `gender`; OpenAI Custom Voice остаётся `DEFERRED`;
 - native parse, typecheck и arm64 staging build на Swift 6.3.3 / macOS SDK 26.5 / minimum target macOS 14;
 - version-keyed isolated Swift module cache, исключающий повторное использование stale SDK modules.
+- provider-neutral production Book Library с canonical registry `<AUDIOBOOK_STUDIO_HOME>/books/*.json`;
+- atomic UTF-8 TXT import, immutable/hash-protected source и отдельная writable TTS working copy;
+- native Add Book flow без provider request; `BOOK_LIBRARY_ADD_BOOK_V1 = ACCEPTED_AND_DEPLOYED`.
+
+Следующий checkpoint — `BOOK_TEXT_PREPARATION_V1`: conservative normalization, chapter detection, literary segmentation и prepared jobs без synthesis.
 
 Текущие 9 дикторов Qwen:
 
@@ -187,6 +192,16 @@ API keys Yandex и OpenAI не хранятся в книге, JSON-профил
 - manifest генерации;
 - статусы QA;
 - мастер-файлы и экспорты.
+
+Canonical V1 layout:
+
+```text
+<AUDIOBOOK_STUDIO_HOME>/books/<slug>.json
+<AUDIOBOOK_STUDIO_HOME>/books/<slug>/source/original.txt
+<AUDIOBOOK_STUDIO_HOME>/books/<slug>/tts/working.txt
+```
+
+`book_library.py` является единственным registry resolver/import/integrity authority. Repository `audiobook-studio/books/` содержит только fixtures/templates, а `runtime/studio-workspace/books` не является production authority.
 
 ---
 
@@ -989,6 +1004,7 @@ Repository хранит provider-neutral production source, tests и contracts. 
 Production entry points имеют разные обязанности и не являются дубликатами:
 
 - `audiobook_studio_app_runner.py` — общий offline-first bridge для native UI;
+- `book_library.py` — единственный canonical book resolver, atomic importer и source-integrity authority;
 - `studio_app_runner.py` — Qwen-specific catalog/run adapter;
 - `yandex_backend_runner.py` — provider CLI для Yandex health/demo boundary;
 - `openai_backend_runner.py` — provider CLI для OpenAI status, credential fact, pricing, cache-aware preflight и fail-closed production run boundary;
@@ -1052,6 +1068,7 @@ default: ~/Documents/New project/Audiobook-Studio
 environment override: AUDIOBOOK_STUDIO_HOME
 contract override: AUDIOBOOK_STUDIO_PATH_CONTRACT
 default local contract: Audiobook-Studio/settings/workspace-paths.json
+canonical books root: <AUDIOBOOK_STUDIO_HOME>/books
 ```
 
 Provider-specific paths всегда выводятся из единого корня. Второй независимый resolver или machine-specific absolute paths в production source не допускаются.
