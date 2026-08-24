@@ -520,13 +520,17 @@ class YandexSpeechKitBackend:
         if cache_root is not None:
             cache_path = self.cache_namespace(Path(cache_root)) / f"{fingerprint}.wav"
             if cache_path.exists():
-                duration, sr, channels, width = wav_info(cache_path)
-                materialize_cached(cache_path, output_path)
-                return SynthesisResult(
-                    ENGINE_ID, self.profile.voice, self.profile.role, self.profile.speed,
-                    str(output_path), request_id, None, None,
-                    duration, sr, channels, width, fingerprint, True,
-                )
+                try:
+                    duration, sr, channels, width = wav_info(cache_path)
+                except YandexSpeechKitError:
+                    cache_path.unlink(missing_ok=True)
+                else:
+                    materialize_cached(cache_path, output_path)
+                    return SynthesisResult(
+                        ENGINE_ID, self.profile.voice, self.profile.role, self.profile.speed,
+                        str(output_path), request_id, None, None,
+                        duration, sr, channels, width, fingerprint, True,
+                    )
 
         audio, headers = self._request(text, request_id)
         tmp_path = output_path.with_suffix(output_path.suffix + ".part")

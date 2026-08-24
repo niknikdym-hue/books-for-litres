@@ -561,6 +561,36 @@ class ChapterProductionTests(unittest.TestCase):
         repaired_entry = repaired_manifest["segments"][next(iter(repaired_manifest["segments"]))]
         self.assertTrue(repaired_entry["recovered_from_cache_after_invalid_job_wav"])
 
+    def test_paid_plan_replaces_corrupt_job_and_cache_wavs_with_one_request(self) -> None:
+        paid_service = self.service()
+        initial = self.prepare(paid_service)
+        paid_service.execute(plan_id=initial["plan_id"], plan_digest=initial["plan_digest"])
+        requests_after_initial_run = self.requests
+        book = paid_service.library.load_book_for_execution("chapter-book")
+        job_dir = paid_service._job_dir(book, "chapter-ch001")
+        manifest = json.loads((job_dir / "MANIFEST.json").read_text(encoding="utf-8"))
+        first_entry = next(iter(manifest["segments"].values()))
+        fingerprint = first_entry["fingerprint"]
+        job_wav = job_dir / "segments" / first_entry["wav"]
+        cache_wav = (
+            paid_service.backend.cache_namespace(paid_service.backend.config.output_root / "_cache")
+            / f"{fingerprint}.wav"
+        )
+        job_wav.write_bytes(b"corrupt-job-wav")
+        cache_wav.write_bytes(b"corrupt-cache-wav")
+
+        retry_service = self.service()
+        retry = self.prepare(retry_service)
+        self.assertEqual(retry["decision"], "READY_FOR_CONFIRMATION")
+        self.assertEqual(retry["max_network_requests"], 1)
+        result = retry_service.execute(plan_id=retry["plan_id"], plan_digest=retry["plan_digest"])
+        self.assertEqual(result["network_requests"], 1)
+        self.assertEqual(self.requests, requests_after_initial_run + 1)
+        with wave.open(str(job_wav), "rb") as repaired_job:
+            self.assertGreater(repaired_job.getnframes(), 0)
+        with wave.open(str(cache_wav), "rb") as repaired_cache:
+            self.assertGreater(repaired_cache.getnframes(), 0)
+
     def test_cache_only_plan_ignores_stale_paid_pricing_gate(self) -> None:
         paid_service = self.service()
         paid = self.prepare(paid_service)
