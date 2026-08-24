@@ -152,12 +152,32 @@ class YandexChapterProductionService:
             for segment in self.backend.segment(text)
         }
         current_fingerprints = set(current_segments.values())
+        resolved_current_fingerprints = {
+            fingerprint
+            for segment_id, fingerprint in current_segments.items()
+            if (
+                isinstance(manifest["segments"].get(segment_id), dict)
+                and manifest["segments"][segment_id].get("fingerprint") == fingerprint
+                and manifest["segments"][segment_id].get("status") in {"DONE", "CACHED"}
+                and self.backend.recoverable_inflight_source(
+                    job_dir,
+                    segment_id=segment_id,
+                    fingerprint=fingerprint,
+                ) == "job_wav"
+            )
+        }
         blockers: list[str] = []
         for segment_id, entry in manifest["segments"].items():
             if not isinstance(entry, dict) or entry.get("fingerprint") not in current_fingerprints:
                 continue
             state = entry.get("status")
             exact_current_id = current_segments.get(segment_id) == entry.get("fingerprint")
+            if (
+                state == "IN_FLIGHT"
+                and not exact_current_id
+                and entry.get("fingerprint") in resolved_current_fingerprints
+            ):
+                continue
             recovery_source = (
                 self.backend.recoverable_inflight_source(
                     job_dir,

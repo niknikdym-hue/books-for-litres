@@ -391,6 +391,13 @@ class ChapterProductionTests(unittest.TestCase):
         self.assertEqual(result["network_requests"], 0)
         self.assertEqual(self.requests, 0)
 
+        for cached_wav in cache_dir.glob("*.wav"):
+            cached_wav.unlink()
+        repeated = self.prepare(service)
+        self.assertEqual(repeated["decision"], "CACHE_ONLY")
+        self.assertEqual(repeated["max_network_requests"], 0)
+        self.assertEqual(self.requests, 0)
+
     def test_mismatched_manifest_segmentation_blocks_prepare_without_request(self) -> None:
         service = self.service()
         job_dir = service._job_dir(service.library.load_book_for_execution("chapter-book"), "chapter-ch001")
