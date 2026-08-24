@@ -141,6 +141,7 @@ class YandexChapterProductionService:
             or profile.get("voice") != self.backend.profile.voice
             or profile.get("role") != self.backend.profile.role
             or str(profile.get("speed")) != str(self.backend.profile.speed)
+            or manifest.get("segmentation") != self.backend.manifest_segmentation()
             or not isinstance(manifest.get("segments"), dict)
         ):
             return ["manifest_mismatch"]

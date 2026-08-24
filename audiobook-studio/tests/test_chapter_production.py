@@ -184,6 +184,7 @@ class ChapterProductionTests(unittest.TestCase):
             "engine": "yandex_speechkit_v3",
             "job_id": "chapter-ch001",
             "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segmentation": service.backend.manifest_segmentation(),
             "segments": {first_segment.segment_id: {
                 "status": "AMBIGUOUS",
                 "fingerprint": make_fingerprint(first_segment.text, service.backend.profile),
@@ -203,6 +204,7 @@ class ChapterProductionTests(unittest.TestCase):
             "engine": "yandex_speechkit_v3",
             "job_id": "chapter-ch001",
             "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segmentation": service.backend.manifest_segmentation(),
             "segments": {
                 "s0001": {"status": "AMBIGUOUS", "fingerprint": "obsolete"},
                 "s9999": {"status": "FAILED", "fingerprint": "surplus"},
@@ -227,6 +229,7 @@ class ChapterProductionTests(unittest.TestCase):
             "engine": "yandex_speechkit_v3",
             "job_id": "chapter-ch001",
             "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segmentation": service.backend.manifest_segmentation(),
             "segments": {"s9999": {
                 "status": "AMBIGUOUS",
                 "fingerprint": make_fingerprint(current_segment.text, service.backend.profile),
@@ -236,6 +239,26 @@ class ChapterProductionTests(unittest.TestCase):
         blocked = self.prepare(service)
         self.assertEqual(blocked["decision"], "BLOCKED")
         self.assertIn("ambiguous_segment_requires_resolution", blocked["blockers"])
+        self.assertEqual(self.requests, 0)
+
+    def test_mismatched_manifest_segmentation_blocks_prepare_without_request(self) -> None:
+        service = self.service()
+        job_dir = service._job_dir(service.library.load_book_for_execution("chapter-book"), "chapter-ch001")
+        job_dir.mkdir(parents=True, exist_ok=True)
+        segmentation = service.backend.manifest_segmentation()
+        segmentation["sentence_pause_ms"] += 1
+        (job_dir / "MANIFEST.json").write_text(json.dumps({
+            "schema_version": 1,
+            "engine": "yandex_speechkit_v3",
+            "job_id": "chapter-ch001",
+            "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segmentation": segmentation,
+            "segments": {},
+        }), encoding="utf-8")
+
+        blocked = self.prepare(service)
+        self.assertEqual(blocked["decision"], "BLOCKED")
+        self.assertIn("manifest_mismatch", blocked["blockers"])
         self.assertEqual(self.requests, 0)
 
     def test_changed_working_copy_invalidates_plan_before_request(self) -> None:

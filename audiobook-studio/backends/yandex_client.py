@@ -269,6 +269,15 @@ class YandexSpeechKitBackend:
             paragraph_pause_ms=self.config.paragraph_pause_ms,
         )
 
+    def manifest_segmentation(self) -> dict[str, int]:
+        """Return the execution facts that must match an existing manifest."""
+        return {
+            "max_chars": self.config.max_chars,
+            "max_words": self.config.max_words,
+            "sentence_pause_ms": self.config.sentence_pause_ms,
+            "paragraph_pause_ms": self.config.paragraph_pause_ms,
+        }
+
     def _cached_segment_ids(self, segments: list[TextSegment], job_dir: Path | None) -> set[str]:
         """Find only integrity-checked cache/Resume hits; never create audio."""
         cached: set[str] = set()
@@ -278,7 +287,12 @@ class YandexSpeechKitBackend:
             if manifest_path.exists():
                 try:
                     with manifest_path.open("r", encoding="utf-8") as source:
-                        entries = dict(json.load(source).get("segments", {}))
+                        manifest = json.load(source)
+                    if (
+                        isinstance(manifest, dict)
+                        and manifest.get("segmentation") == self.manifest_segmentation()
+                    ):
+                        entries = dict(manifest.get("segments", {}))
                 except (OSError, ValueError, TypeError):
                     entries = {}
 
@@ -510,6 +524,14 @@ class YandexSpeechKitBackend:
         if manifest_path.exists():
             with manifest_path.open("r", encoding="utf-8") as f:
                 manifest = json.load(f)
+            if (
+                not isinstance(manifest, dict)
+                or manifest.get("segmentation") != self.manifest_segmentation()
+            ):
+                raise YandexSpeechKitError(
+                    "Existing manifest segmentation does not match the current Yandex job.",
+                    category="manifest",
+                )
         else:
             manifest = {
                 "schema_version": 1,
@@ -517,12 +539,7 @@ class YandexSpeechKitBackend:
                 "job_id": job_id,
                 "created_at": utc_now_iso(),
                 "profile": asdict(self.profile),
-                "segmentation": {
-                    "max_chars": self.config.max_chars,
-                    "max_words": self.config.max_words,
-                    "sentence_pause_ms": self.config.sentence_pause_ms,
-                    "paragraph_pause_ms": self.config.paragraph_pause_ms,
-                },
+                "segmentation": self.manifest_segmentation(),
                 "estimated_billing_units": self.estimate(text)["estimated_billing_units"],
                 "segments": {},
             }

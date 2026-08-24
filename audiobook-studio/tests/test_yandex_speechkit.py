@@ -293,6 +293,7 @@ class YandexBackendTests(unittest.TestCase):
                 "job_id": "test",
                 "created_at": module.utc_now_iso(),
                 "profile": {},
+                "segmentation": backend.manifest_segmentation(),
                 "segments": {
                     seg.segment_id: {
                         "status": "IN_FLIGHT",
@@ -329,6 +330,7 @@ class YandexBackendTests(unittest.TestCase):
                 "job_id": "test",
                 "created_at": module.utc_now_iso(),
                 "profile": {},
+                "segmentation": backend.manifest_segmentation(),
                 "segments": {
                     seg.segment_id: {
                         "status": "IN_FLIGHT",
@@ -344,6 +346,40 @@ class YandexBackendTests(unittest.TestCase):
             updated = json.loads((job_dir / "MANIFEST.json").read_text(encoding="utf-8"))
             self.assertEqual(updated["segments"][seg.segment_id]["status"], "DONE")
             self.assertEqual(updated["segments"][seg.segment_id]["recovered_after_interruption"], "job_wav")
+
+    def test_existing_manifest_with_mismatched_segmentation_is_rejected_without_network(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = module.YandexBackendConfig.from_mapping({
+                "output_root": str(root / "out"),
+                "segmentation": {"max_chars": 220, "max_words": 34},
+            })
+            backend = module.YandexSpeechKitBackend(cfg, api_key="1234567890abcdefghijklmnopqrstuvABCD")
+            job_dir = root / "job"
+            job_dir.mkdir(parents=True)
+            segmentation = backend.manifest_segmentation()
+            segmentation["paragraph_pause_ms"] += 1
+            (job_dir / "MANIFEST.json").write_text(json.dumps({
+                "schema_version": 1,
+                "engine": module.ENGINE_ID,
+                "job_id": "test",
+                "profile": {},
+                "segmentation": segmentation,
+                "segments": {},
+            }), encoding="utf-8")
+            backend._request = mock.Mock(side_effect=AssertionError("network request must not be sent"))
+
+            with self.assertRaises(module.YandexSpeechKitError) as ctx:
+                backend.run_text_job(
+                    "Короткая тестовая фраза.",
+                    job_dir,
+                    job_id="test",
+                    pricing=demo_pricing(),
+                    scope="demo",
+                )
+
+            self.assertEqual(ctx.exception.category, "manifest")
+            backend._request.assert_not_called()
 
 
 if __name__ == "__main__":
