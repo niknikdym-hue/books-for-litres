@@ -137,6 +137,16 @@ class ChapterProductionTests(unittest.TestCase):
             )
         self.assertEqual(self.requests, 0)
 
+    def test_prepare_rejects_any_frozen_yandex_profile_drift_without_request(self) -> None:
+        for field, value in (("voice", "ermil"), ("role", "good"), ("speed", "1.05")):
+            with self.subTest(field=field):
+                service = self.service()
+                service.backend.profile = replace(service.backend.profile, **{field: value})
+
+                with self.assertRaisesRegex(ChapterProductionError, "frozen Lera/neutral/1.04"):
+                    self.prepare(service)
+                self.assertEqual(self.requests, 0)
+
     def test_execute_consumes_plan_and_never_exceeds_bound(self) -> None:
         service = self.service()
         plan = self.prepare(service)

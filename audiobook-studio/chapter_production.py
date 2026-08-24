@@ -22,6 +22,7 @@ from paid_run import PaidRunPlanStore
 SCHEMA_VERSION = 1
 DEFAULT_TTL_SECONDS = 10 * 60
 PROFILE_ID = "yandex_lera"
+FROZEN_PROFILE = ("lera", "neutral", "1.04")
 MAX_CHAPTER_NETWORK_REQUESTS = 200
 PLAN_STATES = {"PREPARED", "CONSUMING", "CONSUMED", "EXPIRED", "BLOCKED"}
 PLAN_DECISIONS = {"READY_FOR_CONFIRMATION", "CACHE_ONLY", "BLOCKED"}
@@ -177,8 +178,16 @@ class YandexChapterProductionService:
         if profile_id != PROFILE_ID:
             raise ChapterProductionError("Yandex chapter production V1 supports only yandex_lera.", category="invalid_profile")
         profile_path, book, job, text = self._load_chapter(book_name, job_id)
-        if self.backend.profile.voice != "lera":
-            raise ChapterProductionError("Configured Yandex production voice is not Lera.", category="invalid_profile")
+        configured_profile = (
+            self.backend.profile.voice,
+            self.backend.profile.role,
+            str(self.backend.profile.speed),
+        )
+        if configured_profile != FROZEN_PROFILE:
+            raise ChapterProductionError(
+                "Configured Yandex production profile is not the frozen Lera/neutral/1.04 profile.",
+                category="invalid_profile",
+            )
         job_dir = self._job_dir(book, job_id)
         estimate = self.backend.estimate(text, pricing=self.pricing, job_dir=job_dir, scope="book")
         total_segments = int(estimate.get("segments") or 0)
