@@ -398,6 +398,50 @@ class ChapterProductionTests(unittest.TestCase):
         self.assertEqual(repeated["max_network_requests"], 0)
         self.assertEqual(self.requests, 0)
 
+    def test_shifted_inflight_duplicate_fingerprint_requires_every_current_artifact(self) -> None:
+        service = self.service()
+        book = service.library.load_book_for_execution("chapter-book")
+        text = "\n\n".join(segment["text"] for segment in book["jobs"]["chapter-ch001"]["segments"])
+        segments = service.backend.segment(text)
+        fingerprints = [make_fingerprint(segment.text, service.backend.profile) for segment in segments]
+        duplicate_fingerprint = next(value for value in fingerprints if fingerprints.count(value) > 1)
+        current_segment = next(
+            segment
+            for segment in segments
+            if make_fingerprint(segment.text, service.backend.profile) == duplicate_fingerprint
+        )
+        job_dir = service._job_dir(book, "chapter-ch001")
+        segment_dir = job_dir / "segments"
+        segment_dir.mkdir(parents=True)
+        current_wav = f"{current_segment.segment_id}__{duplicate_fingerprint[:12]}.wav"
+        (segment_dir / current_wav).write_bytes(wav_bytes())
+        (segment_dir / f"s9999__{duplicate_fingerprint[:12]}.wav").write_bytes(wav_bytes())
+        (job_dir / "MANIFEST.json").write_text(json.dumps({
+            "schema_version": 1,
+            "engine": "yandex_speechkit_v3",
+            "job_id": "chapter-ch001",
+            "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segmentation": service.backend.manifest_segmentation(),
+            "request_routing": service.backend.request_routing_identity(),
+            "segments": {
+                current_segment.segment_id: {
+                    "status": "DONE",
+                    "fingerprint": duplicate_fingerprint,
+                    "wav": current_wav,
+                },
+                "s9999": {
+                    "status": "IN_FLIGHT",
+                    "fingerprint": duplicate_fingerprint,
+                    "request_id": "duplicate-before-id-shift",
+                },
+            },
+        }), encoding="utf-8")
+
+        blocked = self.prepare(service)
+        self.assertEqual(blocked["decision"], "BLOCKED")
+        self.assertIn("ambiguous_segment_requires_resolution", blocked["blockers"])
+        self.assertEqual(self.requests, 0)
+
     def test_mismatched_manifest_segmentation_blocks_prepare_without_request(self) -> None:
         service = self.service()
         job_dir = service._job_dir(service.library.load_book_for_execution("chapter-book"), "chapter-ch001")

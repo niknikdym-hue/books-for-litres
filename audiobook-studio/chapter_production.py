@@ -152,18 +152,29 @@ class YandexChapterProductionService:
             for segment in self.backend.segment(text)
         }
         current_fingerprints = set(current_segments.values())
-        resolved_current_fingerprints = {
-            fingerprint
-            for segment_id, fingerprint in current_segments.items()
-            if (
-                isinstance(manifest["segments"].get(segment_id), dict)
-                and manifest["segments"][segment_id].get("fingerprint") == fingerprint
-                and manifest["segments"][segment_id].get("status") in {"DONE", "CACHED"}
+        current_ids_by_fingerprint: dict[str, list[str]] = {}
+        for segment_id, fingerprint in current_segments.items():
+            current_ids_by_fingerprint.setdefault(fingerprint, []).append(segment_id)
+
+        def has_integrity_checked_current_job_wav(segment_id: str, fingerprint: str) -> bool:
+            entry = manifest["segments"].get(segment_id)
+            return bool(
+                isinstance(entry, dict)
+                and entry.get("fingerprint") == fingerprint
+                and entry.get("status") in {"DONE", "CACHED"}
                 and self.backend.recoverable_inflight_source(
                     job_dir,
                     segment_id=segment_id,
                     fingerprint=fingerprint,
                 ) == "job_wav"
+            )
+
+        resolved_current_fingerprints = {
+            fingerprint
+            for fingerprint, segment_ids in current_ids_by_fingerprint.items()
+            if all(
+                has_integrity_checked_current_job_wav(segment_id, fingerprint)
+                for segment_id in segment_ids
             )
         }
         blockers: list[str] = []
