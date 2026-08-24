@@ -362,10 +362,14 @@ class YandexSpeechKitBackend:
         segments = self.segment(text)
         units = sum(max(1, math.ceil(len(seg.text) / 250)) for seg in segments)
         cached_ids = self._cached_segment_ids(segments, job_dir)
-        remaining_units = sum(
-            max(1, math.ceil(len(segment.text) / 250))
+        uncached_by_fingerprint = {
+            make_fingerprint(segment.text, self.profile): segment
             for segment in segments
             if segment.segment_id not in cached_ids
+        }
+        remaining_units = sum(
+            max(1, math.ceil(len(segment.text) / 250))
+            for segment in uncached_by_fingerprint.values()
         )
         result = {
             "engine": ENGINE_ID,
@@ -373,6 +377,7 @@ class YandexSpeechKitBackend:
             "segments": len(segments),
             "estimated_billing_units": units,
             "cached_segments": len(cached_ids),
+            "estimated_network_requests": len(uncached_by_fingerprint),
         }
         if pricing is None:
             result["unit_price"] = None

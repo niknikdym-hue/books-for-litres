@@ -163,6 +163,49 @@ class ChapterProductionTests(unittest.TestCase):
         with self.assertRaisesRegex(ChapterProductionError, "no longer executable"):
             service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
 
+    def test_request_cap_deduplicates_more_than_two_hundred_identical_misses(self) -> None:
+        repeated_source = self.root / "repeated-source.txt"
+        repeated_paragraph = "Одинаковый фрагмент должен использовать общий кэш после первого запроса."
+        repeated_source.write_text(
+            "Глава 1. Повторы\n\n" + "\n\n".join([repeated_paragraph] * 205),
+            encoding="utf-8",
+        )
+        library = BookLibrary(self.books)
+        library.import_text_book(
+            source_file=repeated_source,
+            title="Повторяющаяся глава",
+            author="Audiobook Studio Test",
+            slug="repeated-chapter-book",
+        )
+        BookTextPreparationService(
+            library,
+            now=lambda: "2026-08-23T10:00:00+00:00",
+        ).prepare("repeated-chapter-book")
+        service = self.service()
+        book = service.library.load_book_for_execution("repeated-chapter-book")
+        text = "\n\n".join(
+            segment["text"]
+            for segment in book["jobs"]["chapter-ch001"]["segments"]
+        )
+        provider_segments = service.backend.segment(text)
+        distinct_fingerprints = {
+            make_fingerprint(segment.text, service.backend.profile)
+            for segment in provider_segments
+        }
+
+        self.assertGreater(len(provider_segments), 200)
+        plan = service.prepare(
+            book_name="repeated-chapter-book",
+            job_id="chapter-ch001",
+            profile_id="yandex_lera",
+        )
+        self.assertEqual(plan["decision"], "READY_FOR_CONFIRMATION")
+        self.assertNotIn("chapter_request_cap_exceeded", plan["blockers"])
+        self.assertEqual(plan["max_network_requests"], len(distinct_fingerprints))
+        result = service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        self.assertEqual(result["network_requests"], len(distinct_fingerprints))
+        self.assertEqual(self.requests, len(distinct_fingerprints))
+
     def test_digest_mismatch_sends_no_request(self) -> None:
         service = self.service()
         plan = self.prepare(service)

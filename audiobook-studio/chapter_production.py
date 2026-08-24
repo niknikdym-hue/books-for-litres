@@ -240,7 +240,7 @@ class YandexChapterProductionService:
         estimate = self.backend.estimate(text, pricing=self.pricing, job_dir=job_dir, scope="book")
         total_segments = int(estimate.get("segments") or 0)
         cached_segments = int(estimate.get("cached_segments") or 0)
-        request_cap = max(0, total_segments - cached_segments)
+        request_cap = max(0, int(estimate.get("estimated_network_requests") or 0))
         blockers = self._manifest_blockers(job_dir, job_id=job_id, text=text)
         blocked_reason = estimate.get("blocked_reason")
         if request_cap and not estimate.get("allowed_to_start"):
