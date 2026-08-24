@@ -355,6 +355,42 @@ class ChapterProductionTests(unittest.TestCase):
         self.assertIn("ambiguous_segment_requires_resolution", blocked["blockers"])
         self.assertEqual(self.requests, 0)
 
+    def test_shifted_inflight_prefers_cache_when_old_job_wav_also_exists(self) -> None:
+        service = self.service()
+        book = service.library.load_book_for_execution("chapter-book")
+        text = "\n\n".join(segment["text"] for segment in book["jobs"]["chapter-ch001"]["segments"])
+        segments = service.backend.segment(text)
+        for segment in segments:
+            fingerprint = make_fingerprint(segment.text, service.backend.profile)
+            cache_dir = service.backend.cache_namespace(service.backend.config.output_root / "_cache")
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            (cache_dir / f"{fingerprint}.wav").write_bytes(wav_bytes())
+        shifted_fingerprint = make_fingerprint(segments[0].text, service.backend.profile)
+        job_dir = service._job_dir(book, "chapter-ch001")
+        segment_dir = job_dir / "segments"
+        segment_dir.mkdir(parents=True)
+        (segment_dir / f"s9999__{shifted_fingerprint[:12]}.wav").write_bytes(wav_bytes())
+        (job_dir / "MANIFEST.json").write_text(json.dumps({
+            "schema_version": 1,
+            "engine": "yandex_speechkit_v3",
+            "job_id": "chapter-ch001",
+            "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segmentation": service.backend.manifest_segmentation(),
+            "request_routing": service.backend.request_routing_identity(),
+            "segments": {"s9999": {
+                "status": "IN_FLIGHT",
+                "fingerprint": shifted_fingerprint,
+                "request_id": "interrupted-after-both-writes",
+            }},
+        }), encoding="utf-8")
+
+        plan = self.prepare(service)
+        self.assertEqual(plan["decision"], "CACHE_ONLY")
+        self.assertEqual(plan["max_network_requests"], 0)
+        result = service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        self.assertEqual(result["network_requests"], 0)
+        self.assertEqual(self.requests, 0)
+
     def test_mismatched_manifest_segmentation_blocks_prepare_without_request(self) -> None:
         service = self.service()
         job_dir = service._job_dir(service.library.load_book_for_execution("chapter-book"), "chapter-ch001")

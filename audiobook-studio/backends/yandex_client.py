@@ -391,11 +391,16 @@ class YandexSpeechKitBackend:
         *,
         segment_id: str,
         fingerprint: str,
+        prefer_cache: bool = False,
     ) -> str | None:
         """Return the integrity-checked local source for an interrupted segment."""
         job_wav = Path(job_dir) / "segments" / f"{segment_id}__{fingerprint[:12]}.wav"
         cache_wav = self.cache_namespace(self.config.output_root / "_cache") / f"{fingerprint}.wav"
-        for source, candidate in (("job_wav", job_wav), ("cache", cache_wav)):
+        candidates = (("cache", cache_wav), ("job_wav", job_wav)) if prefer_cache else (
+            ("job_wav", job_wav),
+            ("cache", cache_wav),
+        )
+        for source, candidate in candidates:
             if not candidate.exists():
                 continue
             try:
