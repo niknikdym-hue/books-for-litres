@@ -613,9 +613,30 @@ class YandexSpeechKitBackend:
 
             if existing.get("fingerprint") == fingerprint and existing.get("status") in {"DONE", "CACHED"}:
                 if wav_path.exists():
-                    wav_info(wav_path)
-                    ordered.append((wav_path, seg.pause_after_ms))
-                    continue
+                    try:
+                        wav_info(wav_path)
+                    except YandexSpeechKitError:
+                        pass
+                    else:
+                        ordered.append((wav_path, seg.pause_after_ms))
+                        continue
+                cache_path = self.cache_namespace(cache_root) / f"{fingerprint}.wav"
+                if cache_path.exists():
+                    try:
+                        wav_info(cache_path)
+                    except YandexSpeechKitError:
+                        pass
+                    else:
+                        materialize_cached(cache_path, wav_path)
+                        existing.update({
+                            "status": "CACHED",
+                            "recovered_from_cache_after_invalid_job_wav": True,
+                            "updated_at": utc_now_iso(),
+                        })
+                        entries[seg.segment_id] = existing
+                        atomic_write_json(manifest_path, manifest)
+                        ordered.append((wav_path, seg.pause_after_ms))
+                        continue
 
             if existing.get("fingerprint") == fingerprint and existing.get("status") == "IN_FLIGHT":
                 cache_path = self.cache_namespace(cache_root) / f"{fingerprint}.wav"

@@ -535,6 +535,32 @@ class ChapterProductionTests(unittest.TestCase):
         self.assertFalse(result["remote_request_sent"])
         self.assertEqual(self.requests, requests_after_paid_run)
 
+    def test_cache_only_plan_repairs_corrupt_job_wav_from_valid_cache_without_request(self) -> None:
+        paid_service = self.service()
+        paid = self.prepare(paid_service)
+        paid_service.execute(plan_id=paid["plan_id"], plan_digest=paid["plan_digest"])
+        requests_after_paid_run = self.requests
+        book = paid_service.library.load_book_for_execution("chapter-book")
+        job_dir = paid_service._job_dir(book, "chapter-ch001")
+        manifest = json.loads((job_dir / "MANIFEST.json").read_text(encoding="utf-8"))
+        first_entry = next(iter(manifest["segments"].values()))
+        corrupt_job_wav = job_dir / "segments" / first_entry["wav"]
+        corrupt_job_wav.write_bytes(b"corrupt-job-wav")
+
+        cache_service = self.service()
+        cached = self.prepare(cache_service)
+        self.assertEqual(cached["decision"], "CACHE_ONLY")
+        self.assertEqual(cached["max_network_requests"], 0)
+        result = cache_service.execute(plan_id=cached["plan_id"], plan_digest=cached["plan_digest"])
+        self.assertEqual(result["network_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+        self.assertEqual(self.requests, requests_after_paid_run)
+        with wave.open(str(corrupt_job_wav), "rb") as repaired:
+            self.assertGreater(repaired.getnframes(), 0)
+        repaired_manifest = json.loads((job_dir / "MANIFEST.json").read_text(encoding="utf-8"))
+        repaired_entry = repaired_manifest["segments"][next(iter(repaired_manifest["segments"]))]
+        self.assertTrue(repaired_entry["recovered_from_cache_after_invalid_job_wav"])
+
     def test_cache_only_plan_ignores_stale_paid_pricing_gate(self) -> None:
         paid_service = self.service()
         paid = self.prepare(paid_service)
