@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import uuid
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from backends.yandex_speechkit import ENGINE_ID, YandexSpeechKitError, make_fingerprint
+from backends.yandex_speechkit import (
+    YandexSpeechKitError,
+    make_fingerprint,
+    shared_cache_execution_lock,
+)
 from book_library import BookLibrary, BookLibraryError
 from cloud_billing import CloudBillingService, decimal_text, decimal_value
 from paid_run import PaidRunPlanStore
@@ -120,23 +122,6 @@ class YandexChapterProductionService:
     def _job_dir(self, book: Mapping[str, Any], job_id: str) -> Path:
         slug = str(book.get("slug") or "book")
         return Path(self.backend.config.output_root) / slug / job_id / PROFILE_ID
-
-    @contextmanager
-    def _shared_cache_execution_locked(self):
-        """Serialize every production plan that shares the Yandex fingerprint cache."""
-        lock_path = (
-            Path(self.backend.config.output_root)
-            / "_cache"
-            / ENGINE_ID
-            / ".chapter-production.lock"
-        )
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a+") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def _manifest_blockers(self, job_dir: Path, *, job_id: str, text: str) -> list[str]:
         path = job_dir / "MANIFEST.json"
@@ -348,7 +333,7 @@ class YandexChapterProductionService:
             plan = self.store.load(plan_id)
             self._validate_plan_header(plan, plan_digest)
 
-        with self._shared_cache_execution_locked():
+        with shared_cache_execution_lock(self.backend.config.output_root):
             with self.store.locked(plan_id):
                 plan = self.store.load(plan_id)
                 self._validate_plan_header(plan, plan_digest)
