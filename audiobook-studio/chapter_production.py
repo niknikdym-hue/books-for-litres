@@ -235,6 +235,11 @@ class YandexChapterProductionService:
             "voice": self.backend.profile.voice,
             "role": self.backend.profile.role,
             "speed": str(self.backend.profile.speed),
+            "request_routing": {
+                "endpoint": self.backend.config.endpoint,
+                "keychain_service": self.backend.config.keychain_service,
+                "keychain_account": self.backend.config.keychain_account,
+            },
             "segmentation": {
                 "max_chars": self.backend.config.max_chars,
                 "max_words": self.backend.config.max_words,

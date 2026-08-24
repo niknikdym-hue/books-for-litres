@@ -282,6 +282,22 @@ class ChapterProductionTests(unittest.TestCase):
             service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
         self.assertEqual(self.requests, 0)
 
+    def test_changed_request_routing_invalidates_plan_before_request(self) -> None:
+        changes = {
+            "endpoint": "https://alternate.example.invalid/tts",
+            "keychain_service": "Alternate-Yandex-Service",
+            "keychain_account": "alternate-account",
+        }
+        for field, value in changes.items():
+            with self.subTest(field=field):
+                service = self.service()
+                plan = self.prepare(service)
+                service.backend.config = replace(service.backend.config, **{field: value})
+
+                with self.assertRaisesRegex(ChapterProductionError, "facts changed"):
+                    service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+                self.assertEqual(self.requests, 0)
+
     def test_ambiguous_execution_is_consumed_and_never_retried(self) -> None:
         service = self.service()
         plan = self.prepare(service)
