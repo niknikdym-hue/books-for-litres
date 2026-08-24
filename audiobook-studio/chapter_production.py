@@ -157,12 +157,20 @@ class YandexChapterProductionService:
             if not isinstance(entry, dict) or entry.get("fingerprint") not in current_fingerprints:
                 continue
             state = entry.get("status")
-            if state == "IN_FLIGHT" and (
-                current_segments.get(segment_id) == entry.get("fingerprint")
-                and self.backend.recoverable_inflight_source(
+            recovery_source = (
+                self.backend.recoverable_inflight_source(
                     job_dir,
                     segment_id=segment_id,
                     fingerprint=str(entry["fingerprint"]),
+                )
+                if state == "IN_FLIGHT"
+                else None
+            )
+            if state == "IN_FLIGHT" and (
+                recovery_source == "cache"
+                or (
+                    recovery_source == "job_wav"
+                    and current_segments.get(segment_id) == entry.get("fingerprint")
                 )
             ):
                 continue
