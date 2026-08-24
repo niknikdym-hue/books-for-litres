@@ -147,15 +147,25 @@ class YandexChapterProductionService:
             or not isinstance(manifest.get("segments"), dict)
         ):
             return ["manifest_mismatch"]
-        current_fingerprints = {
-            make_fingerprint(segment.text, self.backend.profile)
+        current_segments = {
+            segment.segment_id: make_fingerprint(segment.text, self.backend.profile)
             for segment in self.backend.segment(text)
         }
+        current_fingerprints = set(current_segments.values())
         blockers: list[str] = []
-        for entry in manifest["segments"].values():
+        for segment_id, entry in manifest["segments"].items():
             if not isinstance(entry, dict) or entry.get("fingerprint") not in current_fingerprints:
                 continue
             state = entry.get("status")
+            if state == "IN_FLIGHT" and (
+                current_segments.get(segment_id) == entry.get("fingerprint")
+                and self.backend.recoverable_inflight_source(
+                    job_dir,
+                    segment_id=segment_id,
+                    fingerprint=str(entry["fingerprint"]),
+                )
+            ):
+                continue
             if state in {"AMBIGUOUS", "IN_FLIGHT"}:
                 blockers.append("ambiguous_segment_requires_resolution")
             elif state == "FAILED":

@@ -206,6 +206,44 @@ class ChapterProductionTests(unittest.TestCase):
         self.assertIn("ambiguous_segment_requires_resolution", blocked["blockers"])
         self.assertEqual(self.requests, 0)
 
+    def test_completed_inflight_segments_resume_without_provider_requests(self) -> None:
+        service = self.service()
+        book = service.library.load_book_for_execution("chapter-book")
+        text = "\n\n".join(segment["text"] for segment in book["jobs"]["chapter-ch001"]["segments"])
+        job_dir = service._job_dir(book, "chapter-ch001")
+        segment_dir = job_dir / "segments"
+        segment_dir.mkdir(parents=True)
+        entries = {}
+        for segment in service.backend.segment(text):
+            fingerprint = make_fingerprint(segment.text, service.backend.profile)
+            wav_name = f"{segment.segment_id}__{fingerprint[:12]}.wav"
+            (segment_dir / wav_name).write_bytes(wav_bytes())
+            entries[segment.segment_id] = {
+                "status": "IN_FLIGHT",
+                "fingerprint": fingerprint,
+                "request_id": f"interrupted-{segment.segment_id}",
+                "wav": wav_name,
+            }
+        (job_dir / "MANIFEST.json").write_text(json.dumps({
+            "schema_version": 1,
+            "engine": "yandex_speechkit_v3",
+            "job_id": "chapter-ch001",
+            "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segmentation": service.backend.manifest_segmentation(),
+            "request_routing": service.backend.request_routing_identity(),
+            "segments": entries,
+        }), encoding="utf-8")
+
+        plan = self.prepare(service)
+        self.assertEqual(plan["decision"], "CACHE_ONLY")
+        self.assertEqual(plan["max_network_requests"], 0)
+        self.assertNotIn("ambiguous_segment_requires_resolution", plan["blockers"])
+        result = service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        self.assertEqual(result["network_requests"], 0)
+        self.assertEqual(self.requests, 0)
+        recovered = json.loads((job_dir / "MANIFEST.json").read_text(encoding="utf-8"))
+        self.assertTrue(all(entry["status"] == "DONE" for entry in recovered["segments"].values()))
+
     def test_obsolete_manifest_states_do_not_block_reprepared_chapter(self) -> None:
         service = self.service()
         job_dir = service._job_dir(service.library.load_book_for_execution("chapter-book"), "chapter-ch001")

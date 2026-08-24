@@ -320,6 +320,18 @@ class YandexSpeechKitBackend:
         for segment in segments:
             fingerprint = make_fingerprint(segment.text, self.profile)
             entry = entries.get(segment.segment_id, {})
+            if (
+                job_dir is not None
+                and entry.get("fingerprint") == fingerprint
+                and entry.get("status") == "IN_FLIGHT"
+                and self.recoverable_inflight_source(
+                    job_dir,
+                    segment_id=segment.segment_id,
+                    fingerprint=fingerprint,
+                )
+            ):
+                cached.add(segment.segment_id)
+                continue
             candidates: list[Path] = [cache_root / f"{fingerprint}.wav"]
             if (
                 job_dir is not None
@@ -372,6 +384,26 @@ class YandexSpeechKitBackend:
             scope=scope,
         ))
         return result
+
+    def recoverable_inflight_source(
+        self,
+        job_dir: Path,
+        *,
+        segment_id: str,
+        fingerprint: str,
+    ) -> str | None:
+        """Return the integrity-checked local source for an interrupted segment."""
+        job_wav = Path(job_dir) / "segments" / f"{segment_id}__{fingerprint[:12]}.wav"
+        cache_wav = self.cache_namespace(self.config.output_root / "_cache") / f"{fingerprint}.wav"
+        for source, candidate in (("job_wav", job_wav), ("cache", cache_wav)):
+            if not candidate.exists():
+                continue
+            try:
+                wav_info(candidate)
+            except YandexSpeechKitError:
+                continue
+            return source
+        return None
 
     @staticmethod
     def require_allowed_to_start(estimate: dict[str, Any]) -> None:
@@ -582,14 +614,13 @@ class YandexSpeechKitBackend:
 
             if existing.get("fingerprint") == fingerprint and existing.get("status") == "IN_FLIGHT":
                 cache_path = self.cache_namespace(cache_root) / f"{fingerprint}.wav"
-                recovered_from = None
-                if wav_path.exists():
-                    wav_info(wav_path)
-                    recovered_from = "job_wav"
-                elif cache_path.exists():
-                    wav_info(cache_path)
+                recovered_from = self.recoverable_inflight_source(
+                    job_dir,
+                    segment_id=seg.segment_id,
+                    fingerprint=fingerprint,
+                )
+                if recovered_from == "cache":
                     materialize_cached(cache_path, wav_path)
-                    recovered_from = "cache"
                 if recovered_from:
                     recovered_at = utc_now_iso()
                     existing.update({
