@@ -142,6 +142,7 @@ class YandexChapterProductionService:
             or profile.get("role") != self.backend.profile.role
             or str(profile.get("speed")) != str(self.backend.profile.speed)
             or manifest.get("segmentation") != self.backend.manifest_segmentation()
+            or manifest.get("request_routing") != self.backend.request_routing_identity()
             or not isinstance(manifest.get("segments"), dict)
         ):
             return ["manifest_mismatch"]
@@ -235,11 +236,7 @@ class YandexChapterProductionService:
             "voice": self.backend.profile.voice,
             "role": self.backend.profile.role,
             "speed": str(self.backend.profile.speed),
-            "request_routing": {
-                "endpoint": self.backend.config.endpoint,
-                "keychain_service": self.backend.config.keychain_service,
-                "keychain_account": self.backend.config.keychain_account,
-            },
+            "request_routing": self.backend.request_routing_identity(),
             "segmentation": {
                 "max_chars": self.backend.config.max_chars,
                 "max_words": self.backend.config.max_words,

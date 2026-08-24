@@ -185,6 +185,7 @@ class ChapterProductionTests(unittest.TestCase):
             "job_id": "chapter-ch001",
             "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
             "segmentation": service.backend.manifest_segmentation(),
+            "request_routing": service.backend.request_routing_identity(),
             "segments": {first_segment.segment_id: {
                 "status": "AMBIGUOUS",
                 "fingerprint": make_fingerprint(first_segment.text, service.backend.profile),
@@ -205,6 +206,7 @@ class ChapterProductionTests(unittest.TestCase):
             "job_id": "chapter-ch001",
             "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
             "segmentation": service.backend.manifest_segmentation(),
+            "request_routing": service.backend.request_routing_identity(),
             "segments": {
                 "s0001": {"status": "AMBIGUOUS", "fingerprint": "obsolete"},
                 "s9999": {"status": "FAILED", "fingerprint": "surplus"},
@@ -230,6 +232,7 @@ class ChapterProductionTests(unittest.TestCase):
             "job_id": "chapter-ch001",
             "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
             "segmentation": service.backend.manifest_segmentation(),
+            "request_routing": service.backend.request_routing_identity(),
             "segments": {"s9999": {
                 "status": "AMBIGUOUS",
                 "fingerprint": make_fingerprint(current_segment.text, service.backend.profile),
@@ -253,6 +256,7 @@ class ChapterProductionTests(unittest.TestCase):
             "job_id": "chapter-ch001",
             "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
             "segmentation": segmentation,
+            "request_routing": service.backend.request_routing_identity(),
             "segments": {},
         }), encoding="utf-8")
 

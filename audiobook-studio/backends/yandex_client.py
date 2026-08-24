@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import codecs
+import hashlib
 import http.client
 import json
 import math
@@ -278,6 +279,24 @@ class YandexSpeechKitBackend:
             "paragraph_pause_ms": self.config.paragraph_pause_ms,
         }
 
+    def request_routing_identity(self) -> dict[str, str]:
+        """Return non-secret routing facts that define one cache authority."""
+        return {
+            "endpoint": self.config.endpoint,
+            "keychain_service": self.config.keychain_service,
+            "keychain_account": self.config.keychain_account,
+        }
+
+    def cache_namespace(self, cache_root: Path) -> Path:
+        encoded = json.dumps(
+            self.request_routing_identity(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        routing_sha256 = hashlib.sha256(encoded).hexdigest()
+        return Path(cache_root) / ENGINE_ID / routing_sha256
+
     def _cached_segment_ids(self, segments: list[TextSegment], job_dir: Path | None) -> set[str]:
         """Find only integrity-checked cache/Resume hits; never create audio."""
         cached: set[str] = set()
@@ -291,12 +310,13 @@ class YandexSpeechKitBackend:
                     if (
                         isinstance(manifest, dict)
                         and manifest.get("segmentation") == self.manifest_segmentation()
+                        and manifest.get("request_routing") == self.request_routing_identity()
                     ):
                         entries = dict(manifest.get("segments", {}))
                 except (OSError, ValueError, TypeError):
                     entries = {}
 
-        cache_root = self.config.output_root / "_cache" / ENGINE_ID
+        cache_root = self.cache_namespace(self.config.output_root / "_cache")
         for segment in segments:
             fingerprint = make_fingerprint(segment.text, self.profile)
             entry = entries.get(segment.segment_id, {})
@@ -461,7 +481,7 @@ class YandexSpeechKitBackend:
 
         cache_path: Path | None = None
         if cache_root is not None:
-            cache_path = Path(cache_root) / ENGINE_ID / f"{fingerprint}.wav"
+            cache_path = self.cache_namespace(Path(cache_root)) / f"{fingerprint}.wav"
             if cache_path.exists():
                 duration, sr, channels, width = wav_info(cache_path)
                 materialize_cached(cache_path, output_path)
@@ -527,9 +547,10 @@ class YandexSpeechKitBackend:
             if (
                 not isinstance(manifest, dict)
                 or manifest.get("segmentation") != self.manifest_segmentation()
+                or manifest.get("request_routing") != self.request_routing_identity()
             ):
                 raise YandexSpeechKitError(
-                    "Existing manifest segmentation does not match the current Yandex job.",
+                    "Existing manifest execution facts do not match the current Yandex job.",
                     category="manifest",
                 )
         else:
@@ -540,6 +561,7 @@ class YandexSpeechKitBackend:
                 "created_at": utc_now_iso(),
                 "profile": asdict(self.profile),
                 "segmentation": self.manifest_segmentation(),
+                "request_routing": self.request_routing_identity(),
                 "estimated_billing_units": self.estimate(text)["estimated_billing_units"],
                 "segments": {},
             }
@@ -559,7 +581,7 @@ class YandexSpeechKitBackend:
                     continue
 
             if existing.get("fingerprint") == fingerprint and existing.get("status") == "IN_FLIGHT":
-                cache_path = cache_root / ENGINE_ID / f"{fingerprint}.wav"
+                cache_path = self.cache_namespace(cache_root) / f"{fingerprint}.wav"
                 recovered_from = None
                 if wav_path.exists():
                     wav_info(wav_path)
