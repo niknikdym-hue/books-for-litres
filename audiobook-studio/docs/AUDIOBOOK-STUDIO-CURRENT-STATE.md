@@ -4,8 +4,8 @@
 **Дата фиксации:** 2026-08-23  
 **Проект:** `audiobook-studio/`  
 **Repository:** `niknikdym-hue/books-for-litres`  
-**Accepted code baseline:** `97298f0dc84dac6126bf9f283176b50552f7af3c`
-**Repository authority baseline before this edit:** `97298f0dc84dac6126bf9f283176b50552f7af3c`
+**Accepted code baseline:** `1414ebdbea358a8aa264651f2756a21d7edca8c9`
+**Repository authority baseline before this edit:** `1414ebdbea358a8aa264651f2756a21d7edca8c9`
 
 ---
 
@@ -608,13 +608,15 @@ Canonical layout:
 
 Legacy real-book profile `hvatit-sebya-obestsenivat.json` перенесён copy-preserving в canonical registry с одинаковым SHA-256; original old runtime copy сохранён. Demo/template fixtures автоматически не мигрировались.
 
-Следующий обязательный checkpoint:
+Следующий после Book Library checkpoint:
 
 ```text
 BOOK_TEXT_PREPARATION_V1
 ```
 
-Он должен подготовить только TTS working copy: conservative normalization → chapter structure → provider-neutral literary segments → prepared jobs. Synthesis и provider requests в этот checkpoint не входят.
+Он подготовил только TTS working copy: conservative normalization → chapter structure → provider-neutral literary segments → prepared jobs. Synthesis и provider requests в checkpoint не входят.
+
+`BOOK_TEXT_PREPARATION_V1 = ACCEPTED_IN_MAIN` на merge commit `1414ebdbea358a8aa264651f2756a21d7edca8c9`. Приняты versioned preparation identity, deterministic artifacts, lightweight job references, fail-closed source/working-copy/artifact integrity и tamper regressions.
 
 ---
 
@@ -622,8 +624,8 @@ BOOK_TEXT_PREPARATION_V1
 
 ```text
 BOOK_LIBRARY_ADD_BOOK_V1                  ACCEPTED_AND_DEPLOYED
-→ BOOK_TEXT_PREPARATION_V1                ACTIVE CHECKPOINT
-→ chapter production
+→ BOOK_TEXT_PREPARATION_V1                ACCEPTED_IN_MAIN
+→ CHAPTER_PRODUCTION_V1                   ACTIVE CHECKPOINT
 → QA / Review
 → chapter assembly
 → mastering
@@ -635,6 +637,26 @@ BOOK_LIBRARY_ADD_BOOK_V1                  ACCEPTED_AND_DEPLOYED
 ```
 
 Не начинать mastering/export раньше готовности production book workflow.
+
+### CHAPTER_PRODUCTION_V1 — bounded Definition of Done
+
+Первый production route — одна выбранная prepared chapter job через утверждённый `yandex_lera` profile.
+
+Обязательные инварианты:
+
+- native Studio показывает только prepared jobs с `kind = chapter`;
+- PREPARE выполняется локально и имеет `remote_request_sent = false`;
+- immutable plan связывает preparation identity, working-copy hash, job text hash, voice/profile, pricing identity, hard limit, cache state и максимум новых provider requests;
+- execution требует отдельного явного подтверждения;
+- изменившийся выбор или execution facts инвалидируют plan;
+- `AMBIGUOUS`, unresolved `FAILED`, stale/missing tariff, missing credential и нарушенный manifest блокируют запуск;
+- автоматический retry отсутствует;
+- cache-only completion выполняется с provider requests `0`;
+- provider requests никогда не превышают зафиксированный plan cap;
+- V1 дополнительно блокирует главу, если текущий cache-miss plan требует более 200 provider requests;
+- source и prepared text artifacts не изменяются production execution;
+- результатом является resumable Yandex manifest, WAV-сегменты и WAV выбранной главы;
+- offline tests + native contracts/build должны пройти до acceptance; production Desktop deployment остаётся отдельным checkpoint.
 
 ---
 
@@ -726,15 +748,17 @@ Automatic retry                   0 / PASS
 Paid plan one-shot consumption    PASS
 Persisted remote_request_sent     FIXED + TESTED
 Cloud Billing                     ACTIVE PROVIDER-NEUTRAL LAYER
-Full offline suite baseline       233 / 233 PASS
-Accepted code baseline            97298f0…
+Book Library deployment suite     233 / 233 PASS
+Accepted code baseline            1414ebd…
 DEPLOY-0                           PASS
 Production Desktop                ACCEPTED_AND_DEPLOYED
 Book Library / Add Book           ACCEPTED_AND_DEPLOYED
 Level A — technical core          PASS
 Level B — installed Studio        PASS
 Level C — real-book end-to-end    PENDING
-Active checkpoint                 BOOK_TEXT_PREPARATION_V1
+Book Text Preparation             ACCEPTED_IN_MAIN / 1414ebd…
+Active checkpoint                 CHAPTER_PRODUCTION_V1
+Chapter Production implementation IMPLEMENTED_OFFLINE / PENDING_ACCEPTANCE
 ```
 
 ---
@@ -744,12 +768,14 @@ Active checkpoint                 BOOK_TEXT_PREPARATION_V1
 ### 2026-08-23
 
 - `BOOK_LIBRARY_ADD_BOOK_V1` принят, fast-forward merged в `main` и развёрнут;
+- `BOOK_TEXT_PREPARATION_V1` принят merge commit `1414ebd…`; artifacts sealed exact SHA-256 hashes and tamper regressions accepted;
+- active checkpoint переведён на `CHAPTER_PRODUCTION_V1`;
+- bounded Yandex Lera chapter plan, separate native confirmation, cache-only path, request cap and no-retry regressions реализованы offline; status остаётся `PENDING_ACCEPTANCE`, пока не пройдут native macOS build/codesign и отдельный controlled execution/deployment checkpoint;
 - canonical production library зафиксирована как `<AUDIOBOOK_STUDIO_HOME>/books/*.json`;
 - immutable source и отдельная TTS working copy реализованы и проверены;
 - native `Добавить книгу` работает через offline bridge; provider requests при import = 0;
 - legacy real-book profile перенесён byte-identical без удаления original;
 - full offline suite после Book Library = `233/233 PASS`;
-- следующий checkpoint: `BOOK_TEXT_PREPARATION_V1` без synthesis;
 - OpenAI explicit PREPARE hazard исправлен;
 - memory-only one-shot gate принят;
 - zero-user-action PREPARE = 0 доказан;

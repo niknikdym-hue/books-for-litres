@@ -20,6 +20,7 @@ from workspace_paths import load_workspace_paths
 from cloud_billing import CloudBillingService, decimal_text, decimal_value, save_settings
 from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
+from chapter_production import YandexChapterProductionService
 from paid_run import PaidRunService
 
 STUDIO_DIR = Path(__file__).resolve().parent
@@ -59,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--set-yandex-hard-limit", action="store_true")
     mode.add_argument("--run-qwen", action="store_true")
     mode.add_argument("--run-yandex-demo", action="store_true")
+    mode.add_argument("--prepare-yandex-chapter-run", action="store_true")
+    mode.add_argument("--execute-yandex-chapter-plan", action="store_true")
     mode.add_argument("--openai-status", action="store_true")
     mode.add_argument("--openai-credential-status", action="store_true")
     mode.add_argument("--openai-pricing-status", action="store_true")
@@ -125,6 +128,24 @@ def _paid_run_service() -> PaidRunService:
     return PaidRunService(
         backend=backend,
         pricing=load_pricing_config(OPENAI_PRICING_PATH),
+        billing=billing,
+        books_dir=WORKSPACE_PATHS.books_root,
+        plans_dir=WORKSPACE_PATHS.paid_run_plans,
+    )
+
+
+def _yandex_chapter_service() -> YandexChapterProductionService:
+    from backends.yandex_speechkit import YandexSpeechKitBackend
+
+    billing = _billing_service()
+    offline_backend, pricing, _ = _load_yandex_offline()
+    backend = YandexSpeechKitBackend(
+        offline_backend.config,
+        billing_ledger=billing.ledger,
+    )
+    return YandexChapterProductionService(
+        backend=backend,
+        pricing=pricing,
         billing=billing,
         books_dir=WORKSPACE_PATHS.books_root,
         plans_dir=WORKSPACE_PATHS.paid_run_plans,
@@ -509,9 +530,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     if args.run_yandex_demo:
-        # This is the only universal-bridge branch allowed to send SpeechKit
-        # requests. Offline checks and tests never select it.
+        # Legacy bounded diagnostic smoke; the production chapter route below
+        # requires an immutable plan and a separate execute command.
         return _delegate(YANDEX_RUNNER, "--demo")
+
+    if args.prepare_yandex_chapter_run:
+        print(json.dumps(
+            _yandex_chapter_service().prepare(
+                book_name=_require(args.book, "--book"),
+                job_id=_require(args.job, "--job"),
+                profile_id=_require(args.profile_id, "--profile-id"),
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if args.execute_yandex_chapter_plan:
+        print(json.dumps(
+            _yandex_chapter_service().execute(
+                plan_id=_require(args.plan_id, "--plan-id"),
+                plan_digest=_require(args.plan_digest, "--plan-digest"),
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
 
     if args.openai_status:
         return _delegate(OPENAI_RUNNER, "--status")

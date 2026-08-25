@@ -44,6 +44,12 @@ private struct OpenAIExecutionSelection: Equatable {
     let profileID: String
 }
 
+private struct YandexChapterSelection: Equatable {
+    let bookID: String
+    let jobID: String
+    let profileID: String
+}
+
 private enum PendingOpenAIAction: Equatable {
     case prepare(OpenAIExecutionSelection)
     case materializeCache(OpenAIExecutionSelection, planID: String, planDigest: String)
@@ -77,12 +83,14 @@ final class StudioModel: ObservableObject {
     @Published var isRunning = false
     @Published var errorMessage: String?
     @Published var completedOutput: URL?
-    @Published var showConfirmation = false
     @Published private(set) var showPrepareConfirmation = false
     @Published private(set) var showCacheOnlyConfirmation = false
     @Published var showPaidConfirmation = false
     @Published var paidPlan: PaidRunPlan?
     @Published var paidStatusText = ""
+    @Published var yandexChapterPlan: YandexChapterRunPlan?
+    @Published var yandexChapterStatusText = ""
+    @Published var showYandexChapterConfirmation = false
     @Published var remainingPaidSegments: Int?
     @Published var hardLimitText = ""
     @Published var openAIHardLimitText = "1.00"
@@ -96,6 +104,7 @@ final class StudioModel: ObservableObject {
     private var pendingOpenAIIntentToken: OneShotIntentToken?
     private var pendingOpenAIAction: PendingOpenAIAction?
     private var pendingBookTextPreparationID: String?
+    private var yandexChapterPlanSelection: YandexChapterSelection?
 
     init() {
         if let requested = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_ENGINE"],
@@ -107,9 +116,15 @@ final class StudioModel: ObservableObject {
 
     var selectedBook: Book? { books.first { $0.id == selectedBookID } }
     var selectedJob: PreparedJob? { selectedBook?.jobs.first { $0.id == selectedJobID } }
+    var chapterJobs: [PreparedJob] { selectedBook?.jobs.filter { $0.kind == "chapter" } ?? [] }
     var availableProfiles: [VoiceProfile] { voiceLibrary.profiles(for: engine) }
     var selectedProfile: VoiceProfile? { availableProfiles.first { $0.profileID == selectedProfileID } }
-    var selectedBilling: CloudBillingSnapshot? { cloudBilling?.providers[engine] }
+    var selectedBilling: CloudBillingSnapshot? {
+        if engine == .yandex, let plan = yandexChapterPlan {
+            return plan.billing
+        }
+        return cloudBilling?.providers[engine]
+    }
 
     func reload(preferredBookID: String? = nil) async {
         invalidateOpenAIIntent()
@@ -222,11 +237,12 @@ final class StudioModel: ObservableObject {
             errorMessage = "Для Qwen выберите подготовленную задачу. Автоматический запуск литературного master-а отключён."
             return
         }
-        guard estimate?.allowedToStart == true else {
-            errorMessage = pricingMessage
-            return
+        if yandexChapterPlan?.canExecute == true,
+           yandexChapterPlanSelection == currentYandexChapterSelection() {
+            showYandexChapterConfirmation = true
+        } else {
+            prepareYandexChapterRun()
         }
-        showConfirmation = true
     }
 
     func selectDefaultProfile() {
@@ -240,14 +256,106 @@ final class StudioModel: ObservableObject {
         selectedProfileID = availableProfiles.first(where: { $0.profileID == preferred })?.profileID
             ?? availableProfiles.first?.profileID ?? ""
         paidPlan = nil
+        yandexChapterPlan = nil
+        yandexChapterPlanSelection = nil
         showPaidConfirmation = false
+        showYandexChapterConfirmation = false
     }
 
     func selectDefaultJob() {
         invalidateOpenAIIntent()
-        selectedJobID = selectedBook?.jobs.first?.id ?? ""
+        selectedJobID = engine == .yandex
+            ? (chapterJobs.first?.id ?? "")
+            : (selectedBook?.jobs.first?.id ?? "")
         paidPlan = nil
+        yandexChapterPlan = nil
+        yandexChapterPlanSelection = nil
         showPaidConfirmation = false
+        showYandexChapterConfirmation = false
+    }
+
+    private func prepareYandexChapterRun() {
+        guard let selection = currentYandexChapterSelection() else {
+            errorMessage = "Выберите подготовленную главу для Yandex SpeechKit."
+            return
+        }
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let plan: YandexChapterRunPlan = try await runBridgeJSON([
+                    "--prepare-yandex-chapter-run",
+                    "--book", selection.bookID,
+                    "--job", selection.jobID,
+                    "--profile-id", selection.profileID,
+                ])
+                guard !plan.remoteRequestSent else {
+                    throw BridgeError.message("Подготовка Yandex-плана нарушила offline contract.")
+                }
+                guard currentYandexChapterSelection() == selection else {
+                    yandexChapterPlan = nil
+                    yandexChapterPlanSelection = nil
+                    showYandexChapterConfirmation = false
+                    throw BridgeError.message("Выбор главы изменился. Подготовьте Yandex-план заново.")
+                }
+                yandexChapterPlan = plan
+                yandexChapterPlanSelection = selection
+                technicalDetails = nil
+                if plan.canExecute {
+                    yandexChapterStatusText = plan.decision == "CACHE_ONLY"
+                        ? "Глава уже есть в проверенном кэше; новый запрос не требуется."
+                        : "План главы подготовлен. Требуется отдельное подтверждение."
+                    showYandexChapterConfirmation = true
+                    errorMessage = nil
+                } else {
+                    errorMessage = yandexChapterBlockerLabel(plan.blockers)
+                    technicalDetails = plan.blockers.joined(separator: "\n")
+                }
+            } catch {
+                showError(error)
+            }
+        }
+    }
+
+    func confirmYandexChapterRun() {
+        let planExpired = yandexChapterPlan?.isExpired == true
+        guard let plan = yandexChapterPlan,
+              plan.canExecute,
+              let plannedSelection = yandexChapterPlanSelection,
+              currentYandexChapterSelection() == plannedSelection else {
+            yandexChapterPlan = nil
+            yandexChapterPlanSelection = nil
+            showYandexChapterConfirmation = false
+            errorMessage = planExpired
+                ? "Срок действия плана главы истёк. Подготовьте запуск заново."
+                : "Выбор главы или профиль изменился. Подготовьте Yandex-план заново."
+            return
+        }
+        showYandexChapterConfirmation = false
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let result: YandexChapterRunResult = try await runBridgeJSON([
+                    "--execute-yandex-chapter-plan",
+                    "--plan-id", plan.planID,
+                    "--plan-digest", plan.planDigest,
+                ])
+                yandexChapterPlan = nil
+                yandexChapterPlanSelection = nil
+                completedOutput = URL(fileURLWithPath: result.outputPath)
+                yandexChapterStatusText = result.networkRequests == 0
+                    ? "Глава материализована из кэша без нового запроса."
+                    : "Глава озвучена. Provider-запросов: \(result.networkRequests)."
+                errorMessage = nil
+            } catch {
+                yandexChapterPlan = nil
+                yandexChapterPlanSelection = nil
+                yandexChapterStatusText = ""
+                showYandexChapterConfirmation = false
+                showError(error)
+            }
+        }
     }
 
     func confirmOpenAIPrepare() {
@@ -412,24 +520,6 @@ final class StudioModel: ObservableObject {
         }
     }
 
-    func confirmYandexDemo() {
-        showConfirmation = false
-        Task {
-            isRunning = true
-            defer { isRunning = false }
-            do {
-                let output = try await runBridgeText(["--run-yandex-demo"])
-                let path = output.split(whereSeparator: \ .isNewline).last.map(String.init) ?? ""
-                if path.hasSuffix(".wav") {
-                    completedOutput = URL(fileURLWithPath: path)
-                }
-                errorMessage = nil
-            } catch {
-                showError(error)
-            }
-        }
-    }
-
     func checkYandexLocally() {
         Task {
             do {
@@ -490,10 +580,26 @@ final class StudioModel: ObservableObject {
         )
     }
 
+    private func currentYandexChapterSelection() -> YandexChapterSelection? {
+        guard engine == .yandex,
+              selectedBook?.preparationStatus == "READY",
+              selectedJob?.kind == "chapter",
+              selectedProfileID == "yandex_lera" else { return nil }
+        return YandexChapterSelection(
+            bookID: selectedBookID,
+            jobID: selectedJobID,
+            profileID: selectedProfileID
+        )
+    }
+
     private func executionSelectionDidChange() {
         invalidateOpenAIIntent()
         paidPlan = nil
+        yandexChapterPlan = nil
+        yandexChapterPlanSelection = nil
+        yandexChapterStatusText = ""
         showPaidConfirmation = false
+        showYandexChapterConfirmation = false
     }
 
     private func invalidateOpenAIIntent() {
@@ -657,7 +763,10 @@ struct StudioView: View {
                             ForEach(Engine.allCases) { engine in Text(engine.title).tag(engine) }
                         }
                         .pickerStyle(.segmented)
-                        .onChange(of: model.engine) { _, _ in model.selectDefaultProfile() }
+                        .onChange(of: model.engine) { _, _ in
+                            model.selectDefaultProfile()
+                            model.selectDefaultJob()
+                        }
 
                         if model.engine == .qwen {
                             Picker("Голос", selection: $model.selectedProfileID) {
@@ -705,16 +814,28 @@ struct StudioView: View {
                             Text("Studio выберет только первый допустимый MISS-сегмент. Вся книга автоматически не запускается.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                        } else {
-                            Picker("Режим", selection: .constant("demo")) {
-                                Text("Тестовый фрагмент").tag("demo")
-                                Text("Фрагмент — скоро").tag("fragment")
-                                Text("Глава — скоро").tag("chapter")
-                                Text("Вся книга — после подключения TTS-master").tag("book")
+                        } else if model.engine == .yandex {
+                            if model.chapterJobs.isEmpty {
+                                Text("Для книги нет подготовленных глав.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Picker("Подготовленная глава", selection: $model.selectedJobID) {
+                                    ForEach(model.chapterJobs) { job in
+                                        Text("\(job.label) · \(job.segmentCount) лит. сегм.").tag(job.id)
+                                    }
+                                }
                             }
-                            .disabled(true)
-                            Text("Текущий литературный master автоматически не используется.")
+                            Text("Studio сначала создаёт локальный неизменяемый план, затем отдельно показывает стоимость и число возможных provider-запросов.")
                                 .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if let book = model.selectedBook, !book.jobs.isEmpty {
+                            Picker("Подготовленная задача", selection: $model.selectedJobID) {
+                                ForEach(book.jobs) { job in
+                                    Text("\(job.label) · \(job.segmentCount) сегм.").tag(job.id)
+                                }
+                            }
+                        } else {
+                            Text("Для книги нет подготовленных задач.")
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -733,12 +854,32 @@ struct StudioView: View {
                         }
                     }
 
-                    if model.engine == .yandex, let estimate = model.estimate {
+                    if model.engine == .yandex, let plan = model.yandexChapterPlan {
                         Section("Параметры задачи") {
-                            Text("\(estimate.characters.formatted()) символов · \(estimate.segments) сегмента")
-                            if estimate.cachedSegments > 0 {
-                                Text("Уже готово: \(estimate.cachedSegments) · осталось отправить: \(estimate.billableRemainingUnits)")
+                            Text("\(plan.characters.formatted()) символов · \(plan.totalSegments) provider-сегм.")
+                            if plan.cachedSegments > 0 {
+                                Text("Проверенный кэш: \(plan.cachedSegments)")
                             }
+                            LabeledContent("Новых запросов", value: "максимум \(plan.maxNetworkRequests)")
+                            LabeledContent(
+                                "Оценка главы",
+                                value: formattedMoney(plan.estimatedRemainingCost, currency: plan.currency, source: "local_estimate")
+                            )
+                            Text(plan.pricingStale ? "Тариф требует проверки" : "Тариф проверен: \(russianDate(plan.pricingVerifiedAt))")
+                                .foregroundStyle(plan.pricingStale ? .orange : .secondary)
+                            if !model.yandexChapterStatusText.isEmpty {
+                                Text(model.yandexChapterStatusText).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    } else if model.engine == .yandex, let job = model.selectedJob {
+                        Section("Параметры задачи") {
+                            Text("Подготовленная глава · \(job.segmentCount) литературных сегм.")
+                            Text("Точная provider-сегментация и стоимость появятся после локальной подготовки плана.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if model.engine == .yandex, let estimate = model.estimate {
+                        Section("Диагностический тариф") {
                             Text(estimate.priceStale ? "Тариф требует проверки" : "Тариф проверен: \(russianDate(estimate.priceVerifiedAt))")
                                 .foregroundStyle(estimate.priceStale ? .orange : .secondary)
                             DisclosureGroup("Подробности") {
@@ -815,7 +956,10 @@ struct StudioView: View {
                                 : model.paidStatusText)
                                 .foregroundStyle(.secondary)
                         } else {
-                            Text("Тестовый фрагмент · Lera · neutral · 1.04").foregroundStyle(.secondary)
+                            Text(model.yandexChapterStatusText.isEmpty
+                                ? "Подготовленная глава · Lera · neutral · 1.04"
+                                : model.yandexChapterStatusText)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     Spacer()
@@ -829,6 +973,7 @@ struct StudioView: View {
                             model.isRunning || model.isLoading || model.isAddingBook
                                 || model.isPreparingBookText
                                 || (model.selectedBook?.jobs.isEmpty ?? true)
+                                || (model.engine == .yandex && model.selectedJob?.kind != "chapter")
                         )
                 }
                 .padding()
@@ -859,11 +1004,17 @@ struct StudioView: View {
             .alert("Audiobook Studio", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
                 Button("OK", role: .cancel) { model.errorMessage = nil }
             } message: { Text(model.errorMessage ?? "") }
-            .confirmationDialog("Начать озвучку?", isPresented: $model.showConfirmation, titleVisibility: .visible) {
-                Button("Начать озвучку") { model.confirmYandexDemo() }
+            .confirmationDialog("Озвучить подготовленную главу?", isPresented: $model.showYandexChapterConfirmation, titleVisibility: .visible) {
+                if model.yandexChapterPlan?.canExecute == true {
+                    Button(model.yandexChapterPlan?.decision == "CACHE_ONLY" ? "Использовать готовое аудио" : "Подтвердить озвучку главы") {
+                        model.confirmYandexChapterRun()
+                    }
+                }
                 Button("Отмена", role: .cancel) {}
             } message: {
-                Text("Yandex SpeechKit\n\(model.profile.voice) · \(model.profile.role) · \(model.profile.speed)\n\(model.estimate?.segments ?? 0) сегмента\n\(formattedMoney(model.estimate?.estimatedRemainingCost, currency: "RUB", source: "local_estimate"))")
+                if let plan = model.yandexChapterPlan {
+                    Text("Yandex SpeechKit\nГлава: \(plan.jobLabel)\nГолос: \(plan.voice.capitalized) · \(plan.role) · \(plan.speed)\nProvider-сегментов: \(plan.totalSegments)\nНовых запросов: максимум \(plan.maxNetworkRequests)\nОценка: \(formattedMoney(plan.estimatedRemainingCost, currency: plan.currency, source: "local_estimate"))\nЛимит Studio: \(formattedMoney(plan.hardLimit, currency: plan.currency, source: "local_actual"))")
+                }
             }
             .modifier(OpenAIConfirmationDialogs(model: model))
             .confirmationDialog(
@@ -1030,6 +1181,13 @@ private struct OpenAIConfirmationDialogs: ViewModifier {
 @MainActor
 private func primaryButtonTitle(_ model: StudioModel) -> String {
     if model.isRunning { return "Выполняется…" }
+    if model.engine == .yandex {
+        if model.yandexChapterPlan?.decision == "CACHE_ONLY", model.yandexChapterPlan?.canExecute == true {
+            return "Использовать готовую главу"
+        }
+        if model.yandexChapterPlan?.canExecute == true { return "Озвучить главу" }
+        return "Подготовить запуск главы"
+    }
     guard model.engine == .openai else { return "Начать озвучку" }
     if model.paidPlan?.decision == "CACHE_ONLY", model.paidPlan?.canExecute == true {
         return "Использовать готовое аудио"

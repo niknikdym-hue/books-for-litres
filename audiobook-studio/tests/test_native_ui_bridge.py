@@ -104,10 +104,12 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn("allowed_to_start", estimate)
         self.assertFalse(estimate["remote_request_sent"])
 
-    def test_native_ui_uses_only_explicit_run_action_for_yandex(self):
+    def test_native_ui_uses_only_immutable_plan_execution_for_yandex(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
-        self.assertIn('runBridgeText(["--run-yandex-demo"])', source)
+        self.assertNotIn('runBridgeText(["--run-yandex-demo"])', source)
+        self.assertIn('"--prepare-yandex-chapter-run"', source)
+        self.assertIn('"--execute-yandex-chapter-plan"', source)
         self.assertIn("confirmationDialog", source)
         self.assertIn("--ui-snapshot", source)
         self.assertIn("AUDIOBOOK_STUDIO_HOME", source)
@@ -267,6 +269,34 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn("Текст подготовлен", source)
         self.assertIn("struct BookTextPreparationResult", contracts)
         self.assertIn('case preparationStatus = "preparation_status"', contracts)
+
+    def test_native_yandex_chapter_production_uses_separate_plan_and_confirmation(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
+        begin = swift_function_body(source, "func begin()")
+        prepare = swift_function_body(source, "private func prepareYandexChapterRun()")
+        execute = swift_function_body(source, "func confirmYandexChapterRun()")
+
+        self.assertIn("prepareYandexChapterRun()", begin)
+        self.assertNotIn("--execute-yandex-chapter-plan", begin)
+        self.assertIn('"--prepare-yandex-chapter-run"', prepare)
+        self.assertIn("!plan.remoteRequestSent", prepare)
+        self.assertIn("currentYandexChapterSelection() == selection", prepare)
+        self.assertIn("yandexChapterPlanSelection = selection", prepare)
+        self.assertIn("showYandexChapterConfirmation = true", prepare)
+        self.assertIn('"--execute-yandex-chapter-plan"', execute)
+        self.assertIn('"--plan-digest", plan.planDigest', execute)
+        self.assertIn("currentYandexChapterSelection() == plannedSelection", execute)
+        self.assertIn("yandexChapterPlanSelection = nil", execute)
+        self.assertIn('yandexChapterStatusText = ""', execute)
+        self.assertIn("showYandexChapterConfirmation = false", execute)
+        self.assertIn('"Озвучить подготовленную главу?"', source)
+        self.assertIn("Новых запросов: максимум", source)
+        self.assertIn("struct YandexChapterRunPlan", contracts)
+        self.assertIn("struct YandexChapterRunResult", contracts)
+        self.assertIn("Автоматический повтор запрещён", contracts)
+        self.assertIn("if engine == .yandex, let plan = yandexChapterPlan", source)
+        self.assertIn("return plan.billing", source)
 
 
 if __name__ == "__main__":

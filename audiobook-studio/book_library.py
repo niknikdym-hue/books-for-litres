@@ -468,6 +468,7 @@ class BookLibrary:
                 "id": str(job_id),
                 "label": str(job.get("label") or job_id),
                 "segment_count": len(job.get("segments") or job.get("segment_ids") or []),
+                **({"kind": str(job["kind"])} if isinstance(job.get("kind"), str) else {}),
             }
             for job_id, job in book["jobs"].items()
             if jobs_available

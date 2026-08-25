@@ -152,9 +152,10 @@ struct PreparedJob: Codable, Identifiable, Hashable {
     let id: String
     let label: String
     let segmentCount: Int
+    let kind: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, label
+        case id, label, kind
         case segmentCount = "segment_count"
     }
 }
@@ -474,6 +475,98 @@ struct PaidRunExecutionResult: Codable {
     }
 }
 
+struct YandexChapterRunPlan: Codable, Identifiable {
+    let schemaVersion: Int
+    let planID: String
+    let planDigest: String
+    let state: String
+    let createdAt: String
+    let expiresAt: String
+    let provider: String
+    let bookID: String
+    let bookFile: String
+    let bookTitle: String
+    let jobID: String
+    let jobLabel: String
+    let profileID: String
+    let voice: String
+    let role: String
+    let speed: String
+    let characters: Int
+    let totalSegments: Int
+    let cachedSegments: Int
+    let maxNetworkRequests: Int
+    let estimatedRemainingCost: String?
+    let hardLimit: String?
+    let currency: String
+    let pricingVerifiedAt: String?
+    let pricingStale: Bool
+    let credentialAvailable: Bool
+    let warnings: [String]
+    let blockers: [String]
+    let decision: String
+    let billing: CloudBillingSnapshot
+    let remoteRequestSent: Bool
+
+    var id: String { planID }
+    var isExpired: Bool {
+        guard let date = ISO8601DateFormatter().date(from: expiresAt) else { return true }
+        return date <= Date()
+    }
+    var canExecute: Bool {
+        state == "PREPARED"
+            && !isExpired
+            && blockers.isEmpty
+            && (decision == "READY_FOR_CONFIRMATION" || decision == "CACHE_ONLY")
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case provider, voice, role, speed, characters, currency, warnings, blockers, decision, billing, state
+        case schemaVersion = "schema_version"
+        case planID = "plan_id"
+        case planDigest = "plan_digest"
+        case createdAt = "created_at"
+        case expiresAt = "expires_at"
+        case bookID = "book_id"
+        case bookFile = "book_file"
+        case bookTitle = "book_title"
+        case jobID = "job_id"
+        case jobLabel = "job_label"
+        case profileID = "profile_id"
+        case totalSegments = "total_segments"
+        case cachedSegments = "cached_segments"
+        case maxNetworkRequests = "max_network_requests"
+        case estimatedRemainingCost = "estimated_remaining_cost"
+        case hardLimit = "hard_limit"
+        case pricingVerifiedAt = "pricing_verified_at"
+        case pricingStale = "pricing_stale"
+        case credentialAvailable = "credential_available"
+        case remoteRequestSent = "remote_request_sent"
+    }
+}
+
+struct YandexChapterRunResult: Codable {
+    let schemaVersion: Int
+    let planID: String
+    let state: String
+    let decision: String
+    let manifest: String
+    let outputPath: String
+    let networkRequests: Int
+    let maxNetworkRequests: Int
+    let remoteRequestSent: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case state, decision, manifest
+        case schemaVersion = "schema_version"
+        case planID = "plan_id"
+        case outputPath = "output_path"
+        case networkRequests = "network_requests"
+        case maxNetworkRequests = "max_network_requests"
+        case remoteRequestSent = "remote_request_sent"
+    }
+}
+
 struct StudioSnapshot: Codable {
     let workspaceRoot: String
     let engines: [EngineDescriptor]
@@ -601,4 +694,26 @@ func paidRunBlockerLabel(_ blockers: [String]) -> String {
         return "Задайте положительный лимит политики Studio для OpenAI."
     }
     return "Платный запуск заблокирован проверками безопасности."
+}
+
+func yandexChapterBlockerLabel(_ blockers: [String]) -> String {
+    if blockers.contains("ambiguous_segment_requires_resolution") {
+        return "Результат Yandex-запроса не определён. Автоматический повтор запрещён."
+    }
+    if blockers.contains("failed_segment_requires_resolution") {
+        return "Неустранённая ошибка сегмента блокирует производство главы."
+    }
+    if blockers.contains("missing_credential") {
+        return "Ключ Yandex SpeechKit недоступен в macOS Keychain."
+    }
+    if blockers.contains("stale_tariff") { return "Тариф Yandex требует проверки." }
+    if blockers.contains("missing_tariff") { return "Тариф Yandex не настроен." }
+    if blockers.contains("missing_hard_limit") || blockers.contains("hard_limit_exceeded") {
+        return "Проверьте лимит стоимости задачи Yandex в Настройках."
+    }
+    if blockers.contains("chapter_request_cap_exceeded") {
+        return "Глава превышает безопасный лимит запросов V1 и должна быть разделена."
+    }
+    if blockers.contains("insufficient_balance") { return "Остатка Yandex недостаточно для этой главы." }
+    return "Производство главы заблокировано проверками безопасности."
 }

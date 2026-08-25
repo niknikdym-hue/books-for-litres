@@ -1,7 +1,7 @@
 # Audiobook Studio — архитектура и производственный регламент
 
 **Статус:** основной архитектурный документ проекта  
-**Версия:** 1.7
+**Версия:** 1.8
 **Дата фиксации:** 2026-08-23
 **Текущий проект:** `audiobook-studio/`
 **Целевая система:** универсальная **Audiobook Studio** с локальным Qwen/MLX и облачными Yandex SpeechKit v3 и OpenAI TTS.
@@ -144,8 +144,9 @@ API keys Yandex и OpenAI не хранятся в книге, JSON-профил
 - provider-neutral production Book Library с canonical registry `<AUDIOBOOK_STUDIO_HOME>/books/*.json`;
 - atomic UTF-8 TXT import, immutable/hash-protected source и отдельная writable TTS working copy;
 - native Add Book flow без provider request; `BOOK_LIBRARY_ADD_BOOK_V1 = ACCEPTED_AND_DEPLOYED`.
+- offline provider-neutral text preparation с versioned identity, conservative normalization, chapter structure, literary segments, lightweight prepared jobs и fail-closed artifact hashes; `BOOK_TEXT_PREPARATION_V1 = ACCEPTED_IN_MAIN` на `1414ebdbea358a8aa264651f2756a21d7edca8c9`.
 
-Следующий checkpoint — `BOOK_TEXT_PREPARATION_V1`: conservative normalization, chapter detection, literary segmentation и prepared jobs без synthesis.
+Активный checkpoint — `CHAPTER_PRODUCTION_V1`. Первая bounded production-трасса использует утверждённый Yandex Lera profile: локальный immutable PREPARE-план для одной prepared chapter job, отдельное подтверждение выполнения, cache/Resume, pricing/hard-limit gate и фиксированный максимум новых provider requests. PREPARE не синтезирует audio и не обращается к provider API.
 
 Текущие 9 дикторов Qwen:
 

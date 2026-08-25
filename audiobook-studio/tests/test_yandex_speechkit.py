@@ -293,6 +293,8 @@ class YandexBackendTests(unittest.TestCase):
                 "job_id": "test",
                 "created_at": module.utc_now_iso(),
                 "profile": {},
+                "segmentation": backend.manifest_segmentation(),
+                "request_routing": backend.request_routing_identity(),
                 "segments": {
                     seg.segment_id: {
                         "status": "IN_FLIGHT",
@@ -329,6 +331,8 @@ class YandexBackendTests(unittest.TestCase):
                 "job_id": "test",
                 "created_at": module.utc_now_iso(),
                 "profile": {},
+                "segmentation": backend.manifest_segmentation(),
+                "request_routing": backend.request_routing_identity(),
                 "segments": {
                     seg.segment_id: {
                         "status": "IN_FLIGHT",
@@ -344,6 +348,111 @@ class YandexBackendTests(unittest.TestCase):
             updated = json.loads((job_dir / "MANIFEST.json").read_text(encoding="utf-8"))
             self.assertEqual(updated["segments"][seg.segment_id]["status"], "DONE")
             self.assertEqual(updated["segments"][seg.segment_id]["recovered_after_interruption"], "job_wav")
+
+    def test_existing_manifest_with_mismatched_segmentation_is_rejected_without_network(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = module.YandexBackendConfig.from_mapping({
+                "output_root": str(root / "out"),
+                "segmentation": {"max_chars": 220, "max_words": 34},
+            })
+            backend = module.YandexSpeechKitBackend(cfg, api_key="1234567890abcdefghijklmnopqrstuvABCD")
+            job_dir = root / "job"
+            job_dir.mkdir(parents=True)
+            segmentation = backend.manifest_segmentation()
+            segmentation["paragraph_pause_ms"] += 1
+            (job_dir / "MANIFEST.json").write_text(json.dumps({
+                "schema_version": 1,
+                "engine": module.ENGINE_ID,
+                "job_id": "test",
+                "profile": {},
+                "segmentation": segmentation,
+                "request_routing": backend.request_routing_identity(),
+                "segments": {},
+            }), encoding="utf-8")
+            backend._request = mock.Mock(side_effect=AssertionError("network request must not be sent"))
+
+            with self.assertRaises(module.YandexSpeechKitError) as ctx:
+                backend.run_text_job(
+                    "Короткая тестовая фраза.",
+                    job_dir,
+                    job_id="test",
+                    pricing=demo_pricing(),
+                    scope="demo",
+                )
+
+            self.assertEqual(ctx.exception.category, "manifest")
+            backend._request.assert_not_called()
+
+    def test_cache_namespace_changes_with_request_routing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            output_root = root / "out"
+            base = {
+                "output_root": str(output_root),
+                "endpoint": "https://route-a.example.invalid/tts",
+                "keychain_service": "Yandex-A",
+                "keychain_account": "account-a",
+            }
+            first = module.YandexSpeechKitBackend(
+                module.YandexBackendConfig.from_mapping(base),
+                api_key="1234567890abcdefghijklmnopqrstuvABCD",
+            )
+            first._request = mock.Mock(return_value=(wav_bytes(), {}))
+            text = "Маршрут кэша должен быть неизменяемым."
+            cache_root = output_root / "_cache"
+            first_result = first.synthesize(text, root / "first.wav", cache_root=cache_root)
+            self.assertFalse(first_result.cached)
+            first._request.assert_called_once()
+            self.assertEqual(first.estimate(text)["cached_segments"], 1)
+
+            second = module.YandexSpeechKitBackend(
+                module.YandexBackendConfig.from_mapping({**base, "endpoint": "https://route-b.example.invalid/tts"}),
+                api_key="1234567890abcdefghijklmnopqrstuvABCD",
+            )
+            second._request = mock.Mock(return_value=(wav_bytes(), {}))
+            self.assertNotEqual(first.cache_namespace(cache_root), second.cache_namespace(cache_root))
+            self.assertEqual(second.estimate(text)["cached_segments"], 0)
+            second_result = second.synthesize(text, root / "second.wav", cache_root=cache_root)
+            self.assertFalse(second_result.cached)
+            second._request.assert_called_once()
+
+    def test_existing_manifest_with_mismatched_routing_is_rejected_without_network(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            backend = module.YandexSpeechKitBackend(
+                module.YandexBackendConfig.from_mapping({
+                    "output_root": str(root / "out"),
+                    "endpoint": "https://route-b.example.invalid/tts",
+                }),
+                api_key="1234567890abcdefghijklmnopqrstuvABCD",
+            )
+            job_dir = root / "job"
+            job_dir.mkdir(parents=True)
+            old_routing = backend.request_routing_identity()
+            old_routing["endpoint"] = "https://route-a.example.invalid/tts"
+            (job_dir / "MANIFEST.json").write_text(json.dumps({
+                "schema_version": 1,
+                "engine": module.ENGINE_ID,
+                "job_id": "test",
+                "profile": {},
+                "segmentation": backend.manifest_segmentation(),
+                "request_routing": old_routing,
+                "segments": {},
+            }), encoding="utf-8")
+            backend._request = mock.Mock(side_effect=AssertionError("network request must not be sent"))
+
+            with self.assertRaises(module.YandexSpeechKitError) as ctx:
+                backend.run_text_job(
+                    "Короткая тестовая фраза.",
+                    job_dir,
+                    job_id="test",
+                    pricing=demo_pricing(),
+                    scope="demo",
+                )
+
+            self.assertEqual(ctx.exception.category, "manifest")
+            backend._request.assert_not_called()
 
 
 if __name__ == "__main__":

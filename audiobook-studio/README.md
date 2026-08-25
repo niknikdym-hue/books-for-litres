@@ -39,9 +39,13 @@ immutable source = books/<slug>/source/original.txt
 editable TTS copy = books/<slug>/tts/working.txt
 ```
 
-Add Book работает через native file picker и offline bridge; импорт не выполняет provider request. Следующий checkpoint — `BOOK_TEXT_PREPARATION_V1`: conservative normalization, chapter detection, literary segmentation и prepared jobs без synthesis.
+Add Book работает через native file picker и offline bridge; импорт не выполняет provider request.
 
-Полный production launch для реальной книги end-to-end ещё не завершён. После text preparation по порядку: chapter production → QA/Review → assembly → mastering → Dilon Voices → export → LitRes profile → MP3/M4B → end-to-end acceptance на реальной книге.
+`BOOK_TEXT_PREPARATION_V1` принят в `main` на `1414ebdbea358a8aa264651f2756a21d7edca8c9`: conservative normalization, chapter detection, provider-neutral literary segmentation, fail-closed artifact integrity и prepared chapter jobs работают без synthesis/provider requests.
+
+Активный checkpoint — `CHAPTER_PRODUCTION_V1`: безопасное производство одной выбранной подготовленной главы. Первый production route — Yandex Lera с локальным immutable PREPARE-планом, отдельным подтверждением, cache/Resume и жёсткой верхней границей provider-запросов.
+
+Полный production launch для реальной книги end-to-end ещё не завершён. После chapter production по порядку: QA/Review → assembly → mastering → Dilon Voices → export → LitRes profile → MP3/M4B → end-to-end acceptance на реальной книге.
 
 Definition of Done активного checkpoint хранится в `docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md`.
 

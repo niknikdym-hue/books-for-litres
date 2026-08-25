@@ -1,5 +1,6 @@
 """Public compatibility facade for the Yandex SpeechKit v3 backend."""
 
+from .yandex_cache_lock import shared_cache_execution_lock
 from .yandex_client import YandexSpeechKitBackend, join_wavs_with_pauses
 from .yandex_pricing import YandexPricingConfig, load_pricing_config, price_estimate
 from .yandex_segmenter import segment_text
@@ -38,6 +39,7 @@ __all__ = [
     "make_fingerprint",
     "price_estimate",
     "read_api_key_from_keychain",
+    "shared_cache_execution_lock",
     "segment_text",
     "utc_now_iso",
     "validate_api_key",

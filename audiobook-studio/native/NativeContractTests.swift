@@ -210,6 +210,54 @@ struct NativeContractTests {
             "ambiguous UI has no retry"
         )
 
+        let yandexChapterPlanJSON = """
+        {
+          "schema_version": 1,
+          "plan_id": "22222222222222222222222222222222",
+          "plan_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "state": "PREPARED",
+          "created_at": "2026-08-23T12:00:00+00:00",
+          "expires_at": "2099-08-23T12:10:00+00:00",
+          "provider": "yandex",
+          "book_id": "chapter-book",
+          "book_file": "chapter-book.json",
+          "book_title": "Книга",
+          "job_id": "chapter-ch001",
+          "job_label": "Начало",
+          "profile_id": "yandex_lera",
+          "voice": "lera",
+          "role": "neutral",
+          "speed": "1.04",
+          "characters": 1200,
+          "total_segments": 7,
+          "cached_segments": 2,
+          "max_network_requests": 5,
+          "estimated_remaining_cost": "1.00",
+          "hard_limit": "10.00",
+          "currency": "RUB",
+          "pricing_verified_at": "2026-08-23",
+          "pricing_stale": false,
+          "credential_available": true,
+          "warnings": ["provider_balance_unavailable"],
+          "blockers": [],
+          "decision": "READY_FOR_CONFIRMATION",
+          "billing": \(staleJSON),
+          "remote_request_sent": false
+        }
+        """
+        let yandexChapterPlan = try JSONDecoder().decode(
+            YandexChapterRunPlan.self,
+            from: Data(yandexChapterPlanJSON.utf8)
+        )
+        require(yandexChapterPlan.canExecute, "Yandex chapter plan can execute")
+        require(yandexChapterPlan.maxNetworkRequests == 5, "Yandex chapter request cap")
+        require(yandexChapterPlan.estimatedRemainingCost == "1.00", "Yandex chapter estimate")
+        require(
+            yandexChapterBlockerLabel(["ambiguous_segment_requires_resolution"])
+                == "Результат Yandex-запроса не определён. Автоматический повтор запрещён.",
+            "Yandex ambiguous UI has no retry"
+        )
+
         print("NATIVE_CONTRACT_TESTS_PASS")
     }
 }
