@@ -102,6 +102,43 @@ class BookTextPreparationTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in chapters], ["ch001", "ch002"])
         self.assertEqual([item["title"] for item in chapters], ["ГЛАВА 1", "Финал"])
 
+    def test_russian_ordinal_word_chapters_match_real_book_format(self):
+        chapters = detect_chapters(
+            "Вступление. Перед главами.\n\n"
+            "Глава первая. Начало\n\nПервый текст.\n\n"
+            "Глава вторая. Продолжение\n\nВторой текст.\n\n"
+            "Глава пятнадцатая. Финал\n\nПоследний текст.\n"
+        )
+        self.assertEqual([item["id"] for item in chapters], ["ch001", "ch002", "ch003", "ch004"])
+        self.assertEqual(
+            [item["title"] for item in chapters],
+            ["Введение", "Начало", "Продолжение", "Финал"],
+        )
+        self.assertEqual(chapters[1]["heading"], "Глава первая. Начало")
+
+    def test_russian_fourth_ordinal_accepts_common_e_spelling(self):
+        chapters = detect_chapters(
+            "Глава третья. До\n\nТретий текст.\n\n"
+            "Глава четвертая. После\n\nЧетвёртый текст.\n"
+        )
+        self.assertEqual([item["title"] for item in chapters], ["До", "После"])
+        self.assertEqual(chapters[1]["heading"], "Глава четвертая. После")
+
+    def test_compound_russian_ordinals_after_twentieth_are_detected(self):
+        chapters = detect_chapters(
+            "Глава двадцатая. Двадцать\n\nТекст 20.\n\n"
+            "Глава двадцать первая. Двадцать один\n\nТекст 21.\n\n"
+            "Глава двадцать вторая. Двадцать два\n\nТекст 22.\n\n"
+            "Глава двадцать третья. Двадцать три\n\nТекст 23.\n\n"
+            "Глава двадцать четвертая. Двадцать четыре\n\nТекст 24.\n\n"
+            "Глава двадцать пятая. Двадцать пять\n\nТекст 25.\n\n"
+            "Глава двадцать шестая. Двадцать шесть\n\nТекст 26.\n\n"
+            "Глава двадцать седьмая. Двадцать семь\n\nТекст 27.\n"
+        )
+        self.assertEqual(len(chapters), 8)
+        self.assertEqual(chapters[1]["heading"], "Глава двадцать первая. Двадцать один")
+        self.assertEqual(chapters[-1]["title"], "Двадцать семь")
+
     def test_no_headings_produces_one_fallback_chapter(self):
         chapters = detect_chapters("Обычный текст.\n\nЕщё один абзац.\n")
         self.assertEqual(len(chapters), 1)
@@ -169,6 +206,21 @@ class BookTextPreparationTests(unittest.TestCase):
         self.assertEqual(status["preparation_status"], "STALE")
         self.assertEqual(status["jobs"], [])
         with self.assertRaises(BookLibraryError):
+            self.library.load_book_for_execution("prepared-book")
+
+    def test_old_normalization_rules_mark_preparation_stale_and_hide_jobs(self):
+        self.prepare()
+        profile = json.loads(self.profile_path.read_text(encoding="utf-8"))
+        profile["preparation"]["normalization_rules_version"] = "1"
+        self.profile_path.write_text(
+            json.dumps(profile, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        status = self.service.status("prepared-book")
+        self.assertEqual(status["preparation_status"], "STALE")
+        self.assertEqual(status["jobs"], [])
+        with self.assertRaisesRegex(BookLibraryError, "preparation is STALE"):
             self.library.load_book_for_execution("prepared-book")
 
     def test_reprepare_updates_revision_and_new_identity(self):

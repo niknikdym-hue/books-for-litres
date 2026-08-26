@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from book_library import BookLibrary, BookLibraryError, sha256_bytes, sha256_file
+from preparation_contract import (
+    NORMALIZATION_RULES_VERSION,
+    PREPARATION_SCHEMA_VERSION,
+    SEGMENTATION_RULES_VERSION,
+)
 
 
-PREPARATION_SCHEMA_VERSION = 1
-NORMALIZATION_RULES_VERSION = "1"
-SEGMENTATION_RULES_VERSION = "1"
 NORMALIZED_RELATIVE_PATH = Path("prepared/normalized.txt")
 STRUCTURE_RELATIVE_PATH = Path("prepared/structure.json")
 SEGMENTS_RELATIVE_PATH = Path("prepared/segments.json")
@@ -28,8 +30,30 @@ HARD_SEGMENT_CHARS = 1200
 PREVIEW_MAX_CHARS = 320
 PREPARATION_STATES = {"NOT_PREPARED", "READY", "STALE", "SOURCE_INTEGRITY_ERROR"}
 
+_RUSSIAN_ORDINAL_UNITS = (
+    "первая", "вторая", "третья", "четвёртая", "четвертая", "пятая",
+    "шестая", "седьмая", "восьмая", "девятая",
+)
+_RUSSIAN_CARDINAL_TENS = (
+    "двадцать", "тридцать", "сорок", "пятьдесят", "шестьдесят",
+    "семьдесят", "восемьдесят", "девяносто",
+)
+_RUSSIAN_ORDINAL_CHAPTERS = (
+    *_RUSSIAN_ORDINAL_UNITS,
+    "десятая",
+    "одиннадцатая", "двенадцатая", "тринадцатая", "четырнадцатая", "пятнадцатая",
+    "шестнадцатая", "семнадцатая", "восемнадцатая", "девятнадцатая", "двадцатая",
+    "тридцатая", "сороковая", "пятидесятая", "шестидесятая",
+    "семидесятая", "восьмидесятая", "девяностая",
+    *(f"{tens} {unit}" for tens in _RUSSIAN_CARDINAL_TENS for unit in _RUSSIAN_ORDINAL_UNITS),
+)
+_RUSSIAN_ORDINAL_PATTERN = "|".join(
+    re.escape(value).replace(r"\ ", r"\s+")
+    for value in _RUSSIAN_ORDINAL_CHAPTERS
+)
 _EXPLICIT_CHAPTER = re.compile(
-    r"^\s*глава\s+([0-9]+|[ivxlcdm]+)(?:\s*[.\-—–:]\s*|\s+)?(.*?)\s*$",
+    rf"^\s*глава\s+([0-9]+|[ivxlcdm]+|{_RUSSIAN_ORDINAL_PATTERN})"
+    r"(?:\s*[.\-—–:]\s*|\s+)?(.*?)\s*$",
     re.IGNORECASE,
 )
 _NUMERIC_CHAPTER = re.compile(r"^\s*(\d{1,3})[.)]\s+(.{1,120}?)\s*$")

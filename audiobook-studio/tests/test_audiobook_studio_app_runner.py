@@ -41,7 +41,11 @@ class UniversalBridgeTests(unittest.TestCase):
         books = cls.workspace / "books"
         books.mkdir(parents=True)
         shutil.copy2(ROOT / "books/demo-book.json", books / "demo-book.json")
-        SCRIPT_ENV = dict(os.environ, AUDIOBOOK_STUDIO_HOME=str(cls.workspace))
+        SCRIPT_ENV = dict(
+            os.environ,
+            AUDIOBOOK_STUDIO_HOME=str(cls.workspace),
+            HOME=str(Path(cls.temporary.name) / "home"),
+        )
         cls.original_paths = bridge.WORKSPACE_PATHS
         cls.original_library = bridge.BOOK_LIBRARY
         cls.original_preparation = bridge.BOOK_TEXT_PREPARATION
