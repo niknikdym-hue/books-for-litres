@@ -14,6 +14,7 @@ from audio_qa_review import AudioQAReviewService
 from workspace_paths import load_workspace_paths
 
 
+QA_BRIDGE_SCHEMA_VERSION = 1
 WORKSPACE_PATHS = load_workspace_paths()
 
 
@@ -78,7 +79,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.status:
         result = _current_status(service, identity)
         print(json.dumps({
-            "schema_version": 1,
+            "schema_version": QA_BRIDGE_SCHEMA_VERSION,
             "record": result,
             "remote_request_sent": False,
         }, ensure_ascii=False, indent=2))
@@ -106,7 +107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             synthesis_fingerprint=fingerprint,
         )
         result = {
-            "schema_version": 1,
+            "schema_version": QA_BRIDGE_SCHEMA_VERSION,
             "eligible": result is not None,
             "record": result,
             "remote_request_sent": False,
