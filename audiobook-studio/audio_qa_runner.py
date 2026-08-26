@@ -55,13 +55,28 @@ def _identity(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
+def _current_status(service: AudioQAReviewService, identity: dict[str, str]) -> dict | None:
+    stored = service.status(**identity)
+    if stored is None:
+        return None
+    fingerprint = (stored.get("identity") or {}).get("synthesis_fingerprint")
+    audio_path = stored.get("audio_path")
+    if not isinstance(audio_path, str) or not audio_path:
+        return stored
+    return service.scan(
+        **identity,
+        audio_path=Path(audio_path),
+        synthesis_fingerprint=fingerprint if isinstance(fingerprint, str) else None,
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     identity = _identity(args)
     service = _service()
 
     if args.status:
-        result = service.status(**identity)
+        result = _current_status(service, identity)
         print(json.dumps({
             "schema_version": 1,
             "record": result,
