@@ -54,6 +54,7 @@ class NativeContractTests(unittest.TestCase):
                 [
                     "xcrun", "swiftc", "-parse-as-library",
                     str(ROOT / "native" / "StudioContracts.swift"),
+                    str(ROOT / "native" / "AudioQAContracts.swift"),
                     str(ROOT / "native" / "NativeContractTests.swift"),
                     "-target", "arm64-apple-macosx14.0",
                     "-sdk", sdk_path,
