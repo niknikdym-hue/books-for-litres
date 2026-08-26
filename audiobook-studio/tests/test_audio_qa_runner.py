@@ -28,11 +28,11 @@ class AudioQARunnerTests(unittest.TestCase):
         self.temporary.cleanup()
 
     @staticmethod
-    def write_wav(path: Path) -> None:
+    def write_wav(path: Path, *, frequency: float = 440.0) -> None:
         sample_rate = 24_000
         frames = 4_800
         samples = [
-            int(3000 * math.sin(2.0 * math.pi * 440.0 * index / sample_rate))
+            int(3000 * math.sin(2.0 * math.pi * frequency * index / sample_rate))
             for index in range(frames)
         ]
         with wave.open(str(path), "wb") as audio:
@@ -91,6 +91,21 @@ class AudioQARunnerTests(unittest.TestCase):
         self.assertTrue(downstream["eligible"])
         self.assertEqual(downstream["record"]["manual_state"], "APPROVED")
         self.assertFalse(downstream["remote_request_sent"])
+
+    def test_status_revalidates_bytes_and_marks_old_approval_stale(self):
+        approved = self.run_json(
+            "--decide", *self.base_args(),
+            "--audio-path", str(self.audio),
+            "--fingerprint", "fp-1",
+            "--decision", "APPROVED",
+        )
+        old_sha = approved["identity"]["audio_sha256"]
+        self.write_wav(self.audio, frequency=660.0)
+        status = self.run_json("--status", *self.base_args())
+        self.assertNotEqual(status["record"]["identity"]["audio_sha256"], old_sha)
+        self.assertEqual(status["record"]["manual_state"], "STALE")
+        self.assertFalse(status["record"]["downstream_eligible"])
+        self.assertFalse(status["remote_request_sent"])
 
     def test_request_regeneration_records_state_only(self):
         result = self.run_json(
