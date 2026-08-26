@@ -18,7 +18,7 @@ from book_library import BookLibrary, BookLibraryError, sha256_bytes, sha256_fil
 
 
 PREPARATION_SCHEMA_VERSION = 1
-NORMALIZATION_RULES_VERSION = "1"
+NORMALIZATION_RULES_VERSION = "2"
 SEGMENTATION_RULES_VERSION = "1"
 NORMALIZED_RELATIVE_PATH = Path("prepared/normalized.txt")
 STRUCTURE_RELATIVE_PATH = Path("prepared/structure.json")
@@ -28,8 +28,15 @@ HARD_SEGMENT_CHARS = 1200
 PREVIEW_MAX_CHARS = 320
 PREPARATION_STATES = {"NOT_PREPARED", "READY", "STALE", "SOURCE_INTEGRITY_ERROR"}
 
+_RUSSIAN_ORDINAL_CHAPTERS = (
+    "первая", "вторая", "третья", "четвёртая", "пятая",
+    "шестая", "седьмая", "восьмая", "девятая", "десятая",
+    "одиннадцатая", "двенадцатая", "тринадцатая", "четырнадцатая", "пятнадцатая",
+    "шестнадцатая", "семнадцатая", "восемнадцатая", "девятнадцатая", "двадцатая",
+)
 _EXPLICIT_CHAPTER = re.compile(
-    r"^\s*глава\s+([0-9]+|[ivxlcdm]+)(?:\s*[.\-—–:]\s*|\s+)?(.*?)\s*$",
+    rf"^\s*глава\s+([0-9]+|[ivxlcdm]+|{'|'.join(_RUSSIAN_ORDINAL_CHAPTERS)})"
+    r"(?:\s*[.\-—–:]\s*|\s+)?(.*?)\s*$",
     re.IGNORECASE,
 )
 _NUMERIC_CHAPTER = re.compile(r"^\s*(\d{1,3})[.)]\s+(.{1,120}?)\s*$")

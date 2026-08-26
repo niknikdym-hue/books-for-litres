@@ -102,6 +102,20 @@ class BookTextPreparationTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in chapters], ["ch001", "ch002"])
         self.assertEqual([item["title"] for item in chapters], ["ГЛАВА 1", "Финал"])
 
+    def test_russian_ordinal_word_chapters_match_real_book_format(self):
+        chapters = detect_chapters(
+            "Вступление. Перед главами.\n\n"
+            "Глава первая. Начало\n\nПервый текст.\n\n"
+            "Глава вторая. Продолжение\n\nВторой текст.\n\n"
+            "Глава пятнадцатая. Финал\n\nПоследний текст.\n"
+        )
+        self.assertEqual([item["id"] for item in chapters], ["ch001", "ch002", "ch003", "ch004"])
+        self.assertEqual(
+            [item["title"] for item in chapters],
+            ["Введение", "Начало", "Продолжение", "Финал"],
+        )
+        self.assertEqual(chapters[1]["heading"], "Глава первая. Начало")
+
     def test_no_headings_produces_one_fallback_chapter(self):
         chapters = detect_chapters("Обычный текст.\n\nЕщё один абзац.\n")
         self.assertEqual(len(chapters), 1)
