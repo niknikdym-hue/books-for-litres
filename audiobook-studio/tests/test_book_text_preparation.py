@@ -124,6 +124,21 @@ class BookTextPreparationTests(unittest.TestCase):
         self.assertEqual([item["title"] for item in chapters], ["До", "После"])
         self.assertEqual(chapters[1]["heading"], "Глава четвертая. После")
 
+    def test_compound_russian_ordinals_after_twentieth_are_detected(self):
+        chapters = detect_chapters(
+            "Глава двадцатая. Двадцать\n\nТекст 20.\n\n"
+            "Глава двадцать первая. Двадцать один\n\nТекст 21.\n\n"
+            "Глава двадцать вторая. Двадцать два\n\nТекст 22.\n\n"
+            "Глава двадцать третья. Двадцать три\n\nТекст 23.\n\n"
+            "Глава двадцать четвертая. Двадцать четыре\n\nТекст 24.\n\n"
+            "Глава двадцать пятая. Двадцать пять\n\nТекст 25.\n\n"
+            "Глава двадцать шестая. Двадцать шесть\n\nТекст 26.\n\n"
+            "Глава двадцать седьмая. Двадцать семь\n\nТекст 27.\n"
+        )
+        self.assertEqual(len(chapters), 8)
+        self.assertEqual(chapters[1]["heading"], "Глава двадцать первая. Двадцать один")
+        self.assertEqual(chapters[-1]["title"], "Двадцать семь")
+
     def test_no_headings_produces_one_fallback_chapter(self):
         chapters = detect_chapters("Обычный текст.\n\nЕщё один абзац.\n")
         self.assertEqual(len(chapters), 1)
