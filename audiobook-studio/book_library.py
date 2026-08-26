@@ -14,6 +14,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from preparation_contract import (
+    NORMALIZATION_RULES_VERSION,
+    PREPARATION_SCHEMA_VERSION,
+    SEGMENTATION_RULES_VERSION,
+)
+
 
 BOOK_SCHEMA_VERSION = 1
 SOURCE_RELATIVE_PATH = Path("source/original.txt")
@@ -301,6 +307,12 @@ class BookLibrary:
         elif preparation is None:
             status = "NOT_PREPARED"
         elif working_sha is None or working_sha != preparation.get("working_copy_sha256"):
+            status = "STALE"
+        elif (
+            preparation.get("schema_version") != PREPARATION_SCHEMA_VERSION
+            or preparation.get("normalization_rules_version") != NORMALIZATION_RULES_VERSION
+            or preparation.get("segmentation_rules_version") != SEGMENTATION_RULES_VERSION
+        ):
             status = "STALE"
         else:
             normalized_path = self._asset_path(slug, preparation.get("normalized_path"))

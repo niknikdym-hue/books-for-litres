@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from book_library import BookLibrary, BookLibraryError, sha256_bytes, sha256_file
+from preparation_contract import (
+    NORMALIZATION_RULES_VERSION,
+    PREPARATION_SCHEMA_VERSION,
+    SEGMENTATION_RULES_VERSION,
+)
 
 
-PREPARATION_SCHEMA_VERSION = 1
-NORMALIZATION_RULES_VERSION = "2"
-SEGMENTATION_RULES_VERSION = "1"
 NORMALIZED_RELATIVE_PATH = Path("prepared/normalized.txt")
 STRUCTURE_RELATIVE_PATH = Path("prepared/structure.json")
 SEGMENTS_RELATIVE_PATH = Path("prepared/segments.json")
@@ -29,7 +31,7 @@ PREVIEW_MAX_CHARS = 320
 PREPARATION_STATES = {"NOT_PREPARED", "READY", "STALE", "SOURCE_INTEGRITY_ERROR"}
 
 _RUSSIAN_ORDINAL_CHAPTERS = (
-    "первая", "вторая", "третья", "четвёртая", "пятая",
+    "первая", "вторая", "третья", "четвёртая", "четвертая", "пятая",
     "шестая", "седьмая", "восьмая", "девятая", "десятая",
     "одиннадцатая", "двенадцатая", "тринадцатая", "четырнадцатая", "пятнадцатая",
     "шестнадцатая", "семнадцатая", "восемнадцатая", "девятнадцатая", "двадцатая",

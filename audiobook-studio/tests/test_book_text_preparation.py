@@ -116,6 +116,14 @@ class BookTextPreparationTests(unittest.TestCase):
         )
         self.assertEqual(chapters[1]["heading"], "Глава первая. Начало")
 
+    def test_russian_fourth_ordinal_accepts_common_e_spelling(self):
+        chapters = detect_chapters(
+            "Глава третья. До\n\nТретий текст.\n\n"
+            "Глава четвертая. После\n\nЧетвёртый текст.\n"
+        )
+        self.assertEqual([item["title"] for item in chapters], ["До", "После"])
+        self.assertEqual(chapters[1]["heading"], "Глава четвертая. После")
+
     def test_no_headings_produces_one_fallback_chapter(self):
         chapters = detect_chapters("Обычный текст.\n\nЕщё один абзац.\n")
         self.assertEqual(len(chapters), 1)
@@ -183,6 +191,21 @@ class BookTextPreparationTests(unittest.TestCase):
         self.assertEqual(status["preparation_status"], "STALE")
         self.assertEqual(status["jobs"], [])
         with self.assertRaises(BookLibraryError):
+            self.library.load_book_for_execution("prepared-book")
+
+    def test_old_normalization_rules_mark_preparation_stale_and_hide_jobs(self):
+        self.prepare()
+        profile = json.loads(self.profile_path.read_text(encoding="utf-8"))
+        profile["preparation"]["normalization_rules_version"] = "1"
+        self.profile_path.write_text(
+            json.dumps(profile, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        status = self.service.status("prepared-book")
+        self.assertEqual(status["preparation_status"], "STALE")
+        self.assertEqual(status["jobs"], [])
+        with self.assertRaisesRegex(BookLibraryError, "preparation is STALE"):
             self.library.load_book_for_execution("prepared-book")
 
     def test_reprepare_updates_revision_and_new_identity(self):
