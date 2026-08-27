@@ -881,6 +881,14 @@ final class StudioModel: ObservableObject {
     }
 
     private func refreshAudioQADownstream(authority: AudioQAAuthority) async {
+        let expectedEngine = engine
+        let expectedBookSlug = selectedBook?.slug
+        let expectedJobID = selectedJobID
+        let expectedProfileID = selectedProfileID
+        guard expectedEngine.rawValue == authority.provider,
+              expectedBookSlug == authority.bookSlug,
+              expectedJobID == authority.jobID,
+              expectedProfileID == authority.profileID else { return }
         do {
             let result: AudioQACurrentEnvelope = try await runBridgeJSON(
                 audioQAArguments(for: authority, mode: "--audio-qa-downstream")
@@ -888,11 +896,20 @@ final class StudioModel: ObservableObject {
             guard !result.remoteRequestSent else {
                 throw BridgeError.message("Downstream QA gate нарушил offline contract.")
             }
+            guard engine == expectedEngine,
+                  selectedBook?.slug == expectedBookSlug,
+                  selectedJobID == expectedJobID,
+                  selectedProfileID == expectedProfileID,
+                  result.authority == authority else { return }
             audioQA = result
             downstreamApprovedOutput = result.eligible
                 ? URL(fileURLWithPath: result.record.audioPath)
                 : nil
         } catch {
+            guard engine == expectedEngine,
+                  selectedBook?.slug == expectedBookSlug,
+                  selectedJobID == expectedJobID,
+                  selectedProfileID == expectedProfileID else { return }
             downstreamApprovedOutput = nil
             technicalDetails = error.localizedDescription
         }

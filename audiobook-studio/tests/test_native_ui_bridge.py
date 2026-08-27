@@ -228,6 +228,7 @@ class NativeUIBridgeTests(unittest.TestCase):
     def test_native_audio_qa_is_wired_to_current_authority_and_exact_review_identity(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         decide = swift_function_body(source, "func decideAudioQA(_ decision:")
+        downstream = swift_function_body(source, "private func refreshAudioQADownstream(")
         regenerate = decide[decide.index('decision == "REGENERATE_REQUESTED"') :]
 
         self.assertIn('"--audio-qa-current"', source)
@@ -249,6 +250,11 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertNotIn("--prepare-yandex-chapter-run", regenerate)
         self.assertNotIn("--execute-paid-plan", regenerate)
         self.assertNotIn("--execute-yandex-chapter-plan", regenerate)
+        self.assertIn("let expectedEngine = engine", downstream)
+        self.assertIn("let expectedBookSlug = selectedBook?.slug", downstream)
+        self.assertGreaterEqual(downstream.count("engine == expectedEngine"), 2)
+        self.assertGreaterEqual(downstream.count("selectedBook?.slug == expectedBookSlug"), 2)
+        self.assertIn("result.authority == authority", downstream)
 
     def test_qwen_current_authority_discovers_canonical_profile_directory(self):
         producer = (ROOT / "studio.py").read_text(encoding="utf-8")
