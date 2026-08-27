@@ -120,8 +120,14 @@ class YandexChapterProductionService:
             texts.append(text.strip())
         return profile_path, book, job, "\n\n".join(texts)
 
-    def _job_dir(self, book: Mapping[str, Any], job_id: str) -> Path:
-        slug = str(book.get("slug") or "book")
+    def _job_dir(
+        self,
+        book: Mapping[str, Any],
+        job_id: str,
+        *,
+        canonical_book_slug: str | None = None,
+    ) -> Path:
+        slug = canonical_book_slug or str(book.get("slug") or "book")
         return Path(self.backend.config.output_root) / slug / job_id / PROFILE_ID
 
     def _manifest_blockers(self, job_dir: Path, *, job_id: str, text: str) -> list[str]:
@@ -236,7 +242,12 @@ class YandexChapterProductionService:
                 "Configured Yandex production profile is not the frozen Lera/neutral/1.04 profile.",
                 category="invalid_profile",
             )
-        job_dir = self._job_dir(book, job_id)
+        canonical_book_slug = profile_path.stem
+        job_dir = self._job_dir(
+            book,
+            job_id,
+            canonical_book_slug=canonical_book_slug,
+        )
         estimate = self.backend.estimate(text, pricing=self.pricing, job_dir=job_dir, scope="book")
         total_segments = int(estimate.get("segments") or 0)
         cached_segments = int(estimate.get("cached_segments") or 0)
@@ -266,7 +277,7 @@ class YandexChapterProductionService:
             hard_limit=self.pricing.hard_limit_rub,
             paid_execution_enabled=True,
             job_metadata={
-                "book": book.get("slug"),
+                "book": canonical_book_slug,
                 "job_id": job_id,
                 "profile_id": profile_id,
                 "preparation_identity": (book.get("preparation") or {}).get("identity_sha256"),
@@ -283,7 +294,7 @@ class YandexChapterProductionService:
         provider_segments = self.backend.segment(text)
         critical = {
             "provider": "yandex",
-            "book_id": str(book.get("slug") or profile_path.stem),
+            "book_id": canonical_book_slug,
             "book_file": profile_path.name,
             "preparation_identity": preparation.get("identity_sha256"),
             "working_copy_sha256": preparation.get("working_copy_sha256"),

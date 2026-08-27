@@ -188,8 +188,9 @@ def _audio_qa_authority(
 ) -> AudioQAAuthority:
     selected_audio = Path(audio_path) if audio_path else None
     selected_manifest = Path(manifest_path) if manifest_path else None
-    book = BOOK_LIBRARY.load_book_for_execution(book_name)
-    slug = str(book.get("slug") or Path(book_name).stem)
+    # Output directories are keyed by the canonical registry identity.  The
+    # optional raw `slug` field may be absent or merely NFKC/case-equivalent.
+    slug = BOOK_LIBRARY.resolve_book_profile(book_name).stem
     if provider == "qwen":
         candidates = [selected_manifest] if selected_manifest is not None else list(
             (WORKSPACE_PATHS.qwen_output_root / slug).glob("*/RUN-REPORT.json")

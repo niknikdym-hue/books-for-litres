@@ -111,10 +111,9 @@ class PaidRunTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def write_book(self, texts: list[str]) -> None:
-        atomic_write_json(self.book_path, {
+    def write_book(self, texts: list[str], *, slug: str | None = "demo-book") -> None:
+        payload = {
             "enabled": True,
-            "slug": "demo-book",
             "title": "Демо",
             "author": "Studio",
             "language": "Russian",
@@ -128,7 +127,10 @@ class PaidRunTests(unittest.TestCase):
                     for index, text in enumerate(texts, 1)
                 ],
             }},
-        })
+        }
+        if slug is not None:
+            payload["slug"] = slug
+        atomic_write_json(self.book_path, payload)
 
     def opener(self, *_: object, **__: object) -> FakeResponse:
         self.calls += 1
@@ -392,6 +394,49 @@ class PaidRunTests(unittest.TestCase):
                 manifest_path=manifest,
                 audio_path=Path(result["qa_targets"][0]["output_path"]),
             )
+
+    def test_paid_run_writes_and_resolves_canonical_book_directory(self):
+        texts = [
+            "Первый достаточно длинный сегмент для отдельного запроса.",
+            "Второй достаточно длинный сегмент для следующего запроса.",
+        ]
+        for raw_slug in (None, "ＤＥＭＯ-ＢＯＯＫ"):
+            with self.subTest(raw_slug=raw_slug):
+                self.write_book(texts, slug=raw_slug)
+                service = self.service()
+                profile = __import__(
+                    "backends.openai_client", fromlist=["load_approved_profile"]
+                ).load_approved_profile("openai_onyx")
+                _, _, _, text = service._load_source(self.book_path.name, "job-1")
+                for segment in service.backend.segment(text):
+                    fingerprint = make_fingerprint(normalize_input_text(segment.text), profile)
+                    cache = service.backend.config.cache_root / f"{fingerprint}.wav"
+                    cache.parent.mkdir(parents=True, exist_ok=True)
+                    cache.write_bytes(wav_bytes())
+
+                plan = self.prepare(service)
+                self.assertEqual(plan["book_id"], "demo-book")
+                self.assertEqual(plan["decision"], "CACHE_ONLY")
+                result = service.execute(
+                    plan_id=plan["plan_id"], plan_digest=plan["plan_digest"]
+                )
+                manifest = Path(result["manifest"])
+                expected = (
+                    service.backend.config.jobs_root
+                    / "demo-book/job-1/openai/openai_onyx/MANIFEST.json"
+                )
+                self.assertEqual(manifest, expected)
+                authority = resolve_openai_authority(
+                    library=service.book_library,
+                    backend=service.backend,
+                    book_name=self.book_path.name,
+                    job_id="job-1",
+                    profile_id="openai_onyx",
+                    manifest_path=manifest,
+                    audio_path=Path(result["qa_targets"][0]["output_path"]),
+                )
+                self.assertEqual(authority.book_slug, "demo-book")
+                self.assertEqual(self.calls, 0)
 
     def test_ambiguous_and_failed_manifest_block_without_retry(self):
         service = self.service()

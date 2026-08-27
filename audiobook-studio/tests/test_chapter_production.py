@@ -213,6 +213,21 @@ class ChapterProductionTests(unittest.TestCase):
             service.execute(plan_id=plan["plan_id"], plan_digest="0" * 64)
         self.assertEqual(self.requests, 0)
 
+    def test_yandex_analysis_uses_canonical_profile_directory_without_slug(self) -> None:
+        profile_path = self.books / "chapter-book.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        profile.pop("slug", None)
+        profile_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
+        service = self.service()
+        analysis = service._analyze("chapter-book.json", "chapter-ch001", "yandex_lera")
+        self.assertEqual(analysis["critical"]["book_id"], "chapter-book")
+        self.assertEqual(
+            analysis["job_dir"],
+            service.backend.config.output_root
+            / "chapter-book/chapter-ch001/yandex_lera",
+        )
+        self.assertEqual(self.requests, 0)
+
     def test_plan_ttl_and_request_cap_tamper_send_no_request(self) -> None:
         for field, value in (("expires_at", "2099-08-23T12:10:00+00:00"), ("max_network_requests", 999)):
             with self.subTest(field=field):

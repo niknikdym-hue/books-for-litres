@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from unittest import mock
 
@@ -247,6 +249,56 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertNotIn("--prepare-yandex-chapter-run", regenerate)
         self.assertNotIn("--execute-paid-plan", regenerate)
         self.assertNotIn("--execute-yandex-chapter-plan", regenerate)
+
+    def test_qwen_current_authority_discovers_canonical_profile_directory(self):
+        producer = (ROOT / "studio.py").read_text(encoding="utf-8")
+        self.assertIn("canonical_book_slug = book_path.stem", producer)
+        self.assertIn(
+            "create_unique_output(cfg, canonical_book_slug, job_id, speaker)",
+            producer,
+        )
+        profile_path = bridge.WORKSPACE_PATHS.books_root / "demo-book.json"
+        original = profile_path.read_bytes()
+        try:
+            profile = json.loads(original)
+            profile.pop("slug", None)
+            profile_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
+            job = profile["jobs"]["short-test"]
+            config = json.loads((ROOT / "studio-config.json").read_text(encoding="utf-8"))
+            output_dir = bridge.WORKSPACE_PATHS.qwen_output_root / "demo-book/20260827-test"
+            audio_path = output_dir / "demo-book__short-test__Vivian.wav"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            with wave.open(str(audio_path), "wb") as audio:
+                audio.setnchannels(1)
+                audio.setsampwidth(2)
+                audio.setframerate(24_000)
+                audio.writeframes(b"\x00\x10" * 24_000)
+            report_path = output_dir / "RUN-REPORT.json"
+            report_path.write_text(json.dumps({
+                "book_profile_sha256": hashlib.sha256(profile_path.read_bytes()).hexdigest(),
+                "job": "short-test",
+                "job_label": job["label"],
+                "speaker": "Vivian",
+                "model": config["model"],
+                "generation": config["default_generation"],
+                "audiobook_instruct": profile["audiobook_instruct"],
+                "segments": [{"id": segment["id"], "seed": 1} for segment in job["segments"]],
+                "segment_count": len(job["segments"]),
+                "sample_rate": 24_000,
+                "joined_wav": audio_path.name,
+            }, ensure_ascii=False), encoding="utf-8")
+
+            authority = bridge._audio_qa_authority(
+                provider="qwen",
+                book_name="demo-book.json",
+                job_id="short-test",
+                profile_id="qwen_vivian",
+            )
+            self.assertEqual(authority.book_slug, "demo-book")
+            self.assertEqual(authority.manifest_path, report_path.resolve())
+            self.assertEqual(authority.audio_path, audio_path.resolve())
+        finally:
+            profile_path.write_bytes(original)
 
     def test_native_openai_cache_only_requires_explicit_exact_target_when_ambiguous(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")

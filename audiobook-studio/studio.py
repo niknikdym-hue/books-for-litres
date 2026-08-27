@@ -247,10 +247,15 @@ def generate_one(model, *, text: str, speaker: str, instruct: str, language: str
     return np.concatenate(chunks).astype(np.float32, copy=False), sr, peak_memory_gb, processing_seconds, token_count
 
 
-def create_unique_output(cfg: dict[str, Any], book: dict[str, Any], job_id: str, speaker: str) -> Path:
+def create_unique_output(
+    cfg: dict[str, Any],
+    book_slug: str,
+    job_id: str,
+    speaker: str,
+) -> Path:
     root = Path(cfg["output_root"]).expanduser()
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    base = root / safe_slug(book.get("slug") or book["title"])
+    base = root / book_slug
     name = f"{stamp}__{safe_slug(job_id)}__{safe_slug(speaker)}"
     out = base / name
     suffix = 2
@@ -276,7 +281,8 @@ def run_generation(cfg: dict[str, Any], book_path: Path, book: dict[str, Any], j
     generation.update(job.get("generation", {}))
     instruct = job.get("audiobook_instruct", book["audiobook_instruct"])
     overrides = dict(book.get("pronunciation_overrides", {}))
-    output_dir = create_unique_output(cfg, book, job_id, speaker)
+    canonical_book_slug = book_path.stem
+    output_dir = create_unique_output(cfg, canonical_book_slug, job_id, speaker)
     segment_dir = output_dir / "segments"
     segment_dir.mkdir(exist_ok=False)
 
@@ -361,7 +367,7 @@ def run_generation(cfg: dict[str, Any], book_path: Path, book: dict[str, Any], j
         raise RuntimeError("No audio produced")
 
     joined = np.concatenate(assembled).astype(np.float32, copy=False)
-    joined_name = f"{safe_slug(book.get('slug') or book['title'])}__{safe_slug(job_id)}__{safe_slug(speaker)}.wav"
+    joined_name = f"{canonical_book_slug}__{safe_slug(job_id)}__{safe_slug(speaker)}.wav"
     joined_path = output_dir / joined_name
     write_pcm16_wav(joined_path, joined, sr_final)
 

@@ -43,8 +43,15 @@ def load_book_job(book_name: str, job_id: str, *, library: BookLibrary | None = 
     return book, "\n\n".join(texts)
 
 
-def job_directory(backend: OpenAITTSBackend, book: dict[str, Any], job_id: str, profile_id: str) -> Path:
-    slug = str(book.get("slug") or "book")
+def job_directory(
+    backend: OpenAITTSBackend,
+    book: dict[str, Any],
+    job_id: str,
+    profile_id: str,
+    *,
+    canonical_book_slug: str | None = None,
+) -> Path:
+    slug = canonical_book_slug or str(book.get("slug") or "book")
     return backend.config.jobs_root / slug / job_id / "openai" / profile_id
 
 
@@ -100,13 +107,21 @@ def main(argv: list[str] | None = None) -> int:
             }, indent=2))
             return 0
 
+        book_name = _require(args.book, "--book")
+        library = BookLibrary(workspace.books_root)
         book, text = load_book_job(
-            _require(args.book, "--book"),
+            book_name,
             _require(args.job, "--job"),
-            library=BookLibrary(workspace.books_root),
+            library=library,
         )
         profile_id = _require(args.profile_id, "--profile-id")
-        job_dir = job_directory(backend, book, args.job, profile_id)
+        job_dir = job_directory(
+            backend,
+            book,
+            args.job,
+            profile_id,
+            canonical_book_slug=library.resolve_book_profile(book_name).stem,
+        )
         if args.preflight:
             print(json.dumps(
                 backend.preflight(text, profile_id=profile_id, pricing=pricing, job_dir=job_dir),
