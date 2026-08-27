@@ -38,12 +38,28 @@ struct AudioQASignalMetrics: Codable, Equatable {
     let peakFraction: Double?
     let clippedFraction: Double?
     let nearSilenceFraction: Double?
+    let sampleCount: Int
+    let streamChunkBytes: Int
 
     enum CodingKeys: String, CodingKey {
         case available, reason
         case peakFraction = "peak_fraction"
         case clippedFraction = "clipped_fraction"
         case nearSilenceFraction = "near_silence_fraction"
+        case sampleCount = "sample_count"
+        case streamChunkBytes = "stream_chunk_bytes"
+    }
+}
+
+struct AudioQAProductionFacts: Codable, Equatable {
+    let expectedSampleRateHz: Int
+    let textCharacters: Int
+    let minimumExpectedDurationSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case expectedSampleRateHz = "expected_sample_rate_hz"
+        case textCharacters = "text_characters"
+        case minimumExpectedDurationSeconds = "minimum_expected_duration_seconds"
     }
 }
 
@@ -65,6 +81,7 @@ struct AudioQARecord: Codable, Equatable {
     let segmentID: String
     let audioPath: String
     let identity: AudioQAIdentity
+    let productionFacts: AudioQAProductionFacts
     let automaticStatus: String
     let automaticReasons: [String]
     let automaticWarnings: [String]
@@ -90,12 +107,59 @@ struct AudioQARecord: Codable, Equatable {
         case automaticReasons = "automatic_reasons"
         case automaticWarnings = "automatic_warnings"
         case signalMetrics = "signal_metrics"
+        case productionFacts = "production_facts"
         case manualState = "manual_state"
         case downstreamEligible = "downstream_eligible"
         case scannedAt = "scanned_at"
         case manualDecidedAt = "manual_decided_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case remoteRequestSent = "remote_request_sent"
+    }
+}
+
+struct AudioQAAuthority: Codable, Equatable {
+    let provider: String
+    let bookSlug: String
+    let bookTitle: String
+    let jobID: String
+    let jobLabel: String
+    let profileID: String
+    let segmentID: String
+    let segmentText: String
+    let audioPath: String
+    let manifestPath: String
+    let synthesisFingerprint: String
+    let expectedSampleRateHz: Int
+    let textCharacters: Int
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case bookSlug = "book_slug"
+        case bookTitle = "book_title"
+        case jobID = "job_id"
+        case jobLabel = "job_label"
+        case profileID = "profile_id"
+        case segmentID = "segment_id"
+        case segmentText = "segment_text"
+        case audioPath = "audio_path"
+        case manifestPath = "manifest_path"
+        case synthesisFingerprint = "synthesis_fingerprint"
+        case expectedSampleRateHz = "expected_sample_rate_hz"
+        case textCharacters = "text_characters"
+    }
+}
+
+struct AudioQACurrentEnvelope: Codable {
+    let schemaVersion: Int
+    let authority: AudioQAAuthority
+    let record: AudioQARecord
+    let eligible: Bool
+    let remoteRequestSent: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case authority, record, eligible
+        case schemaVersion = "schema_version"
         case remoteRequestSent = "remote_request_sent"
     }
 }

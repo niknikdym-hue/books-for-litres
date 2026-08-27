@@ -223,6 +223,29 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"$script_dir/StudioContracts.swift"', build)
         self.assertIn('"$script_dir/AudiobookStudioApp.swift"', build)
 
+    def test_native_audio_qa_is_wired_to_current_authority_and_exact_review_identity(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        decide = swift_function_body(source, "func decideAudioQA(_ decision:")
+        regenerate = decide[decide.index('decision == "REGENERATE_REQUESTED"') :]
+
+        self.assertIn('"--audio-qa-current"', source)
+        self.assertIn('"--audio-qa-decide"', source)
+        self.assertIn('"--audio-qa-downstream"', source)
+        self.assertIn('Button("Открыть готовое аудио для проверки")', source)
+        self.assertIn('Button("Прослушать точный WAV")', source)
+        self.assertIn('Button("Одобрить")', source)
+        self.assertIn('Button("Отклонить", role: .destructive)', source)
+        self.assertIn('Button("Запросить перегенерацию")', source)
+        self.assertIn("audioQAPlaybackIdentity != envelope.record.identity", decide)
+        self.assertIn('"--reviewed-audio-sha256", sha', decide)
+        self.assertIn('"--reviewed-path-identity", envelope.record.identity.pathIdentity', decide)
+        self.assertIn('"--reviewed-fingerprint", fingerprint', decide)
+        self.assertIn("guard !result.remoteRequestSent", source)
+        self.assertNotIn("--prepare-paid-run", regenerate)
+        self.assertNotIn("--prepare-yandex-chapter-run", regenerate)
+        self.assertNotIn("--execute-paid-plan", regenerate)
+        self.assertNotIn("--execute-yandex-chapter-plan", regenerate)
+
     def test_native_add_book_uses_file_importer_and_offline_bridge_only(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")

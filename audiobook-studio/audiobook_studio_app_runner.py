@@ -13,7 +13,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from voice_library import load_voice_library, normalize_qwen_profiles
 from workspace_paths import load_workspace_paths
@@ -22,6 +22,14 @@ from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
 from chapter_production import YandexChapterProductionService
 from paid_run import PaidRunService
+from audio_qa_authority import (
+    AudioQAAuthority,
+    AudioQAAuthorityError,
+    resolve_openai_authority,
+    resolve_qwen_authority,
+    resolve_yandex_authority,
+)
+from audio_qa_review import AudioQAReviewService
 
 STUDIO_DIR = Path(__file__).resolve().parent
 QWEN_RUNNER = STUDIO_DIR / "studio_app_runner.py"
@@ -72,6 +80,9 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--billing-status", action="store_true")
     mode.add_argument("--billing-preflight", action="store_true")
     mode.add_argument("--set-billing-setting", action="store_true")
+    mode.add_argument("--audio-qa-current", action="store_true")
+    mode.add_argument("--audio-qa-decide", action="store_true")
+    mode.add_argument("--audio-qa-downstream", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--source-file", default="")
@@ -81,13 +92,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--job", default="")
     parser.add_argument("--speaker", default="")
     parser.add_argument("--profile-id", default="")
-    parser.add_argument("--provider", choices=("yandex", "openai"), default="")
+    parser.add_argument("--provider", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--setting", choices=("hard_limit",), default="")
     parser.add_argument("--value", default="")
     parser.add_argument("--hard-limit-rub", default="")
     parser.add_argument("--plan-id", default="")
     parser.add_argument("--plan-digest", default="")
+    parser.add_argument("--audio-path", default="")
+    parser.add_argument("--manifest-path", default="")
+    parser.add_argument("--reviewed-audio-sha256", default="")
+    parser.add_argument("--reviewed-path-identity", default="")
+    parser.add_argument("--reviewed-fingerprint", default="")
+    parser.add_argument(
+        "--decision",
+        choices=("APPROVED", "REJECTED", "REGENERATE_REQUESTED"),
+        default="",
+    )
     parser.add_argument("--format", dest="output_format", choices=("json", "tsv"), default="json")
     return parser
 
@@ -152,6 +173,129 @@ def _yandex_chapter_service() -> YandexChapterProductionService:
     )
 
 
+def _audio_qa_service() -> AudioQAReviewService:
+    return AudioQAReviewService(WORKSPACE_PATHS.qa_review_root)
+
+
+def _audio_qa_authority(
+    *,
+    provider: str,
+    book_name: str,
+    job_id: str,
+    profile_id: str,
+    audio_path: str = "",
+    manifest_path: str = "",
+) -> AudioQAAuthority:
+    selected_audio = Path(audio_path) if audio_path else None
+    selected_manifest = Path(manifest_path) if manifest_path else None
+    book = BOOK_LIBRARY.load_book_for_execution(book_name)
+    slug = str(book.get("slug") or Path(book_name).stem)
+    if provider == "qwen":
+        candidates = [selected_manifest] if selected_manifest is not None else list(
+            (WORKSPACE_PATHS.qwen_output_root / slug).glob("*/RUN-REPORT.json")
+        )
+        return resolve_qwen_authority(
+            library=BOOK_LIBRARY,
+            book_name=book_name,
+            job_id=job_id,
+            profile_id=profile_id,
+            report_candidates=candidates,
+            config_path=STUDIO_DIR / "studio-config.json",
+            audio_path=selected_audio,
+        )
+    if provider == "yandex":
+        backend, _, _ = _load_yandex_offline()
+        relative = Path(slug) / job_id / profile_id / "MANIFEST.json"
+        candidates = [path for path in (
+            selected_manifest,
+            backend.config.output_root / relative,
+            WORKSPACE_PATHS.yandex_output_root / relative,
+            WORKSPACE_PATHS.runtime_root / "renders-yandex" / relative,
+            STUDIO_DIR / "renders-yandex" / relative,
+        ) if path is not None]
+        return resolve_yandex_authority(
+            library=BOOK_LIBRARY,
+            backend=backend,
+            book_name=book_name,
+            job_id=job_id,
+            profile_id=profile_id,
+            manifest_candidates=candidates,
+            audio_path=selected_audio,
+        )
+    if provider == "openai":
+        from backends.openai_tts import OpenAITTSBackend, load_backend_config
+        from openai_backend_runner import CONFIG_PATH as OPENAI_CONFIG_PATH
+
+        backend = OpenAITTSBackend(load_backend_config(OPENAI_CONFIG_PATH))
+        current_manifest = selected_manifest or (
+            backend.config.jobs_root / slug / job_id / "openai" / profile_id / "MANIFEST.json"
+        )
+        return resolve_openai_authority(
+            library=BOOK_LIBRARY,
+            backend=backend,
+            book_name=book_name,
+            job_id=job_id,
+            profile_id=profile_id,
+            manifest_path=current_manifest,
+            audio_path=selected_audio,
+        )
+    raise AudioQAAuthorityError("No current production authority is available for this provider.")
+
+
+def audio_qa_current(
+    *,
+    provider: str,
+    book_name: str,
+    job_id: str,
+    profile_id: str,
+    audio_path: str = "",
+    manifest_path: str = "",
+    decision: str = "",
+    reviewed_identity: Mapping[str, str] | None = None,
+    downstream: bool = False,
+) -> dict[str, Any]:
+    authority = _audio_qa_authority(
+        provider=provider,
+        book_name=book_name,
+        job_id=job_id,
+        profile_id=profile_id,
+        audio_path=audio_path,
+        manifest_path=manifest_path,
+    )
+    service = _audio_qa_service()
+    identity = {
+        "book_slug": authority.book_slug,
+        "job_id": authority.job_id,
+        "segment_id": authority.segment_id,
+    }
+    current = {
+        "audio_path": authority.audio_path,
+        "synthesis_fingerprint": authority.synthesis_fingerprint,
+        "expected_sample_rate_hz": authority.expected_sample_rate_hz,
+        "text_characters": authority.text_characters,
+    }
+    if decision:
+        record = service.decide(
+            **identity,
+            **current,
+            decision=decision,
+            reviewed_identity=reviewed_identity,
+        )
+        eligible = bool(record["downstream_eligible"])
+    elif downstream:
+        eligible_record = service.downstream_audio(**identity, **current)
+        record = eligible_record or service.status(**identity)
+        eligible = eligible_record is not None
+    else:
+        record = service.scan(**identity, **current)
+        eligible = bool(record["downstream_eligible"])
+    return {
+        "schema_version": 1,
+        "authority": authority.to_dict(),
+        "record": record,
+        "eligible": eligible,
+        "remote_request_sent": False,
+    }
 def _load_book_job_text(book_name: str, job_id: str) -> tuple[dict[str, Any], str]:
     book = BOOK_LIBRARY.load_book_for_execution(book_name)
     job = (book.get("jobs") or {}).get(job_id) if isinstance(book, dict) else None
@@ -555,6 +699,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             ensure_ascii=False,
             indent=2,
         ))
+        return 0
+
+    if args.audio_qa_current or args.audio_qa_decide or args.audio_qa_downstream:
+        reviewed_identity = None
+        if args.audio_qa_decide:
+            reviewed_identity = {
+                "audio_sha256": _require(args.reviewed_audio_sha256, "--reviewed-audio-sha256"),
+                "path_identity": _require(args.reviewed_path_identity, "--reviewed-path-identity"),
+                "synthesis_fingerprint": _require(args.reviewed_fingerprint, "--reviewed-fingerprint"),
+            }
+        print(json.dumps(audio_qa_current(
+            provider=_require(args.provider, "--provider"),
+            book_name=_require(args.book, "--book"),
+            job_id=_require(args.job, "--job"),
+            profile_id=_require(args.profile_id, "--profile-id"),
+            audio_path=args.audio_path,
+            manifest_path=args.manifest_path,
+            decision=_require(args.decision, "--decision") if args.audio_qa_decide else "",
+            reviewed_identity=reviewed_identity,
+            downstream=args.audio_qa_downstream,
+        ), ensure_ascii=False, indent=2))
         return 0
 
     if args.openai_status:

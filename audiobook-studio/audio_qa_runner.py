@@ -40,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--segment-id", default="")
     parser.add_argument("--audio-path", default="")
     parser.add_argument("--fingerprint", default="")
+    parser.add_argument("--expected-sample-rate-hz", type=int, default=0)
+    parser.add_argument("--text-characters", type=int, default=-1)
+    parser.add_argument("--reviewed-audio-sha256", default="")
+    parser.add_argument("--reviewed-path-identity", default="")
+    parser.add_argument("--reviewed-fingerprint", default="")
     parser.add_argument(
         "--decision",
         choices=("APPROVED", "REJECTED", "REGENERATE_REQUESTED"),
@@ -56,28 +61,27 @@ def _identity(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
-def _current_status(service: AudioQAReviewService, identity: dict[str, str]) -> dict | None:
-    stored = service.status(**identity)
-    if stored is None:
-        return None
-    fingerprint = (stored.get("identity") or {}).get("synthesis_fingerprint")
-    audio_path = stored.get("audio_path")
-    if not isinstance(audio_path, str) or not audio_path:
-        return stored
-    return service.scan(
-        **identity,
-        audio_path=Path(audio_path),
-        synthesis_fingerprint=fingerprint if isinstance(fingerprint, str) else None,
-    )
+def _current_facts(args: argparse.Namespace) -> dict:
+    if args.expected_sample_rate_hz <= 0:
+        raise RuntimeError("--expected-sample-rate-hz is required")
+    if args.text_characters < 0:
+        raise RuntimeError("--text-characters is required")
+    return {
+        "audio_path": Path(_required(args.audio_path, "--audio-path")),
+        "synthesis_fingerprint": _required(args.fingerprint, "--fingerprint"),
+        "expected_sample_rate_hz": args.expected_sample_rate_hz,
+        "text_characters": args.text_characters,
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     identity = _identity(args)
     service = _service()
+    current = _current_facts(args)
 
     if args.status:
-        result = _current_status(service, identity)
+        result = service.scan(**identity, **current)
         print(json.dumps({
             "schema_version": QA_BRIDGE_SCHEMA_VERSION,
             "record": result,
@@ -85,27 +89,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         }, ensure_ascii=False, indent=2))
         return 0
 
-    audio_path = Path(_required(args.audio_path, "--audio-path"))
-    fingerprint = args.fingerprint or None
     if args.scan:
-        result = service.scan(
-            **identity,
-            audio_path=audio_path,
-            synthesis_fingerprint=fingerprint,
-        )
+        result = service.scan(**identity, **current)
     elif args.decide:
         result = service.decide(
             **identity,
-            audio_path=audio_path,
-            synthesis_fingerprint=fingerprint,
+            **current,
             decision=_required(args.decision, "--decision"),
+            reviewed_identity={
+                "audio_sha256": _required(args.reviewed_audio_sha256, "--reviewed-audio-sha256"),
+                "path_identity": _required(args.reviewed_path_identity, "--reviewed-path-identity"),
+                "synthesis_fingerprint": _required(args.reviewed_fingerprint, "--reviewed-fingerprint"),
+            },
         )
     elif args.downstream:
-        result = service.downstream_audio(
-            **identity,
-            audio_path=audio_path,
-            synthesis_fingerprint=fingerprint,
-        )
+        result = service.downstream_audio(**identity, **current)
         result = {
             "schema_version": QA_BRIDGE_SCHEMA_VERSION,
             "eligible": result is not None,

@@ -1,33 +1,27 @@
-"""Provider-neutral technical QA and persistent manual audio review.
-
-The service is deliberately offline. It validates already-produced WAV files,
-persists review state under the canonical Audiobook Studio workspace, and
-never calls a synthesis provider. Manual approval is bound to the exact audio
-bytes, path identity, and optional synthesis fingerprint so regenerated audio
-can never inherit an old approval silently.
-"""
+"""Provider-neutral, offline technical QA and exact-identity manual review."""
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
-import math
-import os
 import re
 import shutil
 import struct
 import subprocess
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 from backends.common import WavValidationError, atomic_write_json, inspect_pcm_wav, utc_now_iso
 
 
-QA_SCHEMA_VERSION = 1
+QA_SCHEMA_VERSION = 2
 AUTOMATIC_STATES = {"PASS", "WARN", "FAIL"}
 MANUAL_STATES = {"UNREVIEWED", "APPROVED", "REJECTED", "REGENERATE_REQUESTED", "STALE"}
 _ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_IDENTITY_FIELDS = ("audio_sha256", "path_identity", "synthesis_fingerprint")
 
 
 class AudioQAError(RuntimeError):
@@ -43,7 +37,13 @@ def sha256_file(path: Path) -> str:
 
 
 def _safe_id(value: str, label: str) -> str:
-    if not isinstance(value, str) or not value or not _ID_RE.fullmatch(value):
+    if (
+        not isinstance(value, str)
+        or not value
+        or not _ID_RE.fullmatch(value)
+        or value in {".", ".."}
+        or not value.strip(".")
+    ):
         raise AudioQAError(f"Invalid {label}: {value!r}")
     return value
 
@@ -53,74 +53,105 @@ def _path_identity(path: Path) -> str:
     return hashlib.sha256(resolved.encode("utf-8")).hexdigest()
 
 
-def _read_pcm16_samples(path: Path) -> list[int] | None:
-    """Read PCM16 samples from finalized or streaming-sentinel RIFF/WAVE."""
-    raw = Path(path).read_bytes()
-    if len(raw) < 12 or raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
-        return None
-    offset = 12
-    data: bytes | None = None
-    fmt: bytes | None = None
-    while offset + 8 <= len(raw):
-        chunk_id = raw[offset : offset + 4]
-        declared = int.from_bytes(raw[offset + 4 : offset + 8], "little")
-        payload_start = offset + 8
-        if declared == 0xFFFFFFFF:
-            if chunk_id != b"data":
-                return None
-            payload_end = len(raw)
-        else:
-            payload_end = payload_start + declared
-            if payload_end > len(raw):
-                return None
-        payload = raw[payload_start:payload_end]
-        if chunk_id == b"fmt ":
-            fmt = payload
-        elif chunk_id == b"data":
-            data = payload
-            break
-        if declared == 0xFFFFFFFF:
-            break
-        offset = payload_end + (declared & 1)
-    if fmt is None or data is None or len(fmt) < 16:
-        return None
-    audio_format, _channels, _sample_rate, _byte_rate, _align, bits = struct.unpack("<HHIIHH", fmt[:16])
-    if audio_format != 1 or bits != 16 or len(data) % 2:
-        return None
-    count = len(data) // 2
-    if count == 0:
-        return []
-    return list(struct.unpack(f"<{count}h", data))
+def _validated_reviewed_identity(value: Mapping[str, Any] | None) -> dict[str, str]:
+    if not isinstance(value, Mapping):
+        raise AudioQAError("The exact reviewed audio identity is required.")
+    result: dict[str, str] = {}
+    for field in _IDENTITY_FIELDS:
+        item = value.get(field)
+        if not isinstance(item, str) or not item:
+            raise AudioQAError(f"Reviewed identity is missing {field}.")
+        result[field] = item
+    return result
 
 
-def _signal_metrics(path: Path, sample_width_bytes: int) -> dict[str, Any]:
+def _pcm16_data_region(path: Path) -> tuple[int, int] | None:
+    """Return the PCM data offset/size without loading the WAV payload."""
+    file_size = Path(path).stat().st_size
+    with Path(path).open("rb") as handle:
+        header = handle.read(12)
+        if len(header) != 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+            return None
+        offset = 12
+        fmt: bytes | None = None
+        while offset + 8 <= file_size:
+            handle.seek(offset)
+            chunk_header = handle.read(8)
+            if len(chunk_header) != 8:
+                return None
+            chunk_id = chunk_header[:4]
+            declared = int.from_bytes(chunk_header[4:], "little")
+            payload_start = offset + 8
+            if declared == 0xFFFFFFFF:
+                if chunk_id != b"data":
+                    return None
+                payload_size = file_size - payload_start
+            else:
+                payload_size = declared
+                if payload_start + payload_size > file_size:
+                    return None
+            if chunk_id == b"fmt ":
+                if payload_size < 16 or payload_size > 4096:
+                    return None
+                handle.seek(payload_start)
+                fmt = handle.read(payload_size)
+            elif chunk_id == b"data":
+                if fmt is None or len(fmt) < 16 or payload_size % 2:
+                    return None
+                audio_format, _channels, _rate, _byte_rate, _align, bits = struct.unpack(
+                    "<HHIIHH", fmt[:16]
+                )
+                if audio_format != 1 or bits != 16:
+                    return None
+                return payload_start, payload_size
+            if declared == 0xFFFFFFFF:
+                return None
+            offset = payload_start + payload_size + (payload_size & 1)
+    return None
+
+
+def _signal_metrics(path: Path, sample_width_bytes: int, *, chunk_bytes: int = 65_536) -> dict[str, Any]:
+    """Compute PCM16 metrics with memory bounded by ``chunk_bytes``."""
+    unavailable = {
+        "available": False,
+        "reason": "pcm16_required" if sample_width_bytes != 2 else "samples_unavailable",
+        "peak_fraction": None,
+        "clipped_fraction": None,
+        "near_silence_fraction": None,
+        "sample_count": 0,
+        "stream_chunk_bytes": chunk_bytes,
+    }
     if sample_width_bytes != 2:
-        return {
-            "available": False,
-            "reason": "pcm16_required",
-            "peak_fraction": None,
-            "clipped_fraction": None,
-            "near_silence_fraction": None,
-        }
-    samples = _read_pcm16_samples(path)
-    if samples is None or not samples:
-        return {
-            "available": False,
-            "reason": "samples_unavailable",
-            "peak_fraction": None,
-            "clipped_fraction": None,
-            "near_silence_fraction": None,
-        }
-    absolute = [abs(value) for value in samples]
-    peak = max(absolute) / 32768.0
-    clipped = sum(1 for value in absolute if value >= 32760) / len(absolute)
-    near_silence = sum(1 for value in absolute if value <= 64) / len(absolute)
+        return unavailable
+    region = _pcm16_data_region(path)
+    if region is None:
+        return unavailable
+    data_offset, data_size = region
+    peak = clipped = near_silence = sample_count = 0
+    with Path(path).open("rb") as handle:
+        handle.seek(data_offset)
+        remaining = data_size
+        while remaining:
+            payload = handle.read(min(chunk_bytes, remaining))
+            if not payload:
+                return unavailable
+            remaining -= len(payload)
+            for (sample,) in struct.iter_unpack("<h", payload):
+                absolute = abs(sample)
+                peak = max(peak, absolute)
+                clipped += int(absolute >= 32760)
+                near_silence += int(absolute <= 64)
+                sample_count += 1
+    if not sample_count:
+        return unavailable
     return {
         "available": True,
         "reason": None,
-        "peak_fraction": round(peak, 8),
-        "clipped_fraction": round(clipped, 8),
-        "near_silence_fraction": round(near_silence, 8),
+        "peak_fraction": round(peak / 32768.0, 8),
+        "clipped_fraction": round(clipped / sample_count, 8),
+        "near_silence_fraction": round(near_silence / sample_count, 8),
+        "sample_count": sample_count,
+        "stream_chunk_bytes": chunk_bytes,
     }
 
 
@@ -133,7 +164,7 @@ def _ffmpeg_check(path: Path) -> dict[str, Any]:
             [executable, "-v", "error", "-i", str(path), "-f", "null", "-"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            timeout=30,
+            timeout=60,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -148,21 +179,44 @@ def _ffmpeg_check(path: Path) -> dict[str, Any]:
 @dataclass(frozen=True)
 class AudioQAReviewService:
     state_root: Path
-    expected_sample_rate_hz: int = 24_000
     expected_channels: int = 1
     expected_sample_width_bytes: int = 2
-    minimum_duration_seconds: float = 0.05
+    absolute_minimum_duration_seconds: float = 0.05
+    conservative_seconds_per_character: float = 0.015
+    maximum_text_derived_minimum_seconds: float = 30.0
+    metrics_chunk_bytes: int = 65_536
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "state_root", Path(self.state_root))
+        root = Path(self.state_root).expanduser().resolve(strict=False)
+        if self.metrics_chunk_bytes <= 0 or self.metrics_chunk_bytes % 2:
+            raise ValueError("metrics_chunk_bytes must be a positive even number")
+        object.__setattr__(self, "state_root", root)
 
     def _record_path(self, *, book_slug: str, job_id: str, segment_id: str) -> Path:
-        return (
+        candidate = (
             self.state_root
             / _safe_id(book_slug, "book_slug")
             / _safe_id(job_id, "job_id")
             / f"{_safe_id(segment_id, 'segment_id')}.json"
-        )
+        ).resolve(strict=False)
+        try:
+            candidate.relative_to(self.state_root)
+        except ValueError as error:
+            raise AudioQAError("QA record path escapes the canonical state root.") from error
+        if candidate == self.state_root:
+            raise AudioQAError("QA record path must be below the canonical state root.")
+        return candidate
+
+    @contextmanager
+    def _locked_record(self, path: Path) -> Iterator[None]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = path.with_suffix(path.suffix + ".lock")
+        with lock_path.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     @staticmethod
     def _read_record(path: Path) -> dict[str, Any] | None:
@@ -176,15 +230,29 @@ class AudioQAReviewService:
             raise AudioQAError(f"Unsupported QA state: {path}")
         return payload
 
-    def scan(
+    def _minimum_duration(self, text_characters: int) -> float:
+        derived = max(0, text_characters - 2) * self.conservative_seconds_per_character
+        return max(
+            self.absolute_minimum_duration_seconds,
+            min(self.maximum_text_derived_minimum_seconds, derived),
+        )
+
+    def _scan_locked(
         self,
         *,
+        state_path: Path,
         book_slug: str,
         job_id: str,
         segment_id: str,
         audio_path: Path,
-        synthesis_fingerprint: str | None = None,
+        synthesis_fingerprint: str | None,
+        expected_sample_rate_hz: int,
+        text_characters: int,
     ) -> dict[str, Any]:
+        if expected_sample_rate_hz <= 0:
+            raise AudioQAError("Expected sample rate must be positive.")
+        if text_characters < 0:
+            raise AudioQAError("Text character count cannot be negative.")
         path = Path(audio_path).expanduser()
         reasons: list[str] = []
         warnings: list[str] = []
@@ -196,8 +264,13 @@ class AudioQAReviewService:
             "peak_fraction": None,
             "clipped_fraction": None,
             "near_silence_fraction": None,
+            "sample_count": 0,
+            "stream_chunk_bytes": self.metrics_chunk_bytes,
         }
         ffmpeg = {"status": "NOT_RUN", "available": False, "exit_code": None}
+        minimum_duration = self._minimum_duration(text_characters)
+        if not isinstance(synthesis_fingerprint, str) or not synthesis_fingerprint:
+            reasons.append("current_synthesis_fingerprint_unavailable")
 
         if not path.exists():
             reasons.append("missing_file")
@@ -208,15 +281,15 @@ class AudioQAReviewService:
                 metadata = inspect_pcm_wav(path)
                 metadata_dict = metadata.to_dict()
                 audio_sha = sha256_file(path)
-                if metadata.sample_rate_hz != self.expected_sample_rate_hz:
+                if metadata.sample_rate_hz != expected_sample_rate_hz:
                     reasons.append("unexpected_sample_rate")
                 if metadata.channels != self.expected_channels:
                     reasons.append("unexpected_channels")
                 if metadata.sample_width_bytes != self.expected_sample_width_bytes:
                     reasons.append("unexpected_sample_width")
-                if metadata.duration_seconds < self.minimum_duration_seconds:
-                    reasons.append("duration_too_short")
-                signal = _signal_metrics(path, metadata.sample_width_bytes)
+                if metadata.duration_seconds < minimum_duration:
+                    reasons.append("implausibly_short_for_text")
+                signal = _signal_metrics(path, metadata.sample_width_bytes, chunk_bytes=self.metrics_chunk_bytes)
                 if signal["available"]:
                     if float(signal["clipped_fraction"] or 0.0) >= 0.01:
                         warnings.append("gross_clipping")
@@ -235,10 +308,6 @@ class AudioQAReviewService:
                 reasons.append("unreadable_file")
 
         automatic_status = "FAIL" if reasons else ("WARN" if warnings else "PASS")
-        if automatic_status not in AUTOMATIC_STATES:
-            raise AssertionError("invalid automatic status")
-
-        state_path = self._record_path(book_slug=book_slug, job_id=job_id, segment_id=segment_id)
         previous = self._read_record(state_path)
         identity = {
             "audio_sha256": audio_sha,
@@ -246,7 +315,7 @@ class AudioQAReviewService:
             "synthesis_fingerprint": synthesis_fingerprint,
         }
         previous_identity = (previous or {}).get("identity") if isinstance(previous, dict) else None
-        same_identity = previous_identity == identity and audio_sha is not None
+        same_identity = previous_identity == identity and audio_sha is not None and bool(synthesis_fingerprint)
         previous_manual = (previous or {}).get("manual_state", "UNREVIEWED")
         if same_identity and previous_manual in MANUAL_STATES:
             manual_state = previous_manual
@@ -254,7 +323,13 @@ class AudioQAReviewService:
             manual_state = "STALE"
         else:
             manual_state = "UNREVIEWED"
-
+        downstream_eligible = bool(
+            automatic_status in {"PASS", "WARN"}
+            and manual_state == "APPROVED"
+            and audio_sha is not None
+            and synthesis_fingerprint
+            and same_identity
+        )
         now = utc_now_iso()
         record = {
             "schema_version": QA_SCHEMA_VERSION,
@@ -263,18 +338,19 @@ class AudioQAReviewService:
             "segment_id": _safe_id(segment_id, "segment_id"),
             "audio_path": str(path.resolve(strict=False)),
             "identity": identity,
+            "production_facts": {
+                "expected_sample_rate_hz": expected_sample_rate_hz,
+                "text_characters": text_characters,
+                "minimum_expected_duration_seconds": round(minimum_duration, 6),
+            },
             "automatic_status": automatic_status,
-            "automatic_reasons": reasons,
-            "automatic_warnings": warnings,
+            "automatic_reasons": list(dict.fromkeys(reasons)),
+            "automatic_warnings": list(dict.fromkeys(warnings)),
             "wav": metadata_dict,
             "signal_metrics": signal,
             "ffmpeg": ffmpeg,
             "manual_state": manual_state,
-            "downstream_eligible": bool(
-                automatic_status in {"PASS", "WARN"}
-                and manual_state == "APPROVED"
-                and audio_sha is not None
-            ),
+            "downstream_eligible": downstream_eligible,
             "scanned_at": now,
             "manual_decided_at": (previous or {}).get("manual_decided_at") if same_identity else None,
             "created_at": (previous or {}).get("created_at") or now,
@@ -284,6 +360,30 @@ class AudioQAReviewService:
         atomic_write_json(state_path, record)
         return record
 
+    def scan(
+        self,
+        *,
+        book_slug: str,
+        job_id: str,
+        segment_id: str,
+        audio_path: Path,
+        synthesis_fingerprint: str | None,
+        expected_sample_rate_hz: int,
+        text_characters: int,
+    ) -> dict[str, Any]:
+        state_path = self._record_path(book_slug=book_slug, job_id=job_id, segment_id=segment_id)
+        with self._locked_record(state_path):
+            return self._scan_locked(
+                state_path=state_path,
+                book_slug=book_slug,
+                job_id=job_id,
+                segment_id=segment_id,
+                audio_path=audio_path,
+                synthesis_fingerprint=synthesis_fingerprint,
+                expected_sample_rate_hz=expected_sample_rate_hz,
+                text_characters=text_characters,
+            )
+
     def decide(
         self,
         *,
@@ -292,33 +392,58 @@ class AudioQAReviewService:
         segment_id: str,
         audio_path: Path,
         decision: str,
-        synthesis_fingerprint: str | None = None,
+        synthesis_fingerprint: str | None,
+        expected_sample_rate_hz: int,
+        text_characters: int,
+        reviewed_identity: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
         normalized = decision.strip().upper()
         if normalized not in {"APPROVED", "REJECTED", "REGENERATE_REQUESTED"}:
             raise AudioQAError(f"Unsupported manual decision: {decision}")
-        record = self.scan(
-            book_slug=book_slug,
-            job_id=job_id,
-            segment_id=segment_id,
-            audio_path=audio_path,
-            synthesis_fingerprint=synthesis_fingerprint,
-        )
-        if normalized == "APPROVED" and record["automatic_status"] == "FAIL":
-            raise AudioQAError("Technical QA FAIL cannot be approved.")
-        record["manual_state"] = normalized
-        record["manual_decided_at"] = utc_now_iso()
-        record["updated_at"] = record["manual_decided_at"]
-        record["downstream_eligible"] = bool(
-            normalized == "APPROVED" and record["automatic_status"] in {"PASS", "WARN"}
-        )
-        record["remote_request_sent"] = False
+        expected_identity = _validated_reviewed_identity(reviewed_identity)
         state_path = self._record_path(book_slug=book_slug, job_id=job_id, segment_id=segment_id)
-        atomic_write_json(state_path, record)
-        return record
+        with self._locked_record(state_path):
+            record = self._scan_locked(
+                state_path=state_path,
+                book_slug=book_slug,
+                job_id=job_id,
+                segment_id=segment_id,
+                audio_path=audio_path,
+                synthesis_fingerprint=synthesis_fingerprint,
+                expected_sample_rate_hz=expected_sample_rate_hz,
+                text_characters=text_characters,
+            )
+            if record["identity"] != expected_identity:
+                now = utc_now_iso()
+                record.update({
+                    "manual_state": "STALE",
+                    "downstream_eligible": False,
+                    "manual_decided_at": None,
+                    "updated_at": now,
+                })
+                atomic_write_json(state_path, record)
+                raise AudioQAError("Reviewed audio identity is stale; decision rejected.")
+            if normalized == "APPROVED" and record["automatic_status"] == "FAIL":
+                raise AudioQAError("Technical QA FAIL cannot be approved.")
+            now = utc_now_iso()
+            record.update({
+                "manual_state": normalized,
+                "manual_decided_at": now,
+                "updated_at": now,
+                "downstream_eligible": bool(
+                    normalized == "APPROVED"
+                    and record["automatic_status"] in {"PASS", "WARN"}
+                    and all(record["identity"].get(field) for field in _IDENTITY_FIELDS)
+                ),
+                "remote_request_sent": False,
+            })
+            atomic_write_json(state_path, record)
+            return record
 
     def status(self, *, book_slug: str, job_id: str, segment_id: str) -> dict[str, Any] | None:
-        return self._read_record(self._record_path(book_slug=book_slug, job_id=job_id, segment_id=segment_id))
+        state_path = self._record_path(book_slug=book_slug, job_id=job_id, segment_id=segment_id)
+        with self._locked_record(state_path):
+            return self._read_record(state_path)
 
     def downstream_audio(
         self,
@@ -327,7 +452,9 @@ class AudioQAReviewService:
         job_id: str,
         segment_id: str,
         audio_path: Path,
-        synthesis_fingerprint: str | None = None,
+        synthesis_fingerprint: str | None,
+        expected_sample_rate_hz: int,
+        text_characters: int,
     ) -> dict[str, Any] | None:
         record = self.scan(
             book_slug=book_slug,
@@ -335,5 +462,7 @@ class AudioQAReviewService:
             segment_id=segment_id,
             audio_path=audio_path,
             synthesis_fingerprint=synthesis_fingerprint,
+            expected_sample_rate_hz=expected_sample_rate_hz,
+            text_characters=text_characters,
         )
         return record if record["downstream_eligible"] else None

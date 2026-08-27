@@ -83,6 +83,10 @@ final class StudioModel: ObservableObject {
     @Published var isRunning = false
     @Published var errorMessage: String?
     @Published var completedOutput: URL?
+    @Published var audioQA: AudioQACurrentEnvelope?
+    @Published private(set) var audioQAPlaybackIdentity: AudioQAIdentity?
+    @Published private(set) var downstreamApprovedOutput: URL?
+    @Published var audioQAStatusText = ""
     @Published private(set) var showPrepareConfirmation = false
     @Published private(set) var showCacheOnlyConfirmation = false
     @Published var showPaidConfirmation = false
@@ -348,6 +352,12 @@ final class StudioModel: ObservableObject {
                     ? "Глава материализована из кэша без нового запроса."
                     : "Глава озвучена. Provider-запросов: \(result.networkRequests)."
                 errorMessage = nil
+                await loadAudioQA(
+                    provider: "yandex",
+                    selection: plannedSelection,
+                    audioPath: result.outputPath,
+                    manifestPath: result.manifest
+                )
             } catch {
                 yandexChapterPlan = nil
                 yandexChapterPlanSelection = nil
@@ -493,6 +503,14 @@ final class StudioModel: ObservableObject {
                 remainingPaidSegments = result.remainingSegments
                 if let path = result.outputPath, !path.isEmpty {
                     completedOutput = URL(fileURLWithPath: path)
+                    await loadAudioQA(
+                        provider: "openai",
+                        bookID: plan.bookID,
+                        jobID: plan.jobID,
+                        profileID: plan.profileID,
+                        audioPath: path,
+                        manifestPath: result.manifest
+                    )
                 }
                 paidStatusText = result.networkRequests == 0
                     ? "Готовое аудио использовано без нового запроса."
@@ -600,6 +618,164 @@ final class StudioModel: ObservableObject {
         yandexChapterStatusText = ""
         showPaidConfirmation = false
         showYandexChapterConfirmation = false
+        audioQA = nil
+        audioQAPlaybackIdentity = nil
+        downstreamApprovedOutput = nil
+        audioQAStatusText = ""
+    }
+
+    func openCurrentAudioForQA() {
+        guard engine == .qwen || engine == .yandex || engine == .openai,
+              selectedBook != nil,
+              selectedJob != nil,
+              selectedProfile != nil else {
+            errorMessage = "Выберите готовую задачу и профиль для проверки аудио."
+            return
+        }
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            await loadAudioQA(
+                provider: engine.rawValue,
+                bookID: selectedBookID,
+                jobID: selectedJobID,
+                profileID: selectedProfileID
+            )
+        }
+    }
+
+    func playExactAudioForQA() {
+        guard let envelope = audioQA else { return }
+        let audio = URL(fileURLWithPath: envelope.record.audioPath)
+        guard audio.path == envelope.authority.audioPath else {
+            errorMessage = "Текущий WAV больше не совпадает с production authority."
+            return
+        }
+        audioQAPlaybackIdentity = envelope.record.identity
+        NSWorkspace.shared.open(audio)
+    }
+
+    func decideAudioQA(_ decision: String) {
+        guard let envelope = audioQA,
+              selectedBookID == envelope.authority.bookSlug,
+              selectedJobID == envelope.authority.jobID,
+              selectedProfileID == envelope.authority.profileID else {
+            errorMessage = "Выбор изменился. Откройте текущее аудио для проверки заново."
+            return
+        }
+        if decision == "APPROVED" && audioQAPlaybackIdentity != envelope.record.identity {
+            errorMessage = "Перед одобрением прослушайте именно текущую версию WAV."
+            return
+        }
+        guard let sha = envelope.record.identity.audioSHA256,
+              let fingerprint = envelope.record.identity.synthesisFingerprint else {
+            errorMessage = "Точная identity текущего WAV недоступна."
+            return
+        }
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let result: AudioQACurrentEnvelope = try await runBridgeJSON(
+                    audioQAArguments(for: envelope.authority, mode: "--audio-qa-decide") + [
+                        "--decision", decision,
+                        "--reviewed-audio-sha256", sha,
+                        "--reviewed-path-identity", envelope.record.identity.pathIdentity,
+                        "--reviewed-fingerprint", fingerprint,
+                    ]
+                )
+                guard !result.remoteRequestSent else {
+                    throw BridgeError.message("Audio QA нарушил offline contract.")
+                }
+                audioQA = result
+                audioQAPlaybackIdentity = nil
+                await refreshAudioQADownstream(authority: result.authority)
+                audioQAStatusText = decision == "REGENERATE_REQUESTED"
+                    ? "Запрос перегенерации записан. Новый синтез запускается только обычным подтверждаемым маршрутом."
+                    : audioQAManualLabel(result.record.manualState)
+                errorMessage = nil
+            } catch {
+                showError(error)
+            }
+        }
+    }
+
+    private func loadAudioQA(
+        provider: String,
+        selection: YandexChapterSelection,
+        audioPath: String = "",
+        manifestPath: String = ""
+    ) async {
+        await loadAudioQA(
+            provider: provider,
+            bookID: selection.bookID,
+            jobID: selection.jobID,
+            profileID: selection.profileID,
+            audioPath: audioPath,
+            manifestPath: manifestPath
+        )
+    }
+
+    private func loadAudioQA(
+        provider: String,
+        bookID: String,
+        jobID: String,
+        profileID: String,
+        audioPath: String = "",
+        manifestPath: String = ""
+    ) async {
+        do {
+            var arguments = [
+                "--audio-qa-current", "--provider", provider,
+                "--book", bookID, "--job", jobID, "--profile-id", profileID,
+            ]
+            if !audioPath.isEmpty { arguments += ["--audio-path", audioPath] }
+            if !manifestPath.isEmpty { arguments += ["--manifest-path", manifestPath] }
+            let result: AudioQACurrentEnvelope = try await runBridgeJSON(arguments)
+            guard !result.remoteRequestSent else {
+                throw BridgeError.message("Audio QA нарушил offline contract.")
+            }
+            guard selectedBookID == bookID,
+                  selectedJobID == jobID,
+                  selectedProfileID == profileID else { return }
+            audioQA = result
+            audioQAPlaybackIdentity = nil
+            completedOutput = URL(fileURLWithPath: result.record.audioPath)
+            await refreshAudioQADownstream(authority: result.authority)
+            audioQAStatusText = audioQAManualLabel(result.record.manualState)
+            errorMessage = nil
+        } catch {
+            showError(error)
+        }
+    }
+
+    private func audioQAArguments(for authority: AudioQAAuthority, mode: String) -> [String] {
+        [
+            mode, "--provider", authority.provider,
+            "--book", authority.bookSlug,
+            "--job", authority.jobID,
+            "--profile-id", authority.profileID,
+            "--audio-path", authority.audioPath,
+            "--manifest-path", authority.manifestPath,
+        ]
+    }
+
+    private func refreshAudioQADownstream(authority: AudioQAAuthority) async {
+        do {
+            let result: AudioQACurrentEnvelope = try await runBridgeJSON(
+                audioQAArguments(for: authority, mode: "--audio-qa-downstream")
+            )
+            guard !result.remoteRequestSent else {
+                throw BridgeError.message("Downstream QA gate нарушил offline contract.")
+            }
+            audioQA = result
+            downstreamApprovedOutput = result.eligible
+                ? URL(fileURLWithPath: result.record.audioPath)
+                : nil
+        } catch {
+            downstreamApprovedOutput = nil
+            technicalDetails = error.localizedDescription
+        }
     }
 
     private func invalidateOpenAIIntent() {
@@ -889,6 +1065,8 @@ struct StudioView: View {
                         }
                     }
 
+                    AudioQAReviewSection(model: model)
+
                     if model.engine == .qwen {
                         Section("Расходы и лимиты") {
                             Label("Локальный движок · расходы API отсутствуют", systemImage: "laptopcomputer")
@@ -1056,6 +1234,72 @@ struct StudioView: View {
                     slug: $newBookSlug,
                     isPresented: $showAddBookSheet
                 )
+            }
+        }
+    }
+}
+
+private struct AudioQAReviewSection: View {
+    @ObservedObject var model: StudioModel
+
+    var body: some View {
+        Group {
+            if let qa = model.audioQA {
+                Section("Проверка готового аудио") {
+                    LabeledContent("Книга", value: qa.authority.bookTitle)
+                    LabeledContent("Задача", value: qa.authority.jobLabel)
+                    LabeledContent("Сегмент", value: qa.authority.segmentID)
+                    DisclosureGroup("Точный текст синтеза · \(qa.authority.textCharacters) символов") {
+                        Text(qa.authority.segmentText).textSelection(.enabled)
+                    }
+                    LabeledContent("Автопроверка", value: audioQAStatusLabel(qa.record.automaticStatus))
+                    LabeledContent("Ручное решение", value: audioQAManualLabel(qa.record.manualState))
+                    if let wav = qa.record.wav {
+                        LabeledContent(
+                            "WAV",
+                            value: "\(wav.sampleRateHz) Hz · \(wav.channels) ch · \(wav.durationSeconds.formatted(.number.precision(.fractionLength(2)))) с"
+                        )
+                    }
+                    LabeledContent("SHA-256", value: qa.record.identity.audioSHA256 ?? "Недоступно")
+                    LabeledContent("Synthesis fingerprint", value: qa.record.identity.synthesisFingerprint ?? "Недоступно")
+                    ForEach(qa.record.automaticReasons, id: \.self) { reason in
+                        Label(reason, systemImage: "xmark.octagon").foregroundStyle(.red)
+                    }
+                    ForEach(qa.record.automaticWarnings, id: \.self) { warning in
+                        Label(warning, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                    }
+                    HStack {
+                        Button("Прослушать точный WAV") { model.playExactAudioForQA() }
+                        Button("Одобрить") { model.decideAudioQA("APPROVED") }
+                            .disabled(
+                                model.isRunning
+                                    || qa.record.automaticStatus == "FAIL"
+                                    || model.audioQAPlaybackIdentity != qa.record.identity
+                            )
+                        Button("Отклонить", role: .destructive) { model.decideAudioQA("REJECTED") }
+                            .disabled(model.isRunning)
+                        Button("Запросить перегенерацию") { model.decideAudioQA("REGENERATE_REQUESTED") }
+                            .disabled(model.isRunning)
+                    }
+                    Label(
+                        model.downstreamApprovedOutput == nil
+                            ? "Downstream заблокирован до точного одобрения"
+                            : "Точный WAV допущен в downstream",
+                        systemImage: model.downstreamApprovedOutput == nil ? "lock.fill" : "checkmark.shield.fill"
+                    )
+                    .foregroundStyle(model.downstreamApprovedOutput == nil ? Color.secondary : Color.green)
+                    if !model.audioQAStatusText.isEmpty {
+                        Text(model.audioQAStatusText).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } else if model.engine == .qwen || model.engine == .yandex || model.engine == .openai {
+                Section("Проверка готового аудио") {
+                    Button("Открыть готовое аудио для проверки") { model.openCurrentAudioForQA() }
+                        .disabled(model.isRunning || model.selectedJob == nil || model.selectedProfile == nil)
+                    Text("Команда только читает текущие production manifest и WAV; TTS-запросы не выполняются.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
