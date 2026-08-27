@@ -230,6 +230,13 @@ class NativeUIBridgeTests(unittest.TestCase):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         decide = swift_function_body(source, "func decideAudioQA(_ decision:")
         downstream = swift_function_body(source, "private func refreshAudioQADownstream(")
+        open_current = swift_function_body(source, "func openCurrentAudioForQA()")
+        open_target = swift_function_body(source, "func openOpenAIQATarget(")
+        load_targets = swift_function_body(source, "private func loadOpenAIQATargets(")
+        load_audio = swift_function_body(
+            source,
+            "private func loadAudioQA(\n        provider: String,\n        bookID:",
+        )
         regenerate = decide[decide.index('decision == "REGENERATE_REQUESTED"') :]
 
         self.assertIn('"--audio-qa-current"', source)
@@ -251,11 +258,32 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertNotIn("--prepare-yandex-chapter-run", regenerate)
         self.assertNotIn("--execute-paid-plan", regenerate)
         self.assertNotIn("--execute-yandex-chapter-plan", regenerate)
-        self.assertIn("let expectedEngine = engine", downstream)
-        self.assertIn(
-            "let expectedSelectionGeneration = executionSelectionGeneration",
-            downstream,
+        for operation in (open_current, open_target, decide):
+            self.assertIn(
+                "let expectedSelectionGeneration = executionSelectionGeneration",
+                operation,
+            )
+        self.assertGreaterEqual(
+            load_targets.count(
+                "executionSelectionGeneration == expectedSelectionGeneration"
+            ),
+            3,
         )
+        self.assertGreaterEqual(
+            load_audio.count(
+                "executionSelectionGeneration == expectedSelectionGeneration"
+            ),
+            4,
+        )
+        self.assertGreaterEqual(
+            decide.count("executionSelectionGeneration == expectedSelectionGeneration"),
+            3,
+        )
+        self.assertGreaterEqual(
+            source.count("expectedSelectionGeneration: expectedSelectionGeneration"),
+            8,
+        )
+        self.assertIn("let expectedEngine = engine", downstream)
         self.assertIn("let expectedBookSlug = selectedBook?.slug", downstream)
         self.assertGreaterEqual(downstream.count("engine == expectedEngine"), 2)
         self.assertGreaterEqual(downstream.count("selectedBook?.slug == expectedBookSlug"), 2)
@@ -322,7 +350,7 @@ class NativeUIBridgeTests(unittest.TestCase):
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
         execute = swift_function_body(source, "private func executePaidPlan(")
         select = swift_function_body(source, "func openOpenAIQATarget(")
-        reopen = swift_function_body(source, "private func loadOpenAIQATargets()")
+        reopen = swift_function_body(source, "private func loadOpenAIQATargets(")
         self.assertIn("let qaTargets: [OpenAIQATarget]?", contracts)
         self.assertIn("struct OpenAIQATargetList: Codable", contracts)
         self.assertIn("targets.count == 1", execute)

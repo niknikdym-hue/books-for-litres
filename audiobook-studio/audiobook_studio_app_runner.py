@@ -203,6 +203,7 @@ def _audio_qa_authority(
             job_id=job_id,
             profile_id=profile_id,
             report_candidates=candidates,
+            allowed_output_roots=[WORKSPACE_PATHS.qwen_output_root],
             config_path=STUDIO_DIR / "studio-config.json",
             audio_path=selected_audio,
         )
@@ -216,6 +217,12 @@ def _audio_qa_authority(
             WORKSPACE_PATHS.runtime_root / "renders-yandex" / relative,
             STUDIO_DIR / "renders-yandex" / relative,
         ) if path is not None]
+        allowed_output_roots = [
+            backend.config.output_root,
+            WORKSPACE_PATHS.yandex_output_root,
+            WORKSPACE_PATHS.runtime_root / "renders-yandex",
+            STUDIO_DIR / "renders-yandex",
+        ]
         return resolve_yandex_authority(
             library=BOOK_LIBRARY,
             backend=backend,
@@ -223,6 +230,7 @@ def _audio_qa_authority(
             job_id=job_id,
             profile_id=profile_id,
             manifest_candidates=candidates,
+            allowed_output_roots=allowed_output_roots,
             audio_path=selected_audio,
         )
     if provider == "openai":

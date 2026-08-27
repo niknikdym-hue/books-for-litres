@@ -339,6 +339,7 @@ final class StudioModel: ObservableObject {
             return
         }
         showYandexChapterConfirmation = false
+        let expectedSelectionGeneration = executionSelectionGeneration
         Task {
             isRunning = true
             defer { isRunning = false }
@@ -350,6 +351,8 @@ final class StudioModel: ObservableObject {
                 ])
                 yandexChapterPlan = nil
                 yandexChapterPlanSelection = nil
+                guard executionSelectionGeneration == expectedSelectionGeneration,
+                      currentYandexChapterSelection() == plannedSelection else { return }
                 completedOutput = URL(fileURLWithPath: result.outputPath)
                 yandexChapterStatusText = result.networkRequests == 0
                     ? "Глава материализована из кэша без нового запроса."
@@ -359,7 +362,8 @@ final class StudioModel: ObservableObject {
                     provider: "yandex",
                     selection: plannedSelection,
                     audioPath: result.outputPath,
-                    manifestPath: result.manifest
+                    manifestPath: result.manifest,
+                    expectedSelectionGeneration: expectedSelectionGeneration
                 )
             } catch {
                 yandexChapterPlan = nil
@@ -495,6 +499,7 @@ final class StudioModel: ObservableObject {
         }
         showPaidConfirmation = false
         let executionSelection = currentOpenAISelection()
+        let expectedSelectionGeneration = executionSelectionGeneration
         Task {
             isRunning = true
             defer { isRunning = false }
@@ -505,6 +510,8 @@ final class StudioModel: ObservableObject {
                 ])
                 paidPlan = nil
                 remainingPaidSegments = result.remainingSegments
+                guard executionSelectionGeneration == expectedSelectionGeneration,
+                      currentOpenAISelection() == executionSelection else { return }
                 let targets = result.qaTargets ?? []
                 openAIQATargets = targets
                 openAIQASelection = executionSelection
@@ -517,7 +524,8 @@ final class StudioModel: ObservableObject {
                         profileID: plan.profileID,
                         audioPath: target.outputPath,
                         manifestPath: target.manifestPath,
-                        expectedTarget: target
+                        expectedTarget: target,
+                        expectedSelectionGeneration: expectedSelectionGeneration
                     )
                 } else if let path = result.outputPath, !path.isEmpty {
                     completedOutput = URL(fileURLWithPath: path)
@@ -527,7 +535,8 @@ final class StudioModel: ObservableObject {
                         jobID: plan.jobID,
                         profileID: plan.profileID,
                         audioPath: path,
-                        manifestPath: result.manifest
+                        manifestPath: result.manifest,
+                        expectedSelectionGeneration: expectedSelectionGeneration
                     )
                 }
                 paidStatusText = result.networkRequests == 0
@@ -655,31 +664,44 @@ final class StudioModel: ObservableObject {
             errorMessage = "Выберите готовую задачу и профиль для проверки аудио."
             return
         }
+        let expectedSelectionGeneration = executionSelectionGeneration
+        let expectedEngine = engine
+        let expectedBookID = selectedBookID
+        let expectedJobID = selectedJobID
+        let expectedProfileID = selectedProfileID
         Task {
             isRunning = true
             defer { isRunning = false }
-            if engine == .openai {
-                await loadOpenAIQATargets()
+            guard executionSelectionGeneration == expectedSelectionGeneration else { return }
+            if expectedEngine == .openai {
+                await loadOpenAIQATargets(
+                    expectedSelectionGeneration: expectedSelectionGeneration
+                )
             } else {
                 await loadAudioQA(
-                    provider: engine.rawValue,
-                    bookID: selectedBookID,
-                    jobID: selectedJobID,
-                    profileID: selectedProfileID
+                    provider: expectedEngine.rawValue,
+                    bookID: expectedBookID,
+                    jobID: expectedJobID,
+                    profileID: expectedProfileID,
+                    expectedSelectionGeneration: expectedSelectionGeneration
                 )
             }
         }
     }
 
     func refreshOpenAIQATargets() {
+        let expectedSelectionGeneration = executionSelectionGeneration
         Task {
             isRunning = true
             defer { isRunning = false }
-            await loadOpenAIQATargets()
+            await loadOpenAIQATargets(
+                expectedSelectionGeneration: expectedSelectionGeneration
+            )
         }
     }
 
-    private func loadOpenAIQATargets() async {
+    private func loadOpenAIQATargets(expectedSelectionGeneration: UInt64) async {
+        guard executionSelectionGeneration == expectedSelectionGeneration else { return }
         guard let selection = currentOpenAISelection() else {
             errorMessage = "Выберите текущую OpenAI-задачу и профиль."
             return
@@ -694,7 +716,8 @@ final class StudioModel: ObservableObject {
             guard !result.remoteRequestSent else {
                 throw BridgeError.message("Список OpenAI QA targets нарушил offline contract.")
             }
-            guard currentOpenAISelection() == selection else { return }
+            guard executionSelectionGeneration == expectedSelectionGeneration,
+                  currentOpenAISelection() == selection else { return }
             openAIQATargets = result.qaTargets
             openAIQASelection = selection
             if let current = audioQA,
@@ -716,7 +739,8 @@ final class StudioModel: ObservableObject {
                     profileID: selection.profileID,
                     audioPath: target.outputPath,
                     manifestPath: target.manifestPath,
-                    expectedTarget: target
+                    expectedTarget: target,
+                    expectedSelectionGeneration: expectedSelectionGeneration
                 )
             } else if result.qaTargets.isEmpty {
                 audioQA = nil
@@ -726,6 +750,7 @@ final class StudioModel: ObservableObject {
                 errorMessage = nil
             }
         } catch {
+            guard executionSelectionGeneration == expectedSelectionGeneration else { return }
             showError(error)
         }
     }
@@ -761,6 +786,7 @@ final class StudioModel: ObservableObject {
             errorMessage = "Точная identity текущего WAV недоступна."
             return
         }
+        let expectedSelectionGeneration = executionSelectionGeneration
         Task {
             isRunning = true
             defer { isRunning = false }
@@ -776,14 +802,26 @@ final class StudioModel: ObservableObject {
                 guard !result.remoteRequestSent else {
                     throw BridgeError.message("Audio QA нарушил offline contract.")
                 }
+                guard executionSelectionGeneration == expectedSelectionGeneration,
+                      audioQASelectionMatches(
+                          selectedBook: selectedBook,
+                          selectedJobID: selectedJobID,
+                          selectedProfileID: selectedProfileID,
+                          authority: envelope.authority
+                      ) else { return }
                 audioQA = result
                 audioQAPlaybackIdentity = nil
-                await refreshAudioQADownstream(authority: result.authority)
+                await refreshAudioQADownstream(
+                    authority: result.authority,
+                    expectedSelectionGeneration: expectedSelectionGeneration
+                )
+                guard executionSelectionGeneration == expectedSelectionGeneration else { return }
                 audioQAStatusText = decision == "REGENERATE_REQUESTED"
                     ? "Запрос перегенерации записан. Новый синтез запускается только обычным подтверждаемым маршрутом."
                     : audioQAManualLabel(result.record.manualState)
                 errorMessage = nil
             } catch {
+                guard executionSelectionGeneration == expectedSelectionGeneration else { return }
                 showError(error)
             }
         }
@@ -798,6 +836,7 @@ final class StudioModel: ObservableObject {
             errorMessage = "Выбор изменился. Получите текущий список готовых сегментов заново."
             return
         }
+        let expectedSelectionGeneration = executionSelectionGeneration
         Task {
             isRunning = true
             defer { isRunning = false }
@@ -808,7 +847,8 @@ final class StudioModel: ObservableObject {
                 profileID: selection.profileID,
                 audioPath: target.outputPath,
                 manifestPath: target.manifestPath,
-                expectedTarget: target
+                expectedTarget: target,
+                expectedSelectionGeneration: expectedSelectionGeneration
             )
         }
     }
@@ -817,7 +857,8 @@ final class StudioModel: ObservableObject {
         provider: String,
         selection: YandexChapterSelection,
         audioPath: String = "",
-        manifestPath: String = ""
+        manifestPath: String = "",
+        expectedSelectionGeneration: UInt64
     ) async {
         await loadAudioQA(
             provider: provider,
@@ -825,7 +866,8 @@ final class StudioModel: ObservableObject {
             jobID: selection.jobID,
             profileID: selection.profileID,
             audioPath: audioPath,
-            manifestPath: manifestPath
+            manifestPath: manifestPath,
+            expectedSelectionGeneration: expectedSelectionGeneration
         )
     }
 
@@ -836,8 +878,10 @@ final class StudioModel: ObservableObject {
         profileID: String,
         audioPath: String = "",
         manifestPath: String = "",
-        expectedTarget: OpenAIQATarget? = nil
+        expectedTarget: OpenAIQATarget? = nil,
+        expectedSelectionGeneration: UInt64
     ) async {
+        guard executionSelectionGeneration == expectedSelectionGeneration else { return }
         do {
             var arguments = [
                 "--audio-qa-current", "--provider", provider,
@@ -859,14 +903,20 @@ final class StudioModel: ObservableObject {
             }
             guard selectedBookID == bookID,
                   selectedJobID == jobID,
-                  selectedProfileID == profileID else { return }
+                  selectedProfileID == profileID,
+                  executionSelectionGeneration == expectedSelectionGeneration else { return }
             audioQA = result
             audioQAPlaybackIdentity = nil
             completedOutput = URL(fileURLWithPath: result.record.audioPath)
-            await refreshAudioQADownstream(authority: result.authority)
+            await refreshAudioQADownstream(
+                authority: result.authority,
+                expectedSelectionGeneration: expectedSelectionGeneration
+            )
+            guard executionSelectionGeneration == expectedSelectionGeneration else { return }
             audioQAStatusText = audioQAManualLabel(result.record.manualState)
             errorMessage = nil
         } catch {
+            guard executionSelectionGeneration == expectedSelectionGeneration else { return }
             showError(error)
         }
     }
@@ -882,8 +932,10 @@ final class StudioModel: ObservableObject {
         ]
     }
 
-    private func refreshAudioQADownstream(authority: AudioQAAuthority) async {
-        let expectedSelectionGeneration = executionSelectionGeneration
+    private func refreshAudioQADownstream(
+        authority: AudioQAAuthority,
+        expectedSelectionGeneration: UInt64
+    ) async {
         let expectedEngine = engine
         let expectedBookSlug = selectedBook?.slug
         let expectedJobID = selectedJobID

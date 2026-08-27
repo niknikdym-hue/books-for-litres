@@ -94,6 +94,24 @@ def _require_no_symlink_components(path: Path, root: Path, label: str) -> Path:
     return candidate
 
 
+def _require_under_allowed_roots(
+    path: Path,
+    roots: list[Path],
+    label: str,
+) -> tuple[Path, Path]:
+    """Return a canonical path and its lexical provider root, failing closed."""
+    candidate = Path(path).expanduser().absolute()
+    for root in roots:
+        boundary = Path(root).expanduser().absolute()
+        try:
+            candidate.relative_to(boundary)
+        except ValueError:
+            continue
+        lexical = _require_no_symlink_components(candidate, boundary, label)
+        return _require_below(lexical, boundary, label), boundary
+    raise AudioQAAuthorityError(f"{label} escapes its production root.")
+
+
 @dataclass(frozen=True)
 class AudioQAAuthority:
     provider: str
@@ -135,6 +153,7 @@ def resolve_qwen_authority(
     job_id: str,
     profile_id: str,
     report_candidates: list[Path],
+    allowed_output_roots: list[Path],
     config_path: Path,
     audio_path: Path | None = None,
 ) -> AudioQAAuthority:
@@ -148,8 +167,11 @@ def resolve_qwen_authority(
     expected_segment_ids = [str(item.get("id")) for item in job["segments"]]
     valid: list[tuple[Path, dict[str, Any], Path]] = []
     for candidate in report_candidates:
-        path = Path(candidate)
-        if not path.is_file() or path.is_symlink():
+        lexical_path = Path(candidate).expanduser().absolute()
+        path, _ = _require_under_allowed_roots(
+            lexical_path, allowed_output_roots, "Qwen production report"
+        )
+        if not path.is_file():
             continue
         report = _load_json(path)
         speaker = report.get("speaker")
@@ -171,8 +193,10 @@ def resolve_qwen_authority(
             or not isinstance(report.get("sample_rate"), int)
         ):
             continue
-        output = _require_below(path.parent / joined_name, path.parent, "Qwen audio")
-        if output.is_file() and not output.is_symlink() and (audio_path is None or _same_path(audio_path, output)):
+        output, _ = _require_under_allowed_roots(
+            lexical_path.parent / joined_name, allowed_output_roots, "Qwen audio"
+        )
+        if output.is_file() and (audio_path is None or _same_path(audio_path, output)):
             valid.append((path.resolve(), report, output))
     if not valid:
         raise AudioQAAuthorityError("Current Qwen production report was not found.")
@@ -217,6 +241,7 @@ def resolve_yandex_authority(
     job_id: str,
     profile_id: str,
     manifest_candidates: list[Path],
+    allowed_output_roots: list[Path],
     audio_path: Path | None = None,
 ) -> AudioQAAuthority:
     from backends.yandex_speechkit import make_fingerprint
@@ -225,7 +250,17 @@ def resolve_yandex_authority(
         raise AudioQAAuthorityError("Current Yandex QA supports only yandex_lera production output.")
     book, job, text = _job(library, book_name, job_id)
     current_segments = backend.segment(text)
-    manifest_path = next((Path(path) for path in manifest_candidates if Path(path).is_file()), None)
+    manifest_path = None
+    lexical_manifest_path = None
+    for candidate in manifest_candidates:
+        lexical_candidate = Path(candidate).expanduser().absolute()
+        canonical_candidate, _ = _require_under_allowed_roots(
+            lexical_candidate, allowed_output_roots, "Yandex production manifest"
+        )
+        if canonical_candidate.is_file():
+            manifest_path = canonical_candidate
+            lexical_manifest_path = lexical_candidate
+            break
     if manifest_path is None:
         raise AudioQAAuthorityError("Current Yandex production manifest was not found.")
     manifest = _load_json(manifest_path)
@@ -272,10 +307,13 @@ def resolve_yandex_authority(
     joined_name = manifest.get("joined_wav")
     if not isinstance(joined_name, str) or not joined_name or Path(joined_name).name != joined_name:
         raise AudioQAAuthorityError("Yandex joined WAV identity is unavailable.")
-    authoritative_audio = _require_below(manifest_path.parent / joined_name, manifest_path.parent, "Yandex audio")
+    assert lexical_manifest_path is not None
+    authoritative_audio, _ = _require_under_allowed_roots(
+        lexical_manifest_path.parent / joined_name, allowed_output_roots, "Yandex audio"
+    )
     if audio_path is not None and not _same_path(audio_path, authoritative_audio):
         raise AudioQAAuthorityError("Selected Yandex audio is not the authoritative joined WAV.")
-    if not authoritative_audio.is_file() or authoritative_audio.is_symlink():
+    if not authoritative_audio.is_file():
         raise AudioQAAuthorityError("Authoritative Yandex joined WAV is unavailable.")
     actual_rate = inspect_pcm_wav(authoritative_audio).sample_rate_hz
     if sample_rates and sample_rates != {actual_rate}:
