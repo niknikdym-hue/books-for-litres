@@ -111,6 +111,7 @@ final class StudioModel: ObservableObject {
     private var pendingBookTextPreparationID: String?
     private var yandexChapterPlanSelection: YandexChapterSelection?
     private var openAIQASelection: OpenAIExecutionSelection?
+    private var executionSelectionGeneration: UInt64 = 0
 
     init() {
         if let requested = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_ENGINE"],
@@ -630,6 +631,7 @@ final class StudioModel: ObservableObject {
     }
 
     private func executionSelectionDidChange() {
+        executionSelectionGeneration &+= 1
         invalidateOpenAIIntent()
         paidPlan = nil
         yandexChapterPlan = nil
@@ -881,6 +883,7 @@ final class StudioModel: ObservableObject {
     }
 
     private func refreshAudioQADownstream(authority: AudioQAAuthority) async {
+        let expectedSelectionGeneration = executionSelectionGeneration
         let expectedEngine = engine
         let expectedBookSlug = selectedBook?.slug
         let expectedJobID = selectedJobID
@@ -900,6 +903,7 @@ final class StudioModel: ObservableObject {
                   selectedBook?.slug == expectedBookSlug,
                   selectedJobID == expectedJobID,
                   selectedProfileID == expectedProfileID,
+                  executionSelectionGeneration == expectedSelectionGeneration,
                   result.authority == authority else { return }
             audioQA = result
             downstreamApprovedOutput = result.eligible
@@ -909,7 +913,8 @@ final class StudioModel: ObservableObject {
             guard engine == expectedEngine,
                   selectedBook?.slug == expectedBookSlug,
                   selectedJobID == expectedJobID,
-                  selectedProfileID == expectedProfileID else { return }
+                  selectedProfileID == expectedProfileID,
+                  executionSelectionGeneration == expectedSelectionGeneration else { return }
             downstreamApprovedOutput = nil
             technicalDetails = error.localizedDescription
         }

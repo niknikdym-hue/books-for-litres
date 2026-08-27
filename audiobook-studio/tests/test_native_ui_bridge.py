@@ -216,6 +216,7 @@ class NativeUIBridgeTests(unittest.TestCase):
             observer = source[declaration : declaration + 220]
             self.assertIn("executionSelectionDidChange()", observer)
         self.assertIn("invalidateOpenAIIntent()", invalidation)
+        self.assertIn("executionSelectionGeneration &+= 1", invalidation)
         self.assertIn("paidPlan = nil", invalidation)
         self.assertIn("invalidateOpenAIIntent()", reload_body)
         self.assertIn("invalidateOpenAIIntent()", cancel_body)
@@ -251,9 +252,19 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertNotIn("--execute-paid-plan", regenerate)
         self.assertNotIn("--execute-yandex-chapter-plan", regenerate)
         self.assertIn("let expectedEngine = engine", downstream)
+        self.assertIn(
+            "let expectedSelectionGeneration = executionSelectionGeneration",
+            downstream,
+        )
         self.assertIn("let expectedBookSlug = selectedBook?.slug", downstream)
         self.assertGreaterEqual(downstream.count("engine == expectedEngine"), 2)
         self.assertGreaterEqual(downstream.count("selectedBook?.slug == expectedBookSlug"), 2)
+        self.assertGreaterEqual(
+            downstream.count(
+                "executionSelectionGeneration == expectedSelectionGeneration"
+            ),
+            2,
+        )
         self.assertIn("result.authority == authority", downstream)
 
     def test_qwen_current_authority_discovers_canonical_profile_directory(self):
