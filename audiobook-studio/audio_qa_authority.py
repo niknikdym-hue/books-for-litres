@@ -306,6 +306,16 @@ def resolve_openai_authority(
     book, job, text = _job(library, book_name, job_id)
     profile = load_approved_profile(profile_id)
     manifest_path = Path(manifest_path).resolve()
+    expected_manifest = (
+        Path(backend.config.jobs_root)
+        / str(book.get("slug") or book_name)
+        / job_id
+        / "openai"
+        / profile_id
+        / "MANIFEST.json"
+    ).resolve(strict=False)
+    if manifest_path != expected_manifest:
+        raise AudioQAAuthorityError("Selected OpenAI manifest is not the canonical job authority.")
     manifest = _load_json(manifest_path)
     entries = manifest.get("segments")
     if (
@@ -324,7 +334,11 @@ def resolve_openai_authority(
         fingerprint = make_fingerprint(normalize_input_text(segment.text), profile)
         entry = entries.get(segment.segment_id)
         output_value = entry.get("output_path") if isinstance(entry, dict) else None
-        output = Path(output_value).resolve(strict=False) if isinstance(output_value, str) else None
+        output = (
+            _require_below(Path(output_value), manifest_path.parent, "OpenAI audio")
+            if isinstance(output_value, str)
+            else None
+        )
         if (
             isinstance(entry, dict)
             and entry.get("state") == "SUCCEEDED"

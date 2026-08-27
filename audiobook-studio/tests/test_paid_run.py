@@ -21,6 +21,7 @@ from backends.openai_pricing import OpenAIPricingConfig
 from backends.openai_types import OpenAIBackendConfig, OpenAICredential, OpenAITTSError
 from cloud_billing import CloudBillingService, CloudBillingSettings, save_settings
 from paid_run import PaidRunError, PaidRunService, _canonical_hash
+from audio_qa_authority import AudioQAAuthorityError, resolve_openai_authority
 
 
 NOW = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
@@ -319,10 +320,51 @@ class PaidRunTests(unittest.TestCase):
         self.assertEqual(result["manifest_state"], "SUCCEEDED")
         self.assertEqual(self.calls, 0)
         self.assertEqual(service.billing.ledger.transactions(), [])
+        self.assertEqual([item["segment_id"] for item in result["qa_targets"]], ["s0001", "s0002"])
+        self.assertIsNone(result["output_path"])
+        for target in result["qa_targets"]:
+            authority = resolve_openai_authority(
+                library=service.book_library,
+                backend=service.backend,
+                book_name=self.book_path.name,
+                job_id="job-1",
+                profile_id="openai_onyx",
+                manifest_path=Path(result["manifest"]),
+                audio_path=Path(target["output_path"]),
+            )
+            self.assertEqual(authority.segment_id, target["segment_id"])
+            self.assertEqual(authority.synthesis_fingerprint, target["synthesis_fingerprint"])
+        with self.assertRaisesRegex(AudioQAAuthorityError, "not unambiguous"):
+            resolve_openai_authority(
+                library=service.book_library,
+                backend=service.backend,
+                book_name=self.book_path.name,
+                job_id="job-1",
+                profile_id="openai_onyx",
+                manifest_path=Path(result["manifest"]),
+            )
         stored = service.store.load(plan["plan_id"])
         self.assertEqual(stored["state"], "CONSUMED")
         self.assertEqual(stored["network_requests"], 0)
         self.assertIs(stored["remote_request_sent"], False)
+
+    def test_single_segment_cache_only_preserves_direct_exact_qa_target(self):
+        self.write_book(["Один полностью кэшированный сегмент."])
+        service = self.service()
+        profile = __import__("backends.openai_client", fromlist=["load_approved_profile"]).load_approved_profile("openai_onyx")
+        _, _, _, text = service._load_source(self.book_path.name, "job-1")
+        segment = service.backend.segment(text)[0]
+        fingerprint = make_fingerprint(normalize_input_text(segment.text), profile)
+        cache = service.backend.config.cache_root / f"{fingerprint}.wav"
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(wav_bytes())
+        plan = self.prepare(service)
+        result = service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        self.assertEqual(plan["decision"], "CACHE_ONLY")
+        self.assertEqual(result["network_requests"], 0)
+        self.assertEqual(result["selected_segment_id"], "s0001")
+        self.assertEqual(result["output_path"], result["qa_targets"][0]["output_path"])
+        self.assertEqual(self.calls, 0)
 
     def test_ambiguous_and_failed_manifest_block_without_retry(self):
         service = self.service()

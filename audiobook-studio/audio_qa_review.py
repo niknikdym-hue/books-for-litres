@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from backends.common import WavValidationError, atomic_write_json, inspect_pcm_wav, utc_now_iso
+from book_library import BookLibraryError, normalize_slug
 
 
 QA_SCHEMA_VERSION = 2
@@ -46,6 +47,14 @@ def _safe_id(value: str, label: str) -> str:
     ):
         raise AudioQAError(f"Invalid {label}: {value!r}")
     return value
+
+
+def _safe_book_slug(value: str) -> str:
+    """Use the one canonical Book Library policy for persisted book identities."""
+    try:
+        return normalize_slug(value)
+    except BookLibraryError as error:
+        raise AudioQAError(f"Invalid book_slug: {value!r}") from error
 
 
 def _path_identity(path: Path) -> str:
@@ -195,7 +204,7 @@ class AudioQAReviewService:
     def _record_path(self, *, book_slug: str, job_id: str, segment_id: str) -> Path:
         candidate = (
             self.state_root
-            / _safe_id(book_slug, "book_slug")
+            / _safe_book_slug(book_slug)
             / _safe_id(job_id, "job_id")
             / f"{_safe_id(segment_id, 'segment_id')}.json"
         ).resolve(strict=False)
@@ -333,7 +342,7 @@ class AudioQAReviewService:
         now = utc_now_iso()
         record = {
             "schema_version": QA_SCHEMA_VERSION,
-            "book_slug": _safe_id(book_slug, "book_slug"),
+            "book_slug": _safe_book_slug(book_slug),
             "job_id": _safe_id(job_id, "job_id"),
             "segment_id": _safe_id(segment_id, "segment_id"),
             "audio_path": str(path.resolve(strict=False)),

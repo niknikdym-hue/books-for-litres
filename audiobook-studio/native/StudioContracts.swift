@@ -457,6 +457,7 @@ struct PaidRunExecutionResult: Codable {
     let networkRequests: Int
     let selectedSegmentID: String?
     let outputPath: String?
+    let qaTargets: [OpenAIQATarget]?
     let manifestState: String
     let remainingSegments: Int
     let automaticRetryCount: Int
@@ -468,11 +469,39 @@ struct PaidRunExecutionResult: Codable {
         case networkRequests = "network_requests"
         case selectedSegmentID = "selected_segment_id"
         case outputPath = "output_path"
+        case qaTargets = "qa_targets"
         case manifestState = "manifest_state"
         case remainingSegments = "remaining_segments"
         case automaticRetryCount = "automatic_retry_count"
         case remoteRequestSent = "remote_request_sent"
     }
+}
+
+struct OpenAIQATarget: Codable, Identifiable, Equatable {
+    let segmentID: String
+    let outputPath: String
+    let manifestPath: String
+    let synthesisFingerprint: String
+
+    var id: String { segmentID }
+
+    enum CodingKeys: String, CodingKey {
+        case segmentID = "segment_id"
+        case outputPath = "output_path"
+        case manifestPath = "manifest_path"
+        case synthesisFingerprint = "synthesis_fingerprint"
+    }
+}
+
+func audioQASelectionMatches(
+    selectedBook: Book?,
+    selectedJobID: String,
+    selectedProfileID: String,
+    authority: AudioQAAuthority
+) -> Bool {
+    selectedBook?.slug == authority.bookSlug
+        && selectedJobID == authority.jobID
+        && selectedProfileID == authority.profileID
 }
 
 struct YandexChapterRunPlan: Codable, Identifiable {

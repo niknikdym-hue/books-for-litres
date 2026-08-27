@@ -307,6 +307,37 @@ struct NativeContractTests {
         require(audioQA.record.signalMetrics.streamChunkBytes == 65536, "streaming metric decodes")
         require(!audioQA.eligible && !audioQA.remoteRequestSent, "QA gate fails closed offline")
 
+        let selectedBook = try JSONDecoder().decode(
+            Book.self,
+            from: Data("""
+            {"id":"demo-book.json","slug":"demo-book","title":"Демо","author":"Studio","jobs":[]}
+            """.utf8)
+        )
+        require(
+            audioQASelectionMatches(
+                selectedBook: selectedBook,
+                selectedJobID: "chapter-ch001",
+                selectedProfileID: "yandex_lera",
+                authority: audioQA.authority
+            ),
+            "filename ID and canonical slug match for QA decisions"
+        )
+        let changedBook = try JSONDecoder().decode(
+            Book.self,
+            from: Data("""
+            {"id":"other-book.json","slug":"other-book","title":"Другая","author":"Studio","jobs":[]}
+            """.utf8)
+        )
+        require(
+            !audioQASelectionMatches(
+                selectedBook: changedBook,
+                selectedJobID: "chapter-ch001",
+                selectedProfileID: "yandex_lera",
+                authority: audioQA.authority
+            ),
+            "changed book selection fails closed"
+        )
+
         print("NATIVE_CONTRACT_TESTS_PASS")
     }
 }

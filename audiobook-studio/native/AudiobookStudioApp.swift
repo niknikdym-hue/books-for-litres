@@ -87,6 +87,7 @@ final class StudioModel: ObservableObject {
     @Published private(set) var audioQAPlaybackIdentity: AudioQAIdentity?
     @Published private(set) var downstreamApprovedOutput: URL?
     @Published var audioQAStatusText = ""
+    @Published private(set) var openAIQATargets: [OpenAIQATarget] = []
     @Published private(set) var showPrepareConfirmation = false
     @Published private(set) var showCacheOnlyConfirmation = false
     @Published var showPaidConfirmation = false
@@ -109,6 +110,7 @@ final class StudioModel: ObservableObject {
     private var pendingOpenAIAction: PendingOpenAIAction?
     private var pendingBookTextPreparationID: String?
     private var yandexChapterPlanSelection: YandexChapterSelection?
+    private var openAIQASelection: OpenAIExecutionSelection?
 
     init() {
         if let requested = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_ENGINE"],
@@ -491,6 +493,7 @@ final class StudioModel: ObservableObject {
             }
         }
         showPaidConfirmation = false
+        let executionSelection = currentOpenAISelection()
         Task {
             isRunning = true
             defer { isRunning = false }
@@ -501,7 +504,21 @@ final class StudioModel: ObservableObject {
                 ])
                 paidPlan = nil
                 remainingPaidSegments = result.remainingSegments
-                if let path = result.outputPath, !path.isEmpty {
+                let targets = result.qaTargets ?? []
+                openAIQATargets = targets
+                openAIQASelection = executionSelection
+                if targets.count == 1, let target = targets.first {
+                    completedOutput = URL(fileURLWithPath: target.outputPath)
+                    await loadAudioQA(
+                        provider: "openai",
+                        bookID: plan.bookID,
+                        jobID: plan.jobID,
+                        profileID: plan.profileID,
+                        audioPath: target.outputPath,
+                        manifestPath: target.manifestPath,
+                        expectedTarget: target
+                    )
+                } else if let path = result.outputPath, !path.isEmpty {
                     completedOutput = URL(fileURLWithPath: path)
                     await loadAudioQA(
                         provider: "openai",
@@ -513,7 +530,9 @@ final class StudioModel: ObservableObject {
                     )
                 }
                 paidStatusText = result.networkRequests == 0
-                    ? "Готовое аудио использовано без нового запроса."
+                    ? (targets.count > 1
+                        ? "Готовое аудио использовано без нового запроса. Выберите точный сегмент для проверки."
+                        : "Готовое аудио использовано без нового запроса.")
                     : "Сегмент готов. Осталось: \(result.remainingSegments)"
                 errorMessage = nil
             } catch {
@@ -622,6 +641,8 @@ final class StudioModel: ObservableObject {
         audioQAPlaybackIdentity = nil
         downstreamApprovedOutput = nil
         audioQAStatusText = ""
+        openAIQATargets = []
+        openAIQASelection = nil
     }
 
     func openCurrentAudioForQA() {
@@ -657,9 +678,12 @@ final class StudioModel: ObservableObject {
 
     func decideAudioQA(_ decision: String) {
         guard let envelope = audioQA,
-              selectedBookID == envelope.authority.bookSlug,
-              selectedJobID == envelope.authority.jobID,
-              selectedProfileID == envelope.authority.profileID else {
+              audioQASelectionMatches(
+                selectedBook: selectedBook,
+                selectedJobID: selectedJobID,
+                selectedProfileID: selectedProfileID,
+                authority: envelope.authority
+              ) else {
             errorMessage = "Выбор изменился. Откройте текущее аудио для проверки заново."
             return
         }
@@ -700,6 +724,30 @@ final class StudioModel: ObservableObject {
         }
     }
 
+    func openOpenAIQATarget(_ target: OpenAIQATarget) {
+        guard let selection = openAIQASelection,
+              currentOpenAISelection() == selection,
+              openAIQATargets.contains(target) else {
+            openAIQATargets = []
+            openAIQASelection = nil
+            errorMessage = "Выбор изменился. Получите текущий список готовых сегментов заново."
+            return
+        }
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            await loadAudioQA(
+                provider: "openai",
+                bookID: selection.bookID,
+                jobID: selection.jobID,
+                profileID: selection.profileID,
+                audioPath: target.outputPath,
+                manifestPath: target.manifestPath,
+                expectedTarget: target
+            )
+        }
+    }
+
     private func loadAudioQA(
         provider: String,
         selection: YandexChapterSelection,
@@ -722,7 +770,8 @@ final class StudioModel: ObservableObject {
         jobID: String,
         profileID: String,
         audioPath: String = "",
-        manifestPath: String = ""
+        manifestPath: String = "",
+        expectedTarget: OpenAIQATarget? = nil
     ) async {
         do {
             var arguments = [
@@ -734,6 +783,14 @@ final class StudioModel: ObservableObject {
             let result: AudioQACurrentEnvelope = try await runBridgeJSON(arguments)
             guard !result.remoteRequestSent else {
                 throw BridgeError.message("Audio QA нарушил offline contract.")
+            }
+            if let expectedTarget {
+                guard result.authority.segmentID == expectedTarget.segmentID,
+                      result.authority.audioPath == expectedTarget.outputPath,
+                      result.authority.manifestPath == expectedTarget.manifestPath,
+                      result.authority.synthesisFingerprint == expectedTarget.synthesisFingerprint else {
+                    throw BridgeError.message("Точный OpenAI QA target больше не совпадает с production authority.")
+                }
             }
             guard selectedBookID == bookID,
                   selectedJobID == jobID,
@@ -1244,6 +1301,19 @@ private struct AudioQAReviewSection: View {
 
     var body: some View {
         Group {
+            if model.engine == .openai, model.openAIQATargets.count > 1, model.audioQA == nil {
+                Section("Точный сегмент для проверки") {
+                    ForEach(model.openAIQATargets) { target in
+                        Button("Проверить сегмент \(target.segmentID)") {
+                            model.openOpenAIQATarget(target)
+                        }
+                        .disabled(model.isRunning)
+                    }
+                    Text("Выберите сегмент явно; неоднозначный WAV не может быть одобрен.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             if let qa = model.audioQA {
                 Section("Проверка готового аудио") {
                     LabeledContent("Книга", value: qa.authority.bookTitle)

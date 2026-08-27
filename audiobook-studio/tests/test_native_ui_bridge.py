@@ -237,6 +237,8 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('Button("Отклонить", role: .destructive)', source)
         self.assertIn('Button("Запросить перегенерацию")', source)
         self.assertIn("audioQAPlaybackIdentity != envelope.record.identity", decide)
+        self.assertIn("audioQASelectionMatches", decide)
+        self.assertNotIn("selectedBookID == envelope.authority.bookSlug", decide)
         self.assertIn('"--reviewed-audio-sha256", sha', decide)
         self.assertIn('"--reviewed-path-identity", envelope.record.identity.pathIdentity', decide)
         self.assertIn('"--reviewed-fingerprint", fingerprint', decide)
@@ -245,6 +247,18 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertNotIn("--prepare-yandex-chapter-run", regenerate)
         self.assertNotIn("--execute-paid-plan", regenerate)
         self.assertNotIn("--execute-yandex-chapter-plan", regenerate)
+
+    def test_native_openai_cache_only_requires_explicit_exact_target_when_ambiguous(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
+        execute = swift_function_body(source, "private func executePaidPlan(")
+        select = swift_function_body(source, "func openOpenAIQATarget(")
+        self.assertIn("let qaTargets: [OpenAIQATarget]?", contracts)
+        self.assertIn("targets.count == 1", execute)
+        self.assertIn("targets.count > 1", execute)
+        self.assertIn("openAIQATargets.contains(target)", select)
+        self.assertIn("expectedTarget: target", select)
+        self.assertIn("Проверить сегмент", source)
 
     def test_native_add_book_uses_file_importer_and_offline_bridge_only(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")

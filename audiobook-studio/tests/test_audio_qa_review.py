@@ -243,6 +243,63 @@ class AudioQAReviewTests(unittest.TestCase):
                     text_characters=8,
                 )
 
+    def test_unicode_book_slug_persists_and_preserves_exact_identity(self):
+        scanned = self.service.scan(
+            book_slug="война-и-мир",
+            job_id="chapter-ch001",
+            segment_id="s0001",
+            audio_path=self.audio,
+            synthesis_fingerprint="fp-1",
+            expected_sample_rate_hz=24_000,
+            text_characters=8,
+        )
+        approved = self.service.decide(
+            book_slug="война-и-мир",
+            job_id="chapter-ch001",
+            segment_id="s0001",
+            audio_path=self.audio,
+            synthesis_fingerprint="fp-1",
+            expected_sample_rate_hz=24_000,
+            text_characters=8,
+            decision="APPROVED",
+            reviewed_identity=scanned["identity"],
+        )
+        self.assertEqual(approved["book_slug"], "война-и-мир")
+        restarted = AudioQAReviewService(self.state_root)
+        stored = restarted.status(
+            book_slug="война-и-мир", job_id="chapter-ch001", segment_id="s0001"
+        )
+        self.assertEqual(stored["manual_state"], "APPROVED")
+        self.write_wav(self.audio, frequency=660.0)
+        stale = restarted.scan(
+            book_slug="война-и-мир",
+            job_id="chapter-ch001",
+            segment_id="s0001",
+            audio_path=self.audio,
+            synthesis_fingerprint="fp-1",
+            expected_sample_rate_hz=24_000,
+            text_characters=8,
+        )
+        self.assertEqual(stale["manual_state"], "STALE")
+        self.assertTrue(
+            (self.state_root / "война-и-мир/chapter-ch001/s0001.json")
+            .resolve()
+            .is_relative_to(self.state_root.resolve())
+        )
+
+    def test_unicode_book_slug_still_rejects_every_path_escape(self):
+        for value in (".", "..", "...", "../foo", "foo/bar", "foo\\bar", "война/мир"):
+            with self.subTest(value=value), self.assertRaises(AudioQAError):
+                self.service.scan(
+                    book_slug=value,
+                    job_id="chapter-ch001",
+                    segment_id="s0001",
+                    audio_path=self.audio,
+                    synthesis_fingerprint="fp-1",
+                    expected_sample_rate_hz=24_000,
+                    text_characters=8,
+                )
+
     def test_text_derived_threshold_rejects_obvious_truncation_but_accepts_short_text(self):
         self.write_wav(self.audio, frequency=440.0, duration=0.08)
         truncated = self.scan(text_characters=200)
