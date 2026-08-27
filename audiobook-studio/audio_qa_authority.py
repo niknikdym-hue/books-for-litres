@@ -78,6 +78,22 @@ def _require_below(path: Path, root: Path, label: str) -> Path:
     return resolved
 
 
+def _require_no_symlink_components(path: Path, root: Path, label: str) -> Path:
+    """Require every lexical component below root to be a real path entry."""
+    candidate = Path(path).expanduser().absolute()
+    boundary = Path(root).expanduser().absolute()
+    try:
+        relative = candidate.relative_to(boundary)
+    except ValueError as error:
+        raise AudioQAAuthorityError(f"{label} escapes its production root.") from error
+    current = boundary
+    for component in relative.parts:
+        current = current / component
+        if current.is_symlink():
+            raise AudioQAAuthorityError(f"{label} cannot contain symlink components.")
+    return candidate
+
+
 @dataclass(frozen=True)
 class AudioQAAuthority:
     provider: str
@@ -296,7 +312,7 @@ def resolve_yandex_authority(
     )
 
 
-def resolve_openai_authority(
+def _openai_candidates(
     *,
     library: BookLibrary,
     backend: Any,
@@ -304,8 +320,14 @@ def resolve_openai_authority(
     job_id: str,
     profile_id: str,
     manifest_path: Path,
-    audio_path: Path | None = None,
-) -> AudioQAAuthority:
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    str,
+    str,
+    Path,
+    list[tuple[Any, dict[str, Any], Path, str]],
+]:
     from backends.openai_tts import load_approved_profile, make_fingerprint, normalize_input_text
 
     book, job, text = _job(library, book_name, job_id)
@@ -322,8 +344,10 @@ def resolve_openai_authority(
     ).expanduser().absolute()
     if supplied_manifest != expected_manifest:
         raise AudioQAAuthorityError("Selected OpenAI manifest is not the canonical job authority.")
-    if supplied_manifest.is_symlink():
-        raise AudioQAAuthorityError("Canonical OpenAI manifest cannot be a symlink.")
+    lexical_manifest_parent = supplied_manifest.parent
+    _require_no_symlink_components(
+        supplied_manifest, Path(backend.config.jobs_root), "Canonical OpenAI manifest"
+    )
     manifest_path = _require_below(
         supplied_manifest, Path(backend.config.jobs_root), "OpenAI manifest"
     )
@@ -345,11 +369,12 @@ def resolve_openai_authority(
         fingerprint = make_fingerprint(normalize_input_text(segment.text), profile)
         entry = entries.get(segment.segment_id)
         output_value = entry.get("output_path") if isinstance(entry, dict) else None
-        output = (
-            _require_below(Path(output_value), manifest_path.parent, "OpenAI audio")
-            if isinstance(output_value, str)
-            else None
-        )
+        output = None
+        if isinstance(output_value, str):
+            lexical_output = _require_no_symlink_components(
+                Path(output_value), lexical_manifest_parent, "Canonical OpenAI audio"
+            )
+            output = _require_below(lexical_output, manifest_path.parent, "OpenAI audio")
         if (
             isinstance(entry, dict)
             and entry.get("state") == "SUCCEEDED"
@@ -359,11 +384,21 @@ def resolve_openai_authority(
             and not output.is_symlink()
         ):
             candidates.append((segment, entry, output, fingerprint))
-    if audio_path is not None:
-        candidates = [item for item in candidates if _same_path(item[2], audio_path)]
-    if len(candidates) != 1:
-        raise AudioQAAuthorityError("OpenAI produced segment selection is not unambiguous.")
-    segment, entry, authoritative_audio, fingerprint = candidates[0]
+    return book, job, canonical_book_slug, text, manifest_path, candidates
+
+
+def _openai_authority_from_candidate(
+    *,
+    book: Mapping[str, Any],
+    job: Mapping[str, Any],
+    job_id: str,
+    profile_id: str,
+    book_name: str,
+    canonical_book_slug: str,
+    manifest_path: Path,
+    candidate: tuple[Any, dict[str, Any], Path, str],
+) -> AudioQAAuthority:
+    segment, entry, authoritative_audio, fingerprint = candidate
     metadata = entry.get("wav_metadata")
     if not isinstance(metadata, dict) or not isinstance(metadata.get("sample_rate_hz"), int):
         raise AudioQAAuthorityError("OpenAI sample-rate authority is unavailable.")
@@ -384,4 +419,77 @@ def resolve_openai_authority(
         synthesis_fingerprint=fingerprint,
         expected_sample_rate_hz=actual_rate,
         text_characters=len(str(segment.text)),
+    )
+
+
+def list_openai_qa_targets(
+    *,
+    library: BookLibrary,
+    backend: Any,
+    book_name: str,
+    job_id: str,
+    profile_id: str,
+    manifest_path: Path,
+) -> list[dict[str, str]]:
+    """List exact current successful OpenAI outputs without provider access."""
+    book, job, canonical_slug, _, authority_path, candidates = _openai_candidates(
+        library=library,
+        backend=backend,
+        book_name=book_name,
+        job_id=job_id,
+        profile_id=profile_id,
+        manifest_path=manifest_path,
+    )
+    targets: list[dict[str, str]] = []
+    for candidate in candidates:
+        authority = _openai_authority_from_candidate(
+            book=book,
+            job=job,
+            job_id=job_id,
+            profile_id=profile_id,
+            book_name=book_name,
+            canonical_book_slug=canonical_slug,
+            manifest_path=authority_path,
+            candidate=candidate,
+        )
+        targets.append({
+            "segment_id": authority.segment_id,
+            "output_path": str(authority.audio_path),
+            "manifest_path": str(authority.manifest_path),
+            "synthesis_fingerprint": authority.synthesis_fingerprint,
+        })
+    return targets
+
+
+def resolve_openai_authority(
+    *,
+    library: BookLibrary,
+    backend: Any,
+    book_name: str,
+    job_id: str,
+    profile_id: str,
+    manifest_path: Path,
+    audio_path: Path | None = None,
+) -> AudioQAAuthority:
+    book, job, canonical_slug, _, authority_path, candidates = _openai_candidates(
+        library=library,
+        backend=backend,
+        book_name=book_name,
+        job_id=job_id,
+        profile_id=profile_id,
+        manifest_path=manifest_path,
+    )
+    if audio_path is not None:
+        candidates = [item for item in candidates if _same_path(item[2], audio_path)]
+    if len(candidates) != 1:
+        raise AudioQAAuthorityError("OpenAI produced segment selection is not unambiguous.")
+    return _openai_authority_from_candidate(
+        book=book,
+        job=job,
+        job_id=job_id,
+        profile_id=profile_id,
+        book_name=book_name,
+        canonical_book_slug=canonical_slug,
+        manifest_path=authority_path,
+        candidate=candidates[0],
     )

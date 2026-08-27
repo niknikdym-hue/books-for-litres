@@ -21,7 +21,11 @@ from backends.openai_pricing import OpenAIPricingConfig
 from backends.openai_types import OpenAIBackendConfig, OpenAICredential, OpenAITTSError
 from cloud_billing import CloudBillingService, CloudBillingSettings, save_settings
 from paid_run import PaidRunError, PaidRunService, _canonical_hash
-from audio_qa_authority import AudioQAAuthorityError, resolve_openai_authority
+from audio_qa_authority import (
+    AudioQAAuthorityError,
+    list_openai_qa_targets,
+    resolve_openai_authority,
+)
 
 
 NOW = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
@@ -384,7 +388,36 @@ class PaidRunTests(unittest.TestCase):
         external.write_bytes(manifest.read_bytes())
         manifest.unlink()
         manifest.symlink_to(external)
-        with self.assertRaisesRegex(AudioQAAuthorityError, "cannot be a symlink"):
+        with self.assertRaisesRegex(AudioQAAuthorityError, "symlink"):
+            resolve_openai_authority(
+                library=service.book_library,
+                backend=service.backend,
+                book_name=self.book_path.name,
+                job_id="job-1",
+                profile_id="openai_onyx",
+                manifest_path=manifest,
+                audio_path=Path(result["qa_targets"][0]["output_path"]),
+            )
+
+    def test_openai_authority_rejects_symlinked_manifest_ancestor(self):
+        service = self.service()
+        profile = __import__(
+            "backends.openai_client", fromlist=["load_approved_profile"]
+        ).load_approved_profile("openai_onyx")
+        _, _, _, text = service._load_source(self.book_path.name, "job-1")
+        for segment in service.backend.segment(text):
+            fingerprint = make_fingerprint(normalize_input_text(segment.text), profile)
+            cache = service.backend.config.cache_root / f"{fingerprint}.wav"
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_bytes(wav_bytes())
+        plan = self.prepare(service)
+        result = service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        manifest = Path(result["manifest"])
+        canonical_book_dir = service.backend.config.jobs_root / "demo-book"
+        relocated_book_dir = service.backend.config.jobs_root / "physical-demo-book"
+        canonical_book_dir.rename(relocated_book_dir)
+        canonical_book_dir.symlink_to(relocated_book_dir, target_is_directory=True)
+        with self.assertRaisesRegex(AudioQAAuthorityError, "symlink components"):
             resolve_openai_authority(
                 library=service.book_library,
                 backend=service.backend,
@@ -426,6 +459,19 @@ class PaidRunTests(unittest.TestCase):
                     / "demo-book/job-1/openai/openai_onyx/MANIFEST.json"
                 )
                 self.assertEqual(manifest, expected)
+                targets = list_openai_qa_targets(
+                    library=service.book_library,
+                    backend=service.backend,
+                    book_name=self.book_path.name,
+                    job_id="job-1",
+                    profile_id="openai_onyx",
+                    manifest_path=manifest,
+                )
+                self.assertEqual(len(targets), 2)
+                self.assertEqual(
+                    {target["segment_id"] for target in targets},
+                    {"s0001", "s0002"},
+                )
                 authority = resolve_openai_authority(
                     library=service.book_library,
                     backend=service.backend,

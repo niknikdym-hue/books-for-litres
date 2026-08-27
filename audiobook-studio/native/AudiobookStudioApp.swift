@@ -656,12 +656,75 @@ final class StudioModel: ObservableObject {
         Task {
             isRunning = true
             defer { isRunning = false }
-            await loadAudioQA(
-                provider: engine.rawValue,
-                bookID: selectedBookID,
-                jobID: selectedJobID,
-                profileID: selectedProfileID
-            )
+            if engine == .openai {
+                await loadOpenAIQATargets()
+            } else {
+                await loadAudioQA(
+                    provider: engine.rawValue,
+                    bookID: selectedBookID,
+                    jobID: selectedJobID,
+                    profileID: selectedProfileID
+                )
+            }
+        }
+    }
+
+    func refreshOpenAIQATargets() {
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            await loadOpenAIQATargets()
+        }
+    }
+
+    private func loadOpenAIQATargets() async {
+        guard let selection = currentOpenAISelection() else {
+            errorMessage = "Выберите текущую OpenAI-задачу и профиль."
+            return
+        }
+        do {
+            let result: OpenAIQATargetList = try await runBridgeJSON([
+                "--audio-qa-openai-targets",
+                "--book", selection.bookID,
+                "--job", selection.jobID,
+                "--profile-id", selection.profileID,
+            ])
+            guard !result.remoteRequestSent else {
+                throw BridgeError.message("Список OpenAI QA targets нарушил offline contract.")
+            }
+            guard currentOpenAISelection() == selection else { return }
+            openAIQATargets = result.qaTargets
+            openAIQASelection = selection
+            if let current = audioQA,
+               !result.qaTargets.contains(where: {
+                   $0.segmentID == current.authority.segmentID
+                       && $0.outputPath == current.authority.audioPath
+                       && $0.manifestPath == current.authority.manifestPath
+                       && $0.synthesisFingerprint == current.authority.synthesisFingerprint
+               }) {
+                audioQA = nil
+                audioQAPlaybackIdentity = nil
+                downstreamApprovedOutput = nil
+            }
+            if result.qaTargets.count == 1, let target = result.qaTargets.first {
+                await loadAudioQA(
+                    provider: "openai",
+                    bookID: selection.bookID,
+                    jobID: selection.jobID,
+                    profileID: selection.profileID,
+                    audioPath: target.outputPath,
+                    manifestPath: target.manifestPath,
+                    expectedTarget: target
+                )
+            } else if result.qaTargets.isEmpty {
+                audioQA = nil
+                errorMessage = "Текущих точных OpenAI-сегментов для проверки не найдено."
+            } else {
+                paidStatusText = "Выберите точный OpenAI-сегмент для проверки."
+                errorMessage = nil
+            }
+        } catch {
+            showError(error)
         }
     }
 
@@ -1301,7 +1364,7 @@ private struct AudioQAReviewSection: View {
 
     var body: some View {
         Group {
-            if model.engine == .openai, model.openAIQATargets.count > 1, model.audioQA == nil {
+            if model.engine == .openai, model.openAIQATargets.count > 1 {
                 Section("Точный сегмент для проверки") {
                     ForEach(model.openAIQATargets) { target in
                         Button("Проверить сегмент \(target.segmentID)") {
@@ -1312,6 +1375,10 @@ private struct AudioQAReviewSection: View {
                     Text("Выберите сегмент явно; неоднозначный WAV не может быть одобрен.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Button("Обновить список из manifest") {
+                        model.refreshOpenAIQATargets()
+                    }
+                    .disabled(model.isRunning)
                 }
             }
             if let qa = model.audioQA {

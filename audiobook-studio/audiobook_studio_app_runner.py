@@ -25,6 +25,7 @@ from paid_run import PaidRunService
 from audio_qa_authority import (
     AudioQAAuthority,
     AudioQAAuthorityError,
+    list_openai_qa_targets,
     resolve_openai_authority,
     resolve_qwen_authority,
     resolve_yandex_authority,
@@ -81,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--billing-preflight", action="store_true")
     mode.add_argument("--set-billing-setting", action="store_true")
     mode.add_argument("--audio-qa-current", action="store_true")
+    mode.add_argument("--audio-qa-openai-targets", action="store_true")
     mode.add_argument("--audio-qa-decide", action="store_true")
     mode.add_argument("--audio-qa-downstream", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
@@ -297,6 +299,32 @@ def audio_qa_current(
         "eligible": eligible,
         "remote_request_sent": False,
     }
+
+
+def openai_qa_targets(*, book_name: str, job_id: str, profile_id: str) -> dict[str, Any]:
+    """Return current exact QA choices from the canonical manifest, offline."""
+    from backends.openai_tts import OpenAITTSBackend, load_backend_config
+    from openai_backend_runner import CONFIG_PATH as OPENAI_CONFIG_PATH
+
+    backend = OpenAITTSBackend(load_backend_config(OPENAI_CONFIG_PATH))
+    slug = BOOK_LIBRARY.resolve_book_profile(book_name).stem
+    manifest_path = (
+        backend.config.jobs_root / slug / job_id / "openai" / profile_id / "MANIFEST.json"
+    )
+    return {
+        "schema_version": 1,
+        "qa_targets": list_openai_qa_targets(
+            library=BOOK_LIBRARY,
+            backend=backend,
+            book_name=book_name,
+            job_id=job_id,
+            profile_id=profile_id,
+            manifest_path=manifest_path,
+        ),
+        "remote_request_sent": False,
+    }
+
+
 def _load_book_job_text(book_name: str, job_id: str) -> tuple[dict[str, Any], str]:
     book = BOOK_LIBRARY.load_book_for_execution(book_name)
     job = (book.get("jobs") or {}).get(job_id) if isinstance(book, dict) else None
@@ -700,6 +728,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             ensure_ascii=False,
             indent=2,
         ))
+        return 0
+
+    if args.audio_qa_openai_targets:
+        print(json.dumps(openai_qa_targets(
+            book_name=_require(args.book, "--book"),
+            job_id=_require(args.job, "--job"),
+            profile_id=_require(args.profile_id, "--profile-id"),
+        ), ensure_ascii=False, indent=2))
         return 0
 
     if args.audio_qa_current or args.audio_qa_decide or args.audio_qa_downstream:

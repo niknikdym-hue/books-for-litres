@@ -305,11 +305,21 @@ class NativeUIBridgeTests(unittest.TestCase):
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
         execute = swift_function_body(source, "private func executePaidPlan(")
         select = swift_function_body(source, "func openOpenAIQATarget(")
+        reopen = swift_function_body(source, "private func loadOpenAIQATargets()")
         self.assertIn("let qaTargets: [OpenAIQATarget]?", contracts)
+        self.assertIn("struct OpenAIQATargetList: Codable", contracts)
         self.assertIn("targets.count == 1", execute)
         self.assertIn("targets.count > 1", execute)
         self.assertIn("openAIQATargets.contains(target)", select)
         self.assertIn("expectedTarget: target", select)
+        self.assertIn('"--audio-qa-openai-targets"', reopen)
+        self.assertIn("guard !result.remoteRequestSent", reopen)
+        self.assertIn("currentOpenAISelection() == selection", reopen)
+        self.assertIn(
+            "if model.engine == .openai, model.openAIQATargets.count > 1 {",
+            source,
+        )
+        self.assertIn('Button("Обновить список из manifest")', source)
         self.assertIn("Проверить сегмент", source)
 
     def test_native_add_book_uses_file_importer_and_offline_bridge_only(self):

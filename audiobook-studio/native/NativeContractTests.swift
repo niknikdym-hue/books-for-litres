@@ -194,6 +194,32 @@ struct NativeContractTests {
             from: Data(readyPlanJSON.replacingOccurrences(of: "READY_FOR_CONFIRMATION", with: "CACHE_ONLY").utf8)
         )
         require(cachePlan.decision == "CACHE_ONLY" && cachePlan.canExecute, "cache-only decode")
+        let targetListJSON = """
+        {
+          "schema_version": 1,
+          "qa_targets": [
+            {
+              "segment_id": "s0001",
+              "output_path": "/tmp/s0001.wav",
+              "manifest_path": "/tmp/MANIFEST.json",
+              "synthesis_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            },
+            {
+              "segment_id": "s0002",
+              "output_path": "/tmp/s0002.wav",
+              "manifest_path": "/tmp/MANIFEST.json",
+              "synthesis_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            }
+          ],
+          "remote_request_sent": false
+        }
+        """
+        let targetList = try JSONDecoder().decode(
+            OpenAIQATargetList.self,
+            from: Data(targetListJSON.utf8)
+        )
+        require(targetList.qaTargets.count == 2, "OpenAI QA target list decodes")
+        require(!targetList.remoteRequestSent, "OpenAI QA target list is offline")
         let blockedPlan = try JSONDecoder().decode(
             PaidRunPlan.self,
             from: Data(readyPlanJSON.replacingOccurrences(of: "READY_FOR_CONFIRMATION", with: "BLOCKED").utf8)

@@ -493,6 +493,18 @@ struct OpenAIQATarget: Codable, Identifiable, Equatable {
     }
 }
 
+struct OpenAIQATargetList: Codable {
+    let schemaVersion: Int
+    let qaTargets: [OpenAIQATarget]
+    let remoteRequestSent: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case qaTargets = "qa_targets"
+        case remoteRequestSent = "remote_request_sent"
+    }
+}
+
 func audioQASelectionMatches(
     selectedBook: Book?,
     selectedJobID: String,
