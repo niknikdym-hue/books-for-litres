@@ -366,6 +366,33 @@ class PaidRunTests(unittest.TestCase):
         self.assertEqual(result["output_path"], result["qa_targets"][0]["output_path"])
         self.assertEqual(self.calls, 0)
 
+    def test_openai_authority_rejects_symlinked_canonical_manifest(self):
+        service = self.service()
+        profile = __import__("backends.openai_client", fromlist=["load_approved_profile"]).load_approved_profile("openai_onyx")
+        _, _, _, text = service._load_source(self.book_path.name, "job-1")
+        for segment in service.backend.segment(text):
+            fingerprint = make_fingerprint(normalize_input_text(segment.text), profile)
+            cache = service.backend.config.cache_root / f"{fingerprint}.wav"
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_bytes(wav_bytes())
+        plan = self.prepare(service)
+        result = service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        manifest = Path(result["manifest"])
+        external = self.root / "external-manifest.json"
+        external.write_bytes(manifest.read_bytes())
+        manifest.unlink()
+        manifest.symlink_to(external)
+        with self.assertRaisesRegex(AudioQAAuthorityError, "cannot be a symlink"):
+            resolve_openai_authority(
+                library=service.book_library,
+                backend=service.backend,
+                book_name=self.book_path.name,
+                job_id="job-1",
+                profile_id="openai_onyx",
+                manifest_path=manifest,
+                audio_path=Path(result["qa_targets"][0]["output_path"]),
+            )
+
     def test_ambiguous_and_failed_manifest_block_without_retry(self):
         service = self.service()
         base = self.prepare(service)

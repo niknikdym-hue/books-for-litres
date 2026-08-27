@@ -142,6 +142,48 @@ class AudioQAAuthorityTests(unittest.TestCase):
         self.assertEqual(authority.audio_path, audio.resolve())
         self.assertEqual(authority.text_characters, len(self.text))
 
+    def test_qwen_authority_emits_canonical_slug_for_optional_or_equivalent_profile_slug(self):
+        config = json.loads((ROOT / "studio-config.json").read_text(encoding="utf-8"))
+        config_path = self.root / "studio-config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        profile_path = self.root / "books/demo-book.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        output = self.root / "qwen-canonical/demo.wav"
+        report_path = output.with_name("RUN-REPORT.json")
+        write_wav(output, rate=24000)
+
+        for raw_slug in (None, "ＤＥＭＯ-ＢＯＯＫ"):
+            current = dict(profile)
+            if raw_slug is None:
+                current.pop("slug", None)
+            else:
+                current["slug"] = raw_slug
+            profile_path.write_text(json.dumps(current, ensure_ascii=False), encoding="utf-8")
+            report = {
+                "book_profile_sha256": sha256(profile_path),
+                "job": "short-test",
+                "job_label": self.job["label"],
+                "speaker": "Vivian",
+                "model": config["model"],
+                "generation": config["default_generation"],
+                "audiobook_instruct": current["audiobook_instruct"],
+                "segments": [{"id": "t01", "seed": 1}],
+                "segment_count": 1,
+                "sample_rate": 24000,
+                "joined_wav": output.name,
+            }
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            authority = resolve_qwen_authority(
+                library=self.library,
+                book_name="demo-book.json",
+                job_id="short-test",
+                profile_id="qwen_vivian",
+                report_candidates=[report_path],
+                config_path=config_path,
+            )
+            self.assertEqual(authority.book_slug, "demo-book")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -60,6 +60,11 @@ def _job(library: BookLibrary, book_name: str, job_id: str) -> tuple[dict[str, A
     return book, job, "\n\n".join(texts)
 
 
+def _canonical_book_slug(library: BookLibrary, book_name: str) -> str:
+    """Return the canonical registry identity, never a raw optional profile field."""
+    return library.resolve_book_profile(book_name).stem
+
+
 def _same_path(left: Path, right: Path) -> bool:
     return Path(left).expanduser().resolve(strict=False) == Path(right).expanduser().resolve(strict=False)
 
@@ -173,7 +178,7 @@ def resolve_qwen_authority(
     })
     return AudioQAAuthority(
         provider="qwen",
-        book_slug=str(book.get("slug") or book_name),
+        book_slug=profile_path.stem,
         book_title=str(book.get("title") or book_name),
         job_id=job_id,
         job_label=str(job.get("label") or job_id),
@@ -276,7 +281,7 @@ def resolve_yandex_authority(
     })
     return AudioQAAuthority(
         provider="yandex",
-        book_slug=str(book.get("slug") or book_name),
+        book_slug=_canonical_book_slug(library, book_name),
         book_title=str(book.get("title") or book_name),
         job_id=job_id,
         job_label=str(job.get("label") or job_id),
@@ -305,17 +310,23 @@ def resolve_openai_authority(
 
     book, job, text = _job(library, book_name, job_id)
     profile = load_approved_profile(profile_id)
-    manifest_path = Path(manifest_path).resolve()
+    canonical_book_slug = _canonical_book_slug(library, book_name)
+    supplied_manifest = Path(manifest_path).expanduser().absolute()
     expected_manifest = (
         Path(backend.config.jobs_root)
-        / str(book.get("slug") or book_name)
+        / canonical_book_slug
         / job_id
         / "openai"
         / profile_id
         / "MANIFEST.json"
-    ).resolve(strict=False)
-    if manifest_path != expected_manifest:
+    ).expanduser().absolute()
+    if supplied_manifest != expected_manifest:
         raise AudioQAAuthorityError("Selected OpenAI manifest is not the canonical job authority.")
+    if supplied_manifest.is_symlink():
+        raise AudioQAAuthorityError("Canonical OpenAI manifest cannot be a symlink.")
+    manifest_path = _require_below(
+        supplied_manifest, Path(backend.config.jobs_root), "OpenAI manifest"
+    )
     manifest = _load_json(manifest_path)
     entries = manifest.get("segments")
     if (
@@ -361,7 +372,7 @@ def resolve_openai_authority(
         raise AudioQAAuthorityError("OpenAI output rate disagrees with its manifest authority.")
     return AudioQAAuthority(
         provider="openai",
-        book_slug=str(book.get("slug") or book_name),
+        book_slug=canonical_book_slug,
         book_title=str(book.get("title") or book_name),
         job_id=job_id,
         job_label=str(job.get("label") or job_id),
