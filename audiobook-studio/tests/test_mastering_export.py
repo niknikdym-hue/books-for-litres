@@ -427,6 +427,17 @@ class MasteringExportTests(unittest.TestCase):
         self.assertEqual(recovered_again["candidate_identity"], first["candidate_identity"])
         self.assertTrue(book_pointer.is_file())
 
+        book_pointer.write_text(json.dumps({
+            "schema_version": 1,
+            "export_identity": "0" * 64,
+            "manifest_path": "/stale/package/MANIFEST.json",
+        }), encoding="utf-8")
+        recovered_stale = self._export(master)
+        repaired = json.loads(book_pointer.read_text(encoding="utf-8"))
+        self.assertEqual(recovered_stale["candidate_identity"], first["candidate_identity"])
+        self.assertEqual(repaired["export_identity"], first["export_manifest"]["export_identity"])
+        self.assertEqual(repaired["manifest_path"], first["manifest_path"])
+
     def test_export_recovery_revalidates_and_never_rewinds_other_chapter_pointers(self):
         master = self._master_authority()
         self._export(master)
@@ -457,6 +468,62 @@ class MasteringExportTests(unittest.TestCase):
         self._export(master)
         self.assertEqual(other_pointer.read_bytes(), other_before)
         self.assertFalse(book_pointer.exists())
+
+    def test_historical_master_change_before_publication_fails_closed(self):
+        master = self._master_authority()
+        first = self._export(master)
+        changed_book = copy.deepcopy(self.book)
+        changed_book["author"] = "Автор нового package"
+        historical = copy.deepcopy(first["chapter_export"])
+        historical_master = copy.deepcopy(master)
+        historical_master.update({
+            "job_id": "chapter-ch002",
+            "master_identity": "b" * 64,
+            "audio_sha256": "c" * 64,
+            "master_manifest_sha256": "d" * 64,
+        })
+        authority = canonical_book_authority(changed_book)
+        chapter = authority["chapters"][1]
+        historical.update({
+            "job_id": "chapter-ch002",
+            "chapter_id": "ch002",
+            "chapter_title": "Глава 2",
+            "position": 2,
+            "master_identity": historical_master["master_identity"],
+            "master_sha256": historical_master["audio_sha256"],
+            "master_manifest_sha256": historical_master["master_manifest_sha256"],
+        })
+        historical["candidate_identity"] = self.exporting._candidate_identity_from_tool(
+            historical_master, authority, chapter, historical["tool"], historical["encoder"]
+        )
+        changed_historical_master = {**historical_master, "audio_sha256": "e" * 64}
+
+        def current_master(**kwargs):
+            return master if kwargs["job_id"] == self.job_id else changed_historical_master
+
+        def encode(arguments, **_kwargs):
+            Path(arguments[-1]).write_bytes(b"ID3" + b"x" * 4093)
+            return subprocess.CompletedProcess(arguments, 0, b"", b"")
+
+        profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
+        before_directories = {path.name for path in profile_root.iterdir() if path.is_dir()}
+        with mock.patch.object(self.exporting, "_load_current_candidates", return_value=[historical]), \
+             mock.patch("mastering_export.resolve_current_master", side_effect=current_master), \
+             mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             mock.patch.object(self.exporting, "_inspect_mp3", return_value={
+                 "duration_seconds": master["wav"]["duration_seconds"],
+                 "sample_rate_hz": 48_000, "channels": 2, "channel_layout": "stereo",
+                 "bitrate_bps": 128_000, "size_bytes": 4096, "decodable": True,
+             }), \
+             mock.patch("mastering_export.subprocess.run", side_effect=encode), \
+             self.assertRaises(MasteringExportError) as raised:
+            self.exporting.export(master, changed_book)
+        self.assertEqual(raised.exception.code, "stale_master")
+        self.assertEqual(
+            {path.name for path in profile_root.iterdir() if path.is_dir()},
+            before_directories,
+        )
 
     def test_candidate_preserves_its_own_tool_identity_across_package_changes(self):
         master = self._master_authority()

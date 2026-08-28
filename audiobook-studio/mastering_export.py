@@ -20,6 +20,7 @@ import subprocess
 import tempfile
 import unicodedata
 import wave
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -1094,16 +1095,43 @@ class LitresExportService:
         book_pointer = profile_root / "CURRENT.json"
         if book_pointer.is_symlink():
             raise MasteringExportError("symlink_pointer", "Export CURRENT является ссылкой.")
-        if book_pointer.exists():
-            return
+        for chapter in validated["chapters"]:
+            pointer = profile_root / f"CURRENT-{chapter['job_id']}.json"
+            if pointer.is_symlink():
+                raise MasteringExportError("symlink_pointer", "Chapter export CURRENT является ссылкой.")
+            if not pointer.is_file():
+                return
+            try:
+                current = json.loads(pointer.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return
+            if (
+                current.get("manifest_path") != str(manifest_path)
+                or current.get("candidate_identity") != chapter.get("candidate_identity")
+            ):
+                return
+        validated_jobs = {chapter["job_id"] for chapter in validated["chapters"]}
         for pointer in profile_root.glob("CURRENT-*.json"):
             if pointer.is_symlink():
                 raise MasteringExportError("symlink_pointer", "Chapter export CURRENT является ссылкой.")
+            pointer_job = pointer.name.removeprefix("CURRENT-").removesuffix(".json")
+            if pointer_job in validated_jobs:
+                continue
             try:
                 current = json.loads(pointer.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 return
             if current.get("manifest_path") != str(manifest_path):
+                return
+        if book_pointer.is_file():
+            try:
+                current_book = json.loads(book_pointer.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                current_book = None
+            if isinstance(current_book, Mapping) and (
+                current_book.get("export_identity") == identity
+                and current_book.get("manifest_path") == str(manifest_path)
+            ):
                 return
         atomic_write_json(book_pointer, {
             "schema_version": EXPORT_SCHEMA_VERSION,
@@ -1111,6 +1139,40 @@ class LitresExportService:
             "manifest_path": str(manifest_path),
             "updated_at": utc_now_iso(),
         })
+
+    def _revalidate_candidate_masters(
+        self,
+        book: Mapping[str, Any],
+        candidates: Sequence[Mapping[str, Any]],
+    ) -> None:
+        chapters = {item["job_id"]: item for item in book["chapters"]}
+        for candidate in candidates:
+            job_id = candidate.get("job_id")
+            chapter = chapters.get(job_id)
+            if chapter is None:
+                raise MasteringExportError("unknown_chapter", "Export candidate относится к неизвестной главе.")
+            current_master = resolve_current_master(
+                workspace_root=self.workspace_root,
+                masters_root=self.workspace_root / "masters",
+                book_slug=book["slug"],
+                job_id=job_id,
+                expected_master_identity=candidate.get("master_identity"),
+            )
+            tool = candidate.get("tool")
+            encoder = candidate.get("encoder")
+            if (
+                current_master.get("master_manifest_sha256") != candidate.get("master_manifest_sha256")
+                or current_master.get("audio_sha256") != candidate.get("master_sha256")
+                or not isinstance(tool, Mapping)
+                or not isinstance(encoder, str)
+                or candidate.get("candidate_identity") != self._candidate_identity_from_tool(
+                    current_master, book, chapter, tool, encoder
+                )
+            ):
+                raise MasteringExportError(
+                    "stale_master",
+                    "Master authority одной из глав устарела перед публикацией export.",
+                )
 
     def _load_current_candidates(self, book: Mapping[str, Any]) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -1274,19 +1336,23 @@ class LitresExportService:
         revalidate_book: Callable[[], Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
         book_slug = _safe_slug(master_value.get("book_slug"))
-        job_id = _safe_id(master_value.get("job_id"), "job_id")
-        with production_authority_lock(
-            self.workspace_root, provider="master", book_slug=book_slug,
-            job_id=job_id, profile_id=MASTER_PRESET_ID, exclusive=False,
-        ):
-            with production_authority_lock(
+        book = self._validated_book(book_value)
+        if book["slug"] != book_slug:
+            raise MasteringExportError("book_identity_mismatch", "Master относится к другой книге.")
+        with ExitStack() as locks:
+            for job_id in sorted({chapter["job_id"] for chapter in book["chapters"]}):
+                locks.enter_context(production_authority_lock(
+                    self.workspace_root, provider="master", book_slug=book_slug,
+                    job_id=job_id, profile_id=MASTER_PRESET_ID, exclusive=False,
+                ))
+            locks.enter_context(production_authority_lock(
                 self.workspace_root, provider="export", book_slug=book_slug,
                 job_id="book", profile_id=LITRES_PROFILE_ID, exclusive=True,
-            ):
-                return self._export_locked(
-                    master_value, book_value,
-                    revalidate_master=revalidate_master, revalidate_book=revalidate_book,
-                )
+            ))
+            return self._export_locked(
+                master_value, book_value,
+                revalidate_master=revalidate_master, revalidate_book=revalidate_book,
+            )
 
     def _export_locked(
         self,
@@ -1476,6 +1542,7 @@ class LitresExportService:
                     raise MasteringExportError("stale_master", "Master authority устарела перед публикацией.")
                 if revalidate_book is not None and _canonical_json(self._validated_book(revalidate_book())) != _canonical_json(book):
                     raise MasteringExportError("book_authority_changed", "Book authority изменилась перед публикацией.")
+                self._revalidate_candidate_masters(book, state["ordered_candidates"])
                 try:
                     package_temp.rename(output_dir)
                 except OSError as error:
