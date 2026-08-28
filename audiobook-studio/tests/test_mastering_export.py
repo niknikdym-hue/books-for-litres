@@ -232,6 +232,7 @@ class MasteringExportTests(unittest.TestCase):
     def test_preset_and_profile_identity_are_deterministic_and_versioned(self):
         self.assertEqual(master_preset_hash(), master_preset_hash())
         self.assertEqual(litres_profile_hash(), litres_profile_hash())
+        self.assertEqual(LITRES_PROFILE["cover_art_contract"], "canonical_attached_pic_if_configured_v1")
         with mock.patch.object(self.mastering, "_resolution", return_value=self.resolution):
             first = self.mastering.prepare(self.authority)["master_identity"]
             second = self.mastering.prepare(self.authority)["master_identity"]
@@ -563,6 +564,16 @@ class MasteringExportTests(unittest.TestCase):
         package_cover = Path(exported["export_manifest"]["cover"]["package_path"])
         self.assertTrue(package_cover.is_file())
         self.assertEqual(sha256_file(package_cover), sha256_file(cover))
+
+        manifest_path = Path(exported["manifest_path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["chapters"][0]["facts"]["cover_art_embedded"] = False
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_inspect_mp3", return_value={"cover_art_embedded": True}):
+            self.assertEqual(self.exporting._load_current_candidates(canonical_book_authority(self.book)), [])
+        manifest["chapters"][0]["facts"]["cover_art_embedded"] = True
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
         package_cover.write_bytes(b"changed")
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \

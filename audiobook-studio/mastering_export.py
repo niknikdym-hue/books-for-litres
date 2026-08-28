@@ -79,6 +79,7 @@ LITRES_PROFILE: dict[str, Any] = {
     "sample_rate_hz": TARGET_SAMPLE_RATE_HZ,
     "bitrate_bps": 128_000,
     "bitrate_mode": "CBR",
+    "cover_art_contract": "canonical_attached_pic_if_configured_v1",
     "max_duration_seconds": 3 * 60 * 60,
     "max_file_bytes": 170 * 1024 * 1024,
     "max_book_files": 500,
@@ -1131,6 +1132,17 @@ class LitresExportService:
                 mp3 = _require_regular_path(Path(candidate["path"]), root=self.workspace_root, label="Export MP3")
                 if candidate.get("sha256") != sha256_file(mp3) or candidate.get("path_identity") != path_identity(mp3):
                     continue
+                if book.get("cover") is not None:
+                    facts = candidate.get("facts")
+                    ffmpeg = self._resolution()
+                    if (
+                        not isinstance(facts, Mapping)
+                        or facts.get("cover_art_embedded") is not True
+                        or not ffmpeg.available
+                        or ffmpeg.path is None
+                        or self._inspect_mp3(ffmpeg.path, mp3).get("cover_art_embedded") is not True
+                    ):
+                        continue
                 current_master = resolve_current_master(
                     workspace_root=self.workspace_root,
                     masters_root=self.workspace_root / "masters",
@@ -1156,7 +1168,7 @@ class LitresExportService:
                 candidate = dict(candidate)
                 candidate["tool"] = dict(tool)
                 result.append(candidate)
-            except (OSError, ValueError, KeyError, StopIteration, MasteringExportError):
+            except (OSError, ValueError, KeyError, StopIteration, subprocess.TimeoutExpired, MasteringExportError):
                 continue
         return result
 
@@ -1527,11 +1539,21 @@ class LitresExportService:
                 or payload.get("billing_changed") is not False
             ):
                 return None
+            cover = payload.get("cover")
+            cover_ffmpeg = self._resolution() if isinstance(cover, Mapping) else None
             for item in payload.get("chapters", []):
                 path = _require_regular_path(Path(item["path"]), root=self.workspace_root, label="Export MP3")
                 if item.get("sha256") != sha256_file(path) or item.get("path_identity") != path_identity(path):
                     return None
-            cover = payload.get("cover")
+                if isinstance(cover, Mapping) and (
+                    not isinstance(item.get("facts"), Mapping)
+                    or item["facts"].get("cover_art_embedded") is not True
+                    or cover_ffmpeg is None
+                    or not cover_ffmpeg.available
+                    or cover_ffmpeg.path is None
+                    or self._inspect_mp3(cover_ffmpeg.path, path).get("cover_art_embedded") is not True
+                ):
+                    return None
             if isinstance(cover, Mapping):
                 package_cover = _require_regular_path(
                     Path(cover["package_path"]), root=self.workspace_root, label="Package cover"
@@ -1542,5 +1564,5 @@ class LitresExportService:
                 ):
                     return None
             return payload
-        except (OSError, ValueError, KeyError, TypeError, MasteringExportError):
+        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired, MasteringExportError):
             return None
