@@ -135,7 +135,19 @@ def _safe_output_name(position: int, title: str) -> str:
     normalized = unicodedata.normalize("NFC", title).strip()
     normalized = re.sub(r"[\x00-\x1f/:\\]", " ", normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip(" .") or f"Глава {position}"
-    return f"{position:03d} — {normalized[:120]}.mp3"
+    prefix = f"{position:03d} — "
+    suffix = ".mp3"
+    byte_budget = 255 - len(prefix.encode("utf-8")) - len(suffix.encode("utf-8"))
+    encoded_bytes = 0
+    safe_characters: list[str] = []
+    for character in normalized:
+        character_bytes = len(character.encode("utf-8"))
+        if encoded_bytes + character_bytes > byte_budget:
+            break
+        safe_characters.append(character)
+        encoded_bytes += character_bytes
+    bounded = "".join(safe_characters).rstrip(" .") or f"Глава {position}"
+    return f"{prefix}{bounded}{suffix}"
 
 
 def _require_regular_path(path: Path, *, root: Path, label: str) -> Path:

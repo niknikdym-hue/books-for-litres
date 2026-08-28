@@ -9,6 +9,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 import wave
 from contextlib import contextmanager
@@ -29,6 +30,7 @@ from mastering_export import (
     MasteringService,
     _boundary_measurements,
     _parse_loudnorm_json,
+    _safe_output_name,
     build_book_export_state,
     canonical_book_authority,
     litres_profile_hash,
@@ -368,6 +370,16 @@ class MasteringExportTests(unittest.TestCase):
         authority = canonical_book_authority(self.book)
         self.assertEqual([item["job_id"] for item in authority["chapters"]], ["chapter-ch001", "chapter-ch002"])
         self.assertEqual(authority["chapters"][1]["title"], "Глава 2")
+
+    def test_unicode_output_filename_is_bounded_by_utf8_bytes(self):
+        filename = _safe_output_name(1, "界" * 120)
+        self.assertLessEqual(len(filename.encode("utf-8")), 255)
+        self.assertTrue(filename.startswith("001 — "))
+        self.assertTrue(filename.endswith(".mp3"))
+        self.assertEqual(filename, _safe_output_name(1, unicodedata.normalize("NFD", "界" * 120)))
+        output = self.root / filename
+        output.write_bytes(b"mp3")
+        self.assertEqual(output.read_bytes(), b"mp3")
 
     def test_book_state_missing_duplicate_unknown_cover_and_rights_block(self):
         book = canonical_book_authority(self.book)
