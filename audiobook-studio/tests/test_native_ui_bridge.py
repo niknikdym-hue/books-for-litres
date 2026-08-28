@@ -147,11 +147,9 @@ class NativeUIBridgeTests(unittest.TestCase):
         mastering = source.index('"--mastering-status"', refresh)
         self.assertLess(reconcile, mastering)
         reload = source.index("func reload(preferredBookID:")
-        publish_books = source.index("books = snapshot.books", reload)
-        book_level_reconcile = source.index(
-            "try await reconcileLitresReleaseAuthority(bookID: book.slug ?? book.id)", reload
-        )
-        self.assertLess(book_level_reconcile, publish_books)
+        release_sweep = source.index('"--reconcile-all-litres-release-authorities"', reload)
+        ui_snapshot = source.index('runBridgeJSON(["--ui-snapshot"])', reload)
+        self.assertLess(release_sweep, ui_snapshot)
         self.assertIn('Button("Подготовить мастер")', source)
         self.assertIn('Button("Восстановить текущий master")', source)
         self.assertIn('mastering.decision == "READY_TO_REPAIR"', source)

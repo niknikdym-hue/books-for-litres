@@ -19,7 +19,7 @@ from typing import Any, Mapping, Sequence
 from voice_library import load_voice_library, normalize_qwen_profiles
 from workspace_paths import load_workspace_paths
 from cloud_billing import CloudBillingService, decimal_text, decimal_value, save_settings
-from book_library import BookLibrary
+from book_library import BookLibrary, BookLibraryError
 from book_text_preparation import BookTextPreparationService
 from chapter_production import YandexChapterProductionService
 from chapter_assembly import (
@@ -29,6 +29,7 @@ from chapter_assembly import (
 )
 from mastering_export import (
     LitresExportService,
+    MasteringExportError,
     MasteringService,
     canonical_book_authority,
     resolve_current_assembly,
@@ -111,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--litres-export-status", action="store_true")
     mode.add_argument("--create-litres-export", action="store_true")
     mode.add_argument("--reconcile-litres-release-authority", action="store_true")
+    mode.add_argument("--reconcile-all-litres-release-authorities", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--source-file", default="")
@@ -240,6 +242,28 @@ def reconcile_litres_release_authority(*, book_name: str) -> dict[str, Any]:
         book,
         revalidate_book=load_profile_authority,
     )
+
+
+def reconcile_all_litres_release_authorities() -> dict[str, Any]:
+    """Reconcile every readable profile before fallible UI snapshot services."""
+    results: list[dict[str, Any]] = []
+    failed_book_ids: list[str] = []
+    for profile_path in BOOK_LIBRARY.list_book_profiles():
+        try:
+            results.append(reconcile_litres_release_authority(book_name=profile_path.name))
+        except (BookLibraryError, MasteringExportError, OSError, ValueError):
+            # Continue so one malformed profile cannot prevent release cleanup
+            # for every other canonical book.  No exception text is exposed.
+            failed_book_ids.append(profile_path.name)
+    return {
+        "schema_version": 1,
+        "processed_books": len(results),
+        "failed_book_ids": failed_book_ids,
+        "results": results,
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "billing_changed": False,
+    }
 
 
 def _stable_symlink_identity(path: Path) -> tuple[tuple[int | str, ...], Path]:
@@ -1302,6 +1326,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(reconcile_litres_release_authority(
             book_name=_require(args.book, "--book"),
         ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.reconcile_all_litres_release_authorities:
+        print(json.dumps(reconcile_all_litres_release_authorities(), ensure_ascii=False, indent=2))
         return 0
 
     if args.openai_status:

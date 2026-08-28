@@ -145,10 +145,18 @@ final class StudioModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         do {
-            let snapshot: StudioSnapshot = try await runBridgeJSON(["--ui-snapshot"])
-            for book in snapshot.books {
-                try await reconcileLitresReleaseAuthority(bookID: book.slug ?? book.id)
+            let releaseSweep: LitresReleaseAuthoritySweep = try await runBridgeJSON([
+                "--reconcile-all-litres-release-authorities",
+            ])
+            guard !releaseSweep.remoteRequestSent,
+                  releaseSweep.providerRequests == 0,
+                  !releaseSweep.billingChanged,
+                  releaseSweep.results.allSatisfy({
+                      !$0.remoteRequestSent && $0.providerRequests == 0 && !$0.billingChanged
+                  }) else {
+                throw BridgeError.message("Проверка прав выпуска нарушила offline contract.")
             }
+            let snapshot: StudioSnapshot = try await runBridgeJSON(["--ui-snapshot"])
             books = snapshot.books
             voiceLibrary = snapshot.voiceLibrary
             profile = snapshot.yandexProfile

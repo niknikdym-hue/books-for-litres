@@ -564,6 +564,26 @@ struct LitresReleaseAuthorityStatus: Codable {
     }
 }
 
+struct LitresReleaseAuthoritySweep: Codable {
+    let schemaVersion: Int
+    let processedBooks: Int
+    let failedBookIDs: [String]
+    let results: [LitresReleaseAuthorityStatus]
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case results
+        case schemaVersion = "schema_version"
+        case processedBooks = "processed_books"
+        case failedBookIDs = "failed_book_ids"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case billingChanged = "billing_changed"
+    }
+}
+
 func masteringStateLabel(_ state: String, decision: String) -> String {
     if decision == "ALREADY_MASTERED" { return "Clean master готов" }
     if decision == "READY_TO_REPAIR" { return "Требуется восстановить текущий master" }

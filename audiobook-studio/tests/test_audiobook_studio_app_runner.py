@@ -205,6 +205,33 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertEqual(library.load_book_profile.call_count, 2)
         library.load_book_for_execution.assert_not_called()
 
+    def test_all_release_authorities_continue_past_one_malformed_profile(self):
+        profiles = [Path("good.json"), Path("broken.json"), Path("also-good.json")]
+        library = mock.Mock()
+        library.list_book_profiles.return_value = profiles
+
+        def reconcile(*, book_name):
+            if book_name == "broken.json":
+                raise bridge.BookLibraryError("malformed")
+            return {
+                "book_slug": Path(book_name).stem,
+                "provider_requests": 0,
+                "remote_request_sent": False,
+                "billing_changed": False,
+            }
+
+        with mock.patch.object(bridge, "BOOK_LIBRARY", library), \
+             mock.patch.object(
+                 bridge, "reconcile_litres_release_authority", side_effect=reconcile
+             ):
+            result = bridge.reconcile_all_litres_release_authorities()
+        self.assertEqual(result["processed_books"], 2)
+        self.assertEqual(result["failed_book_ids"], ["broken.json"])
+        self.assertEqual([item["book_slug"] for item in result["results"]], ["good", "also-good"])
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse(result["billing_changed"])
+
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):

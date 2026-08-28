@@ -500,6 +500,18 @@ struct NativeContractTests {
         require(releaseAuthority.bookPointerInvalidated, "release pointer invalidation decodes")
         require(releaseAuthority.providerRequests == 0 && !releaseAuthority.remoteRequestSent, "release reconciliation stays offline")
 
+        let releaseSweepJSON = """
+        {"schema_version":1,"processed_books":1,"failed_book_ids":[],
+         "results":[\(releaseAuthorityJSON)],"provider_requests":0,
+         "remote_request_sent":false,"billing_changed":false}
+        """
+        let releaseSweep = try JSONDecoder().decode(
+            LitresReleaseAuthoritySweep.self,
+            from: Data(releaseSweepJSON.utf8)
+        )
+        require(releaseSweep.processedBooks == 1 && releaseSweep.failedBookIDs.isEmpty, "release sweep decodes")
+        require(releaseSweep.results.first?.bookPointerInvalidated == true, "release sweep carries exact result")
+
         print("NATIVE_CONTRACT_TESTS_PASS")
     }
 }
