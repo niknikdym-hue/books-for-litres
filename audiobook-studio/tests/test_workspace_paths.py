@@ -44,6 +44,8 @@ class WorkspacePathContractTests(unittest.TestCase):
             self.assertEqual(paths.resolve("renders/yandex", "unused"), Path(directory).resolve() / "renders/yandex")
             self.assertEqual(paths.openai_cache_root, Path(directory).resolve() / "cache/openai")
             self.assertEqual(paths.jobs_root, Path(directory).resolve() / "jobs")
+            self.assertEqual(paths.masters_root, Path(directory).resolve() / "masters")
+            self.assertEqual(paths.exports_root, Path(directory).resolve() / "exports")
             self.assertEqual(
                 paths.cloud_billing_settings,
                 Path(directory).resolve() / "settings/cloud-billing.json",

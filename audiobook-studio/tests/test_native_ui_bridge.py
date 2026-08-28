@@ -131,6 +131,24 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"--billing-status", "--provider", provider.rawValue, "--refresh"', source)
         self.assertNotIn('runBridgeText(["--run-openai"]', source)
 
+    def test_native_mastering_and_litres_export_reuse_player_and_stay_offline(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (ROOT / "native" / "AudioQAContracts.swift").read_text(encoding="utf-8")
+        self.assertIn('"--mastering-status"', source)
+        self.assertIn('"--create-master"', source)
+        self.assertIn('"--litres-export-status"', source)
+        self.assertIn('"--create-litres-export"', source)
+        self.assertIn('Button("Подготовить мастер")', source)
+        self.assertIn('Button("Создать MP3 для ЛитРес")', source)
+        self.assertIn('Label("Мастеринг"', source)
+        self.assertIn('Label("Экспорт для ЛитРес"', source)
+        self.assertIn('role: "clean-master"', source)
+        self.assertIn('role: "litres-mp3"', source)
+        self.assertEqual(source.count("let audioPlayer = EmbeddedAudioPlayer()"), 1)
+        self.assertIn("Устарело — требуется повторный мастеринг", contracts)
+        self.assertIn("Устарело — требуется повторный экспорт", contracts)
+        self.assertIn("executionSelectionGeneration == expectedSelectionGeneration", source)
+
     def test_native_openai_paid_plan_contract_has_job_picker_and_exact_confirmation(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
@@ -229,6 +247,8 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"$script_dir/EmbeddedAudioPlayer.swift"', build)
         self.assertIn('"$script_dir/AudiobookStudioApp.swift"', build)
         self.assertIn("-framework AVFoundation", build)
+        self.assertIn('xattr -cr "$output_app"', build)
+        self.assertLess(build.index('xattr -cr "$output_app"'), build.rindex('codesign --verify --deep --strict --verbose=2 "$output_app"'))
 
     def test_native_audio_qa_is_wired_to_current_authority_and_exact_review_identity(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")

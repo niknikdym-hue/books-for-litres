@@ -432,6 +432,60 @@ struct NativeContractTests {
         require(assembly.assembly.assembly?.providerRequests == 0, "assembly remains offline")
         require(chapterAssemblyStateLabel(assembly.assembly.state, decision: assembly.assembly.decision) == "Глава собрана", "assembly label")
 
+        let masteringStatusJSON = """
+        {
+          "schema_version":1,"state":"READY","decision":"ALREADY_MASTERED","blockers":[],"blocker_message":null,
+          "master_preset":{"id":"spoken_word_master_v1","version":1,"target_integrated_lufs":-19.0,"true_peak_ceiling_dbtp":-3.0},
+          "master_preset_hash":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "master_identity":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "ffmpeg":{"available":true,"path":"/opt/homebrew/bin/ffmpeg","version":"ffmpeg version 9","source":"known_macos_location"},
+          "manifest_path":"/tmp/master/MANIFEST.json",
+          "master":{
+            "schema_version":1,"status":"READY","master_identity":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "output":{"path":"/tmp/master.wav","path_identity":"1111111111111111111111111111111111111111111111111111111111111111","sha256":"2222222222222222222222222222222222222222222222222222222222222222","wav":{"duration_seconds":348.0,"sample_rate_hz":48000,"channels":1,"sample_width_bytes":2,"frame_count":16704000,"compression_type":"NONE","data_bytes":33408000}},
+            "verification":{"loudness":{"input_i":-19.0,"input_tp":-3.2},"signal":{"rms_dbfs":-20.5,"estimated_noise_floor_dbfs":-58.0,"clipped_samples":0},"boundary_silence":{"leading_silence_seconds":0.5,"trailing_silence_seconds":1.0}},
+            "provider_requests":0,"remote_request_sent":false,"billing_changed":false
+          },
+          "provider_requests":0,"remote_request_sent":false,"billing_changed":false
+        }
+        """
+        let assemblyObject = try JSONSerialization.jsonObject(with: Data(assemblyJSON.utf8)) as! [String: Any]
+        let assemblyStatusData = try JSONSerialization.data(withJSONObject: assemblyObject["assembly"]!)
+        let assemblyStatusJSON = String(data: assemblyStatusData, encoding: .utf8)!
+        let masteringJSON = """
+        {"schema_version":1,"assembly":
+        """ + assemblyStatusJSON + """
+        ,"mastering":
+        """ + masteringStatusJSON + """
+        ,"provider_requests":0,"remote_request_sent":false,"billing_changed":false}
+        """
+        let mastering = try JSONDecoder().decode(MasteringEnvelope.self, from: Data(masteringJSON.utf8))
+        require(mastering.mastering.master?.verification.loudness.inputI == -19.0, "master loudness decodes")
+        require(mastering.mastering.master?.output.wav.channels == 1, "clean master remains mono")
+        require(masteringStateLabel(mastering.mastering.state, decision: mastering.mastering.decision) == "Clean master готов", "master state label")
+
+        let exportJSON = """
+        {
+          "schema_version":1,"mastering":
+        """ + masteringStatusJSON + """
+        ,
+          "export":{"schema_version":1,"state":"READY","decision":"ALREADY_EXPORTED","blockers":[],"blocker_message":null,
+            "profile":{"id":"litres_author_v1","version":1,"channels":2,"bitrate_bps":128000},
+            "profile_hash":"3333333333333333333333333333333333333333333333333333333333333333",
+            "candidate_identity":"4444444444444444444444444444444444444444444444444444444444444444","encoder":"libmp3lame",
+            "chapter_export":{"candidate_identity":"4444444444444444444444444444444444444444444444444444444444444444","job_id":"chapter-ch001","chapter_title":"Введение","position":1,"path":"/tmp/001.mp3","path_identity":"5555555555555555555555555555555555555555555555555555555555555555","sha256":"6666666666666666666666666666666666666666666666666666666666666666","facts":{"duration_seconds":348.0,"sample_rate_hz":48000,"channels":2,"channel_layout":"stereo","bitrate_bps":128000,"size_bytes":5600000,"decodable":true}},
+            "book_export":{"expected_chapters":16,"ready_chapters":1,"progress":"1/16","ready":false,"blockers":["missing_chapters","missing_cover"]},
+            "manifest_path":"/tmp/export/MANIFEST.json","provider_requests":0,"remote_request_sent":false,"billing_changed":false
+          },
+          "provider_requests":0,"remote_request_sent":false,"billing_changed":false
+        }
+        """
+        let export = try JSONDecoder().decode(LitresExportEnvelope.self, from: Data(exportJSON.utf8))
+        require(export.export.chapterExport?.facts.channels == 2, "LitRes MP3 is stereo")
+        require(export.export.chapterExport?.facts.bitrateBps == 128000, "LitRes bitrate decodes")
+        require(export.export.bookExport.progress == "1/16" && !export.export.bookExport.ready, "whole book stays incomplete")
+        require(litresExportStateLabel(export.export.state, decision: export.export.decision) == "MP3 главы готов", "export state label")
+
         print("NATIVE_CONTRACT_TESTS_PASS")
     }
 }

@@ -72,6 +72,14 @@ class WorkspacePaths:
         return self.root / "chapters"
 
     @property
+    def masters_root(self) -> Path:
+        return self.root / "masters"
+
+    @property
+    def exports_root(self) -> Path:
+        return self.root / "exports"
+
+    @property
     def media_tools_config(self) -> Path:
         return self.root / "settings" / "media-tools.json"
 

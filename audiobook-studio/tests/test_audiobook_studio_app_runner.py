@@ -152,6 +152,24 @@ class UniversalBridgeTests(unittest.TestCase):
                     plan_digest="b" * 64,
                 )
 
+    def test_mastering_and_litres_export_commands_are_separate_offline_actions(self):
+        mastering_result = {"mastering": {"decision": "ALREADY_MASTERED"}, "provider_requests": 0, "remote_request_sent": False}
+        export_result = {"export": {"decision": "ALREADY_EXPORTED"}, "provider_requests": 0, "remote_request_sent": False}
+        common = [
+            "--provider", "yandex", "--book", "demo-book",
+            "--job", "chapter-ch001", "--profile-id", "yandex_lera",
+        ]
+        with mock.patch.object(bridge, "mastering_current", return_value=mastering_result) as mastering, \
+             mock.patch.object(bridge, "litres_export_current", return_value=export_result) as export, \
+             mock.patch("builtins.print"):
+            self.assertEqual(bridge.main(["--mastering-status", *common]), 0)
+            self.assertEqual(bridge.main(["--prepare-master", *common]), 0)
+            self.assertEqual(bridge.main(["--create-master", *common]), 0)
+            self.assertEqual(bridge.main(["--litres-export-status", *common]), 0)
+            self.assertEqual(bridge.main(["--create-litres-export", *common]), 0)
+        self.assertEqual([call.kwargs["action"] for call in mastering.call_args_list], ["status", "prepare", "master"])
+        self.assertEqual([call.kwargs["action"] for call in export.call_args_list], ["status", "export"])
+
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):

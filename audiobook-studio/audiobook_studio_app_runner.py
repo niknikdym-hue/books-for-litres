@@ -27,6 +27,13 @@ from chapter_assembly import (
     assembly_input_from_qa,
     assembly_input_from_qa_segments,
 )
+from mastering_export import (
+    LitresExportService,
+    MasteringService,
+    canonical_book_authority,
+    resolve_current_assembly,
+    resolve_current_master,
+)
 from paid_run import PaidRunService
 from audio_qa_authority import (
     AudioQAAuthority,
@@ -95,6 +102,11 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--chapter-assembly-status", action="store_true")
     mode.add_argument("--prepare-chapter-assembly", action="store_true")
     mode.add_argument("--assemble-chapter", action="store_true")
+    mode.add_argument("--mastering-status", action="store_true")
+    mode.add_argument("--prepare-master", action="store_true")
+    mode.add_argument("--create-master", action="store_true")
+    mode.add_argument("--litres-export-status", action="store_true")
+    mode.add_argument("--create-litres-export", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--source-file", default="")
@@ -193,6 +205,20 @@ def _chapter_assembly_service() -> ChapterAssemblyService:
     return ChapterAssemblyService(
         workspace_root=WORKSPACE_PATHS.root,
         chapters_root=WORKSPACE_PATHS.chapters_root,
+    )
+
+
+def _mastering_service() -> MasteringService:
+    return MasteringService(
+        workspace_root=WORKSPACE_PATHS.root,
+        masters_root=WORKSPACE_PATHS.masters_root,
+    )
+
+
+def _litres_export_service() -> LitresExportService:
+    return LitresExportService(
+        workspace_root=WORKSPACE_PATHS.root,
+        exports_root=WORKSPACE_PATHS.exports_root,
     )
 
 
@@ -646,6 +672,128 @@ def chapter_assembly_current(
     }
 
 
+def _current_assembly_authority(
+    *, provider: str, book_name: str, job_id: str, profile_id: str,
+    audio_path: str = "", manifest_path: str = "",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    envelope = chapter_assembly_current(
+        action="status", provider=provider, book_name=book_name,
+        job_id=job_id, profile_id=profile_id,
+        audio_path=audio_path, manifest_path=manifest_path,
+    )
+    status = envelope["assembly"]
+    if status.get("decision") != "ALREADY_ASSEMBLED" or not isinstance(status.get("assembly"), Mapping):
+        raise RuntimeError("Для мастеринга требуется точная текущая сборка главы.")
+    authority = resolve_current_assembly(
+        workspace_root=WORKSPACE_PATHS.root,
+        chapters_root=WORKSPACE_PATHS.chapters_root,
+        book_slug=BOOK_LIBRARY.resolve_book_profile(book_name).stem,
+        job_id=job_id,
+        expected_assembly_identity=status["assembly_identity"],
+    )
+    return envelope, authority
+
+
+def mastering_current(
+    *, action: str, provider: str, book_name: str, job_id: str,
+    profile_id: str, audio_path: str = "", manifest_path: str = "",
+) -> dict[str, Any]:
+    """Prepare or create one clean master from exact-current assembly, offline."""
+    assembly_envelope, authority = _current_assembly_authority(
+        provider=provider, book_name=book_name, job_id=job_id,
+        profile_id=profile_id, audio_path=audio_path, manifest_path=manifest_path,
+    )
+
+    def revalidate() -> Mapping[str, Any]:
+        _, current = _current_assembly_authority(
+            provider=provider, book_name=book_name, job_id=job_id,
+            profile_id=profile_id, audio_path=audio_path, manifest_path=manifest_path,
+        )
+        return current
+
+    service = _mastering_service()
+    if action == "status":
+        mastering = service.status(authority)
+    elif action == "prepare":
+        mastering = service.prepare(authority)
+    elif action == "master":
+        service.master(authority, revalidate=revalidate)
+        mastering = service.status(revalidate())
+    else:
+        raise RuntimeError("Unsupported mastering action.")
+    return {
+        "schema_version": 1,
+        "assembly": assembly_envelope["assembly"],
+        "mastering": mastering,
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "billing_changed": False,
+    }
+
+
+def litres_export_current(
+    *, action: str, provider: str, book_name: str, job_id: str,
+    profile_id: str, audio_path: str = "", manifest_path: str = "",
+) -> dict[str, Any]:
+    """Prepare or create one LitRes MP3 candidate from exact-current master."""
+    mastering_envelope = mastering_current(
+        action="status", provider=provider, book_name=book_name,
+        job_id=job_id, profile_id=profile_id,
+        audio_path=audio_path, manifest_path=manifest_path,
+    )
+    mastering = mastering_envelope["mastering"]
+    if mastering.get("decision") != "ALREADY_MASTERED" or not isinstance(mastering.get("master"), Mapping):
+        raise RuntimeError("Для экспорта требуется точный текущий clean master.")
+    slug = BOOK_LIBRARY.resolve_book_profile(book_name).stem
+    master = resolve_current_master(
+        workspace_root=WORKSPACE_PATHS.root,
+        masters_root=WORKSPACE_PATHS.masters_root,
+        book_slug=slug,
+        job_id=job_id,
+        expected_master_identity=mastering["master_identity"],
+    )
+    book = BOOK_LIBRARY.load_book_for_execution(book_name)
+
+    def revalidate_master() -> Mapping[str, Any]:
+        current_mastering = mastering_current(
+            action="status", provider=provider, book_name=book_name,
+            job_id=job_id, profile_id=profile_id,
+            audio_path=audio_path, manifest_path=manifest_path,
+        )["mastering"]
+        if current_mastering.get("decision") != "ALREADY_MASTERED":
+            raise RuntimeError("Clean master больше не является текущим.")
+        return resolve_current_master(
+            workspace_root=WORKSPACE_PATHS.root,
+            masters_root=WORKSPACE_PATHS.masters_root,
+            book_slug=slug, job_id=job_id,
+            expected_master_identity=current_mastering["master_identity"],
+        )
+
+    def revalidate_book() -> Mapping[str, Any]:
+        return BOOK_LIBRARY.load_book_for_execution(book_name)
+
+    service = _litres_export_service()
+    if action == "status":
+        export = service.status(master, book)
+    elif action == "export":
+        service.export(
+            master, book,
+            revalidate_master=revalidate_master,
+            revalidate_book=revalidate_book,
+        )
+        export = service.status(revalidate_master(), revalidate_book())
+    else:
+        raise RuntimeError("Unsupported LitRes export action.")
+    return {
+        "schema_version": 1,
+        "mastering": mastering,
+        "export": export,
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "billing_changed": False,
+    }
+
+
 def _load_book_job_text(book_name: str, job_id: str) -> tuple[dict[str, Any], str]:
     book = BOOK_LIBRARY.load_book_for_execution(book_name)
     job = (book.get("jobs") or {}).get(job_id) if isinstance(book, dict) else None
@@ -1092,6 +1240,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(chapter_assembly_current(
             action=action,
+            provider=_require(args.provider, "--provider"),
+            book_name=_require(args.book, "--book"),
+            job_id=_require(args.job, "--job"),
+            profile_id=_require(args.profile_id, "--profile-id"),
+            audio_path=args.audio_path,
+            manifest_path=args.manifest_path,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.mastering_status or args.prepare_master or args.create_master:
+        action = (
+            "status" if args.mastering_status else
+            "prepare" if args.prepare_master else
+            "master"
+        )
+        print(json.dumps(mastering_current(
+            action=action,
+            provider=_require(args.provider, "--provider"),
+            book_name=_require(args.book, "--book"),
+            job_id=_require(args.job, "--job"),
+            profile_id=_require(args.profile_id, "--profile-id"),
+            audio_path=args.audio_path,
+            manifest_path=args.manifest_path,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.litres_export_status or args.create_litres_export:
+        print(json.dumps(litres_export_current(
+            action="status" if args.litres_export_status else "export",
             provider=_require(args.provider, "--provider"),
             book_name=_require(args.book, "--book"),
             job_id=_require(args.job, "--job"),
