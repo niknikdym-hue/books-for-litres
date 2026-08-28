@@ -29,6 +29,7 @@ from mastering_export import (
     MasteringExportError,
     MasteringService,
     _boundary_measurements,
+    _canonical_hash,
     _parse_loudnorm_json,
     _safe_output_name,
     build_book_export_state,
@@ -427,6 +428,27 @@ class MasteringExportTests(unittest.TestCase):
         self.assertEqual(first["book_export"]["progress"], "1/2")
         self.assertFalse(first["book_export"]["ready"])
         self.assertEqual(first["export_manifest"]["provider_requests"], 0)
+
+    def test_export_manifest_recomputes_identity_and_book_readiness(self):
+        exported = self._export()
+        manifest_path = Path(exported["manifest_path"])
+        original = manifest_path.read_bytes()
+        manifest = json.loads(original)
+        output_dir = manifest_path.parent
+        identity = manifest["export_identity"]
+        self.assertIsNotNone(self.exporting._read_export(output_dir, identity))
+
+        manifest["book"]["title"] = "Подменённое название"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertIsNone(self.exporting._read_export(output_dir, identity))
+
+        manifest_path.write_bytes(original)
+        manifest = json.loads(original)
+        manifest["whole_book"]["ready"] = True
+        manifest["whole_book"]["blockers"] = []
+        manifest["status"] = "RELEASE_READY"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertIsNone(self.exporting._read_export(output_dir, identity))
 
     def test_current_rights_blocker_overrides_historical_ready_export(self):
         master = self._master_authority()
@@ -955,18 +977,49 @@ class MasteringExportTests(unittest.TestCase):
             ),
         })
         manifest["chapters"].append(second)
+        profile_root = manifest_path.parent.parent
+        export_identity = _canonical_hash({
+            "schema_version": 1,
+            "profile_hash": litres_profile_hash(),
+            "book": authority,
+            "ordered_candidate_identities": [
+                item["candidate_identity"] for item in manifest["chapters"]
+            ],
+        })
+        output_dir = profile_root / export_identity
+        output_dir.mkdir()
+        for item in manifest["chapters"]:
+            source = Path(item["path"])
+            destination = output_dir / _safe_output_name(int(item["position"]), str(item["chapter_title"]))
+            shutil.copyfile(source, destination)
+            item.update({
+                "filename": destination.name,
+                "path": str(destination),
+                "path_identity": path_identity(destination),
+                "sha256": sha256_file(destination),
+            })
+        old_package_cover = Path(manifest["cover"]["package_path"])
+        package_cover = output_dir / old_package_cover.name
+        shutil.copyfile(old_package_cover, package_cover)
+        manifest["cover"].update({
+            "package_path": str(package_cover),
+            "package_path_identity": path_identity(package_cover),
+            "package_sha256": sha256_file(package_cover),
+        })
+        manifest["export_identity"] = export_identity
         manifest["whole_book"] = build_book_export_state(authority, manifest["chapters"])
         manifest["status"] = "RELEASE_READY"
         manifest["total_file_count"] = 2
+        manifest_path = output_dir / "MANIFEST.json"
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-        profile_root = manifest_path.parent.parent
-        (profile_root / "CURRENT-chapter-ch002.json").write_text(json.dumps({
-            "schema_version": 1,
-            "candidate_identity": second["candidate_identity"],
-            "manifest_path": str(manifest_path),
-            "mp3_path": second["path"],
-        }), encoding="utf-8")
-        Path(manifest["cover"]["package_path"]).write_bytes(b"damaged-cover")
+        for item in manifest["chapters"]:
+            (profile_root / f"CURRENT-{item['job_id']}.json").write_text(json.dumps({
+                "schema_version": 1,
+                "candidate_identity": item["candidate_identity"],
+                "manifest_path": str(manifest_path),
+                "mp3_path": item["path"],
+            }), encoding="utf-8")
+        package_cover.write_bytes(b"damaged-cover")
 
         def current_master(**kwargs):
             return master if kwargs["job_id"] == self.job_id else second_master

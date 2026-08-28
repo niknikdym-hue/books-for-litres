@@ -1706,6 +1706,26 @@ class LitresExportService:
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
             if payload.get("schema_version") != EXPORT_SCHEMA_VERSION or payload.get("export_identity") != identity:
                 return None
+            book = payload.get("book")
+            chapters = payload.get("chapters")
+            if not isinstance(book, Mapping) or not isinstance(chapters, list):
+                return None
+            derived_identity = _canonical_hash({
+                "schema_version": EXPORT_SCHEMA_VERSION,
+                "profile_hash": litres_profile_hash(),
+                "book": book,
+                "ordered_candidate_identities": [item["candidate_identity"] for item in chapters],
+            })
+            derived_state = build_book_export_state(book, chapters)
+            if (
+                identity != derived_identity
+                or output_dir.name != derived_identity
+                or _canonical_json(payload.get("whole_book")) != _canonical_json(derived_state)
+                or payload.get("status") != ("RELEASE_READY" if derived_state["ready"] else "INCOMPLETE")
+                or payload.get("chapter_expected_order") != book.get("chapters")
+                or payload.get("total_file_count") != len(chapters)
+            ):
+                return None
             if (
                 payload.get("export_profile_hash") != litres_profile_hash()
                 or payload.get("provider_requests") != 0
