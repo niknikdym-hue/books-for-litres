@@ -428,6 +428,50 @@ class MasteringExportTests(unittest.TestCase):
         self.assertFalse(first["book_export"]["ready"])
         self.assertEqual(first["export_manifest"]["provider_requests"], 0)
 
+    def test_current_rights_blocker_overrides_historical_ready_export(self):
+        master = self._master_authority()
+        cover = self.root / "assets" / "cover.jpg"
+        cover.parent.mkdir()
+        cover.write_bytes(b"canonical-cover")
+        ready_book = copy.deepcopy(self.book)
+        ready_book["jobs"] = {"chapter-ch001": ready_book["jobs"]["chapter-ch001"]}
+        ready_book["cover"] = {"path": str(cover), "sha256": sha256_file(cover)}
+        ready_book["rights_provenance"] = {
+            "third_party_assets": ["music"],
+            "verified": True,
+        }
+        self.book = ready_book
+        facts = {
+            "duration_seconds": master["wav"]["duration_seconds"],
+            "sample_rate_hz": 48_000,
+            "channels": 2,
+            "channel_layout": "stereo",
+            "bitrate_bps": 128_000,
+            "size_bytes": 4096,
+            "decodable": True,
+            "cover_art_embedded": True,
+        }
+        exported = self._export(master, facts)
+        self.assertTrue(exported["export_manifest"]["whole_book"]["ready"])
+
+        blocked_book = copy.deepcopy(ready_book)
+        blocked_book["rights_provenance"]["verified"] = False
+        profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
+        book_pointer = profile_root / "CURRENT.json"
+        with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             mock.patch.object(self.exporting, "_probe_mp3", return_value=facts):
+            current = self.exporting.status(master, blocked_book)
+            self.assertEqual(current["decision"], "ALREADY_EXPORTED")
+            self.assertFalse(current["book_export"]["ready"])
+            self.assertIn("unproven_third_party_assets", current["book_export"]["blockers"])
+
+            book_pointer.unlink()
+            recovered = self.exporting.export(master, blocked_book)
+        self.assertFalse(recovered["book_export"]["ready"])
+        self.assertIn("unproven_third_party_assets", recovered["book_export"]["blockers"])
+        self.assertFalse(book_pointer.exists())
+
     def test_existing_export_repairs_missing_chapter_and_book_pointers(self):
         master = self._master_authority()
         first = self._export(master)

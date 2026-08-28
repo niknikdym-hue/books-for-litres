@@ -1103,6 +1103,7 @@ class LitresExportService:
         output_dir: Path,
         manifest: Mapping[str, Any],
         job_id: str,
+        current_book: Mapping[str, Any],
     ) -> None:
         identity = _safe_id(manifest.get("export_identity"), "export_identity")
         validated = self._read_export(output_dir, identity)
@@ -1122,6 +1123,13 @@ class LitresExportService:
             "mp3_path": record["path"],
             "updated_at": utc_now_iso(),
         })
+
+        # A chapter candidate can remain byte-for-byte current when book-level
+        # release authority changes (for example, rights provenance).  Keep the
+        # chapter pointer usable, but never restore a whole-book pointer to a
+        # package whose immutable authority is no longer canonical.
+        if _canonical_json(validated.get("book")) != _canonical_json(current_book):
+            return
 
         book_pointer = profile_root / "CURRENT.json"
         if book_pointer.is_symlink():
@@ -1414,6 +1422,7 @@ class LitresExportService:
                 manifest_path.parent,
                 current["export_manifest"],
                 prepared["master"]["job_id"],
+                prepared["book"],
             )
             return self.status(master_value, book_value)
         master, source, master_manifest = self._validate_master(prepared["master"])
@@ -1626,7 +1635,6 @@ class LitresExportService:
         manifest = validated_manifest
         prepared["manifest_path"] = str(manifest_path)
         prepared["export_manifest"] = manifest
-        prepared["book_export"] = manifest["whole_book"]
         prepared["chapter_export"] = next(
             item for item in manifest["chapters"]
             if item["candidate_identity"] == prepared["candidate_identity"]
