@@ -542,6 +542,28 @@ struct LitresExportEnvelope: Codable {
     }
 }
 
+struct LitresReleaseAuthorityStatus: Codable {
+    let schemaVersion: Int
+    let bookSlug: String
+    let rightsBlocked: Bool
+    let bookPointerInvalidated: Bool
+    let state: String
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case state
+        case schemaVersion = "schema_version"
+        case bookSlug = "book_slug"
+        case rightsBlocked = "rights_blocked"
+        case bookPointerInvalidated = "book_pointer_invalidated"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case billingChanged = "billing_changed"
+    }
+}
+
 func masteringStateLabel(_ state: String, decision: String) -> String {
     if decision == "ALREADY_MASTERED" { return "Clean master готов" }
     if decision == "READY_TO_REPAIR" { return "Требуется восстановить текущий master" }

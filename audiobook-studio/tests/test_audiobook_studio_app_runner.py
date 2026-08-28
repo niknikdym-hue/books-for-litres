@@ -170,6 +170,20 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertEqual([call.kwargs["action"] for call in mastering.call_args_list], ["status", "prepare", "master"])
         self.assertEqual([call.kwargs["action"] for call in export.call_args_list], ["status", "export"])
 
+    def test_release_authority_reconciliation_is_a_separate_offline_action(self):
+        result = {
+            "state": "SAFE_NO_CURRENT", "provider_requests": 0,
+            "remote_request_sent": False, "billing_changed": False,
+        }
+        with mock.patch.object(
+            bridge, "reconcile_litres_release_authority", return_value=result
+        ) as reconcile, mock.patch("builtins.print"):
+            self.assertEqual(bridge.main([
+                "--reconcile-litres-release-authority",
+                "--book", "demo-book",
+            ]), 0)
+        reconcile.assert_called_once_with(book_name="demo-book")
+
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):

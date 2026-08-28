@@ -1177,6 +1177,17 @@ final class StudioModel: ObservableObject {
     ) async {
         guard executionSelectionGeneration == expectedSelectionGeneration else { return }
         do {
+            let releaseAuthority: LitresReleaseAuthorityStatus = try await runBridgeJSON([
+                "--reconcile-litres-release-authority",
+                "--book", authority.bookSlug,
+            ])
+            guard !releaseAuthority.remoteRequestSent,
+                  releaseAuthority.providerRequests == 0,
+                  !releaseAuthority.billingChanged else {
+                throw BridgeError.message("Проверка прав выпуска нарушила offline contract.")
+            }
+            guard executionSelectionGeneration == expectedSelectionGeneration,
+                  audioQA?.authority == authority else { return }
             let result: MasteringEnvelope = try await runBridgeJSON(
                 derivedAudioArguments(mode: "--mastering-status", authority: authority)
             )

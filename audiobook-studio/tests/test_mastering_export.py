@@ -564,6 +564,42 @@ class MasteringExportTests(unittest.TestCase):
         self.assertIn("unproven_third_party_assets", recovered["book_export"]["blockers"])
         self.assertFalse(book_pointer.exists())
 
+    def test_release_authority_reconciliation_does_not_require_master_or_ffmpeg(self):
+        exported = self._export()
+        profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
+        book_pointer = profile_root / "CURRENT.json"
+        chapter_pointer = profile_root / f"CURRENT-{self.job_id}.json"
+        manifest = Path(exported["manifest_path"])
+        before_chapter = chapter_pointer.read_bytes()
+        before_manifest = manifest.read_bytes()
+
+        blocked_book = copy.deepcopy(self.book)
+        blocked_book["rights_provenance"] = {
+            "third_party_assets": ["music"], "verified": False,
+        }
+        with mock.patch.object(
+            self.exporting, "_resolution", side_effect=AssertionError("FFmpeg used")
+        ):
+            result = self.exporting.reconcile_release_authority(blocked_book)
+
+        self.assertEqual(result["state"], "INVALIDATED")
+        self.assertTrue(result["rights_blocked"])
+        self.assertTrue(result["book_pointer_invalidated"])
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse(result["billing_changed"])
+        self.assertFalse(book_pointer.exists())
+        self.assertEqual(chapter_pointer.read_bytes(), before_chapter)
+        self.assertEqual(manifest.read_bytes(), before_manifest)
+
+        book_pointer.write_text("forensic-current", encoding="utf-8")
+        verified_book = copy.deepcopy(blocked_book)
+        verified_book["rights_provenance"]["verified"] = True
+        unchanged = self.exporting.reconcile_release_authority(verified_book)
+        self.assertEqual(unchanged["state"], "UNCHANGED")
+        self.assertFalse(unchanged["book_pointer_invalidated"])
+        self.assertEqual(book_pointer.read_text(encoding="utf-8"), "forensic-current")
+
     def test_verified_rights_change_repackages_without_reencoding(self):
         master = self._master_authority()
         cover = self.root / "assets" / "cover.jpg"

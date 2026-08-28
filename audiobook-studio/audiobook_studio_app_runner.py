@@ -110,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--create-master", action="store_true")
     mode.add_argument("--litres-export-status", action="store_true")
     mode.add_argument("--create-litres-export", action="store_true")
+    mode.add_argument("--reconcile-litres-release-authority", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--source-file", default="")
@@ -222,6 +223,15 @@ def _litres_export_service() -> LitresExportService:
     return LitresExportService(
         workspace_root=WORKSPACE_PATHS.root,
         exports_root=WORKSPACE_PATHS.exports_root,
+    )
+
+
+def reconcile_litres_release_authority(*, book_name: str) -> dict[str, Any]:
+    """Apply current book rights to the release pointer without media tools."""
+    book = BOOK_LIBRARY.load_book_for_execution(book_name)
+    return _litres_export_service().reconcile_release_authority(
+        book,
+        revalidate_book=lambda: BOOK_LIBRARY.load_book_for_execution(book_name),
     )
 
 
@@ -1278,6 +1288,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             profile_id=_require(args.profile_id, "--profile-id"),
             audio_path=args.audio_path,
             manifest_path=args.manifest_path,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.reconcile_litres_release_authority:
+        print(json.dumps(reconcile_litres_release_authority(
+            book_name=_require(args.book, "--book"),
         ), ensure_ascii=False, indent=2))
         return 0
 

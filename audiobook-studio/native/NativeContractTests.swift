@@ -487,6 +487,19 @@ struct NativeContractTests {
         require(export.export.bookExport.progress == "1/16" && !export.export.bookExport.ready, "whole book stays incomplete")
         require(litresExportStateLabel(export.export.state, decision: export.export.decision) == "MP3 главы готов", "export state label")
 
+        let releaseAuthorityJSON = """
+        {"schema_version":1,"book_slug":"demo-book","rights_blocked":true,
+         "book_pointer_invalidated":true,"state":"INVALIDATED",
+         "provider_requests":0,"remote_request_sent":false,"billing_changed":false}
+        """
+        let releaseAuthority = try JSONDecoder().decode(
+            LitresReleaseAuthorityStatus.self,
+            from: Data(releaseAuthorityJSON.utf8)
+        )
+        require(releaseAuthority.rightsBlocked, "release rights blocker decodes")
+        require(releaseAuthority.bookPointerInvalidated, "release pointer invalidation decodes")
+        require(releaseAuthority.providerRequests == 0 && !releaseAuthority.remoteRequestSent, "release reconciliation stays offline")
+
         print("NATIVE_CONTRACT_TESTS_PASS")
     }
 }

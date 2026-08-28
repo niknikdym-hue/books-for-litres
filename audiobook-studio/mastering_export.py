@@ -1133,6 +1133,72 @@ class LitresExportService:
     def _profile_root(self, book_slug: str) -> Path:
         return self.exports_root / book_slug / LITRES_PROFILE_ID
 
+    def reconcile_release_authority(
+        self,
+        book_value: Mapping[str, Any],
+        *,
+        revalidate_book: Callable[[], Mapping[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Invalidate whole-book release authority without mastering or FFmpeg.
+
+        Chapter candidates remain valid derived audio.  Only the book-level
+        CURRENT pointer grants release authority, so revoked third-party rights
+        must remove that pointer even when mastering/export prerequisites are
+        unavailable.
+        """
+        initial = canonical_book_authority(book_value)
+        book_slug = initial["slug"]
+        with production_authority_lock(
+            self.workspace_root, provider="book-authority", book_slug=book_slug,
+            job_id="profile", profile_id="canonical-v1", exclusive=False,
+        ):
+            with production_authority_lock(
+                self.workspace_root, provider="export", book_slug=book_slug,
+                job_id="book", profile_id=LITRES_PROFILE_ID, exclusive=True,
+            ):
+                current = canonical_book_authority(
+                    revalidate_book() if revalidate_book is not None else book_value
+                )
+                if current["slug"] != book_slug:
+                    raise MasteringExportError(
+                        "book_authority_changed",
+                        "Canonical book authority изменилась во время проверки прав.",
+                    )
+                rights = current.get("rights_provenance")
+                rights_blocked = bool(
+                    isinstance(rights, Mapping)
+                    and rights.get("third_party_assets")
+                    and rights.get("verified") is not True
+                )
+                profile_root = self._profile_root(book_slug)
+                _validate_output_root(
+                    self.workspace_root, profile_root, "LitRes profile root"
+                )
+                pointer = profile_root / "CURRENT.json"
+                invalidated = False
+                if rights_blocked and (pointer.exists() or pointer.is_symlink()):
+                    if not pointer.is_symlink() and not pointer.is_file():
+                        raise MasteringExportError(
+                            "invalid_export_pointer",
+                            "Export CURRENT должен быть обычным файлом или ссылкой.",
+                        )
+                    pointer.unlink()
+                    invalidated = True
+                return {
+                    "schema_version": EXPORT_SCHEMA_VERSION,
+                    "book_slug": book_slug,
+                    "rights_blocked": rights_blocked,
+                    "book_pointer_invalidated": invalidated,
+                    "state": (
+                        "INVALIDATED" if invalidated else
+                        "SAFE_NO_CURRENT" if rights_blocked else
+                        "UNCHANGED"
+                    ),
+                    "provider_requests": 0,
+                    "remote_request_sent": False,
+                    "billing_changed": False,
+                }
+
     def _publish_current_pointers(
         self,
         profile_root: Path,
