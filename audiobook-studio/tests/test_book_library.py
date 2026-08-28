@@ -146,6 +146,19 @@ class BookLibraryTests(unittest.TestCase):
         self.assertEqual(book["jobs"], {})
         self.assertEqual(self.library.book_details("my-book")["status"], "NO_PREPARED_JOBS")
 
+    def test_disabled_profile_requires_explicit_authority_only_load(self):
+        self.import_book()
+        path = self.books / "my-book.json"
+        profile = json.loads(path.read_text(encoding="utf-8"))
+        profile["enabled"] = False
+        path.write_text(json.dumps(profile), encoding="utf-8")
+        with self.assertRaises(BookLibraryError):
+            self.library.load_book_profile("my-book.json")
+        loaded = self.library.load_book_profile(
+            "my-book.json", allow_disabled=True,
+        )
+        self.assertIs(loaded["enabled"], False)
+
     def test_registry_discovery_survives_new_instance(self):
         self.import_book()
         restarted = BookLibrary(self.books)

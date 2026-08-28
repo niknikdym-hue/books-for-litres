@@ -233,7 +233,9 @@ def reconcile_litres_release_authority(*, book_name: str) -> dict[str, Any]:
     profile_path = BOOK_LIBRARY.resolve_book_profile(book_name)
 
     def load_profile_authority() -> dict[str, Any]:
-        book = BOOK_LIBRARY.load_book_profile(profile_path.name)
+        book = BOOK_LIBRARY.load_book_profile(
+            profile_path.name, allow_disabled=True,
+        )
         book["slug"] = profile_path.stem
         return book
 

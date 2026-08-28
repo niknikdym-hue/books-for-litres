@@ -232,6 +232,36 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertFalse(result["remote_request_sent"])
         self.assertFalse(result["billing_changed"])
 
+    def test_all_release_authorities_invalidate_disabled_profile_without_failure(self):
+        profile_path = bridge.WORKSPACE_PATHS.books_root / "disabled-book.json"
+        profile = json.loads((ROOT / "books" / "demo-book.json").read_text(encoding="utf-8"))
+        profile["slug"] = "disabled-book"
+        profile["enabled"] = False
+        profile_path.write_text(json.dumps(profile), encoding="utf-8")
+        profile_root = (
+            bridge.WORKSPACE_PATHS.exports_root
+            / "disabled-book" / "litres_author_v1"
+        )
+        profile_root.mkdir(parents=True)
+        pointer = profile_root / "CURRENT.json"
+        pointer.write_text("forensic-current", encoding="utf-8")
+        try:
+            result = bridge.reconcile_all_litres_release_authorities()
+        finally:
+            profile_path.unlink(missing_ok=True)
+            shutil.rmtree(profile_root.parent, ignore_errors=True)
+        disabled = next(
+            item for item in result["results"]
+            if item["book_slug"] == "disabled-book"
+        )
+        self.assertNotIn("disabled-book.json", result["failed_book_ids"])
+        self.assertEqual(disabled["state"], "INVALIDATED")
+        self.assertTrue(disabled["profile_disabled"])
+        self.assertFalse(pointer.exists())
+        self.assertEqual(disabled["provider_requests"], 0)
+        self.assertFalse(disabled["remote_request_sent"])
+        self.assertFalse(disabled["billing_changed"])
+
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):

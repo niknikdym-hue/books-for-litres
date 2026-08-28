@@ -606,6 +606,15 @@ class MasteringExportTests(unittest.TestCase):
         self.assertEqual(removed_without_chapters["state"], "INVALIDATED")
         self.assertFalse(book_pointer.exists())
 
+        book_pointer.write_text("forensic-current", encoding="utf-8")
+        disabled_book = copy.deepcopy(verified_book)
+        disabled_book["enabled"] = False
+        disabled = self.exporting.reconcile_release_authority(disabled_book)
+        self.assertEqual(disabled["state"], "INVALIDATED")
+        self.assertTrue(disabled["profile_disabled"])
+        self.assertFalse(disabled["rights_blocked"])
+        self.assertFalse(book_pointer.exists())
+
     def test_verified_rights_change_repackages_without_reencoding(self):
         master = self._master_authority()
         cover = self.root / "assets" / "cover.jpg"

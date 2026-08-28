@@ -1143,8 +1143,8 @@ class LitresExportService:
 
         Chapter candidates remain valid derived audio.  Only the book-level
         CURRENT pointer grants release authority, so revoked third-party rights
-        must remove that pointer even when mastering/export prerequisites are
-        unavailable.
+        or a disabled canonical profile must remove that pointer even when
+        mastering/export prerequisites are unavailable.
         """
         book_slug = _safe_slug(book_value.get("slug"))
         with production_authority_lock(
@@ -1167,13 +1167,15 @@ class LitresExportService:
                     and rights.get("third_party_assets")
                     and rights.get("verified") is not True
                 )
+                profile_disabled = current.get("enabled", True) is False
+                release_blocked = rights_blocked or profile_disabled
                 profile_root = self._profile_root(book_slug)
                 _validate_output_root(
                     self.workspace_root, profile_root, "LitRes profile root"
                 )
                 pointer = profile_root / "CURRENT.json"
                 invalidated = False
-                if rights_blocked and (pointer.exists() or pointer.is_symlink()):
+                if release_blocked and (pointer.exists() or pointer.is_symlink()):
                     if not pointer.is_symlink() and not pointer.is_file():
                         raise MasteringExportError(
                             "invalid_export_pointer",
@@ -1185,10 +1187,11 @@ class LitresExportService:
                     "schema_version": EXPORT_SCHEMA_VERSION,
                     "book_slug": book_slug,
                     "rights_blocked": rights_blocked,
+                    "profile_disabled": profile_disabled,
                     "book_pointer_invalidated": invalidated,
                     "state": (
                         "INVALIDATED" if invalidated else
-                        "SAFE_NO_CURRENT" if rights_blocked else
+                        "SAFE_NO_CURRENT" if release_blocked else
                         "UNCHANGED"
                     ),
                     "provider_requests": 0,
