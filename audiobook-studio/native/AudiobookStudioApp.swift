@@ -2183,6 +2183,11 @@ private struct LitresExportCard: View {
                 if let blocker = export.blockerMessage {
                     Label(blocker, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
+                } else if export.chapterExport != nil,
+                          export.bookExport.blockers.contains("unproven_third_party_assets") {
+                    Button("Применить блокировку выпуска") { model.createCurrentLitresExport() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isRunning)
                 } else if export.decision == "READY_TO_REPACKAGE" {
                     Button("Обновить пакет для ЛитРес") { model.createCurrentLitresExport() }
                         .buttonStyle(.borderedProminent)
