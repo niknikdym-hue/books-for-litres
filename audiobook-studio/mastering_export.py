@@ -460,6 +460,15 @@ class MasteringService:
     def _output_dir(self, payload: Mapping[str, Any], identity: str) -> Path:
         return self.masters_root / payload["book_slug"] / payload["job_id"] / identity
 
+    def _publish_current_pointer(self, payload: Mapping[str, Any], identity: str) -> None:
+        output_dir = self._output_dir(payload, identity)
+        atomic_write_json(output_dir.parent / "CURRENT.json", {
+            "schema_version": MASTER_SCHEMA_VERSION,
+            "master_identity": identity,
+            "manifest_path": str(output_dir / "MANIFEST.json"),
+            "updated_at": utc_now_iso(),
+        })
+
     def prepare(self, value: Mapping[str, Any]) -> dict[str, Any]:
         payload, _, _ = self._validate_assembly(value)
         ffmpeg = self._resolution()
@@ -570,6 +579,7 @@ class MasteringService:
         if prepared["decision"] == "BLOCKED":
             raise MasteringExportError("missing_ffmpeg", prepared["blocker_message"])
         if prepared["decision"] == "ALREADY_MASTERED":
+            self._publish_current_pointer(prepared["assembly"], prepared["master_identity"])
             return prepared["master"]
         payload, source, assembly_manifest = self._validate_assembly(prepared["assembly"])
         source_snapshot = _file_snapshot(source)
@@ -647,7 +657,6 @@ class MasteringService:
                 raise MasteringExportError("stale_assembly", "Assembly authority устарела во время мастеринга.")
             padded.unlink(missing_ok=True)
             final_wav = output_dir / "master.wav"
-            final_manifest = output_dir / "MANIFEST.json"
             output_sha = sha256_file(temporary_wav)
             manifest = {
                 "schema_version": MASTER_SCHEMA_VERSION,
@@ -723,13 +732,9 @@ class MasteringService:
                 winner = self._read_ready(output_dir, identity)
                 if winner is None:
                     raise MasteringExportError("publish_conflict", "Конфликт публикации master.")
+                self._publish_current_pointer(payload, identity)
                 return winner
-            atomic_write_json(parent / "CURRENT.json", {
-                "schema_version": MASTER_SCHEMA_VERSION,
-                "master_identity": identity,
-                "manifest_path": str(final_manifest),
-                "updated_at": utc_now_iso(),
-            })
+            self._publish_current_pointer(payload, identity)
             return manifest
         finally:
             if temporary.exists():
@@ -999,6 +1004,18 @@ class LitresExportService:
         ffmpeg: FFmpegResolution,
         encoder: str,
     ) -> str:
+        return self._candidate_identity_from_tool(
+            master, book, chapter, _resolution_identity(ffmpeg), encoder
+        )
+
+    @staticmethod
+    def _candidate_identity_from_tool(
+        master: Mapping[str, Any],
+        book: Mapping[str, Any],
+        chapter: Mapping[str, Any],
+        tool: Mapping[str, Any],
+        encoder: str,
+    ) -> str:
         return _canonical_hash({
             "schema_version": EXPORT_SCHEMA_VERSION,
             "profile": LITRES_PROFILE,
@@ -1012,12 +1029,38 @@ class LitresExportService:
             },
             "chapter": chapter,
             "cover": book.get("cover"),
-            "tool": _resolution_identity(ffmpeg),
+            "tool": tool,
             "encoder": encoder,
         })
 
     def _profile_root(self, book_slug: str) -> Path:
         return self.exports_root / book_slug / LITRES_PROFILE_ID
+
+    def _publish_current_pointers(
+        self,
+        profile_root: Path,
+        output_dir: Path,
+        manifest: Mapping[str, Any],
+    ) -> None:
+        identity = _safe_id(manifest.get("export_identity"), "export_identity")
+        validated = self._read_export(output_dir, identity)
+        if validated is None:
+            raise MasteringExportError("invalid_export_winner", "Export package не прошёл проверку перед публикацией CURRENT.")
+        manifest_path = output_dir / "MANIFEST.json"
+        for record in validated["chapters"]:
+            atomic_write_json(profile_root / f"CURRENT-{record['job_id']}.json", {
+                "schema_version": EXPORT_SCHEMA_VERSION,
+                "candidate_identity": record["candidate_identity"],
+                "manifest_path": str(manifest_path),
+                "mp3_path": record["path"],
+                "updated_at": utc_now_iso(),
+            })
+        atomic_write_json(profile_root / "CURRENT.json", {
+            "schema_version": EXPORT_SCHEMA_VERSION,
+            "export_identity": identity,
+            "manifest_path": str(manifest_path),
+            "updated_at": utc_now_iso(),
+        })
 
     def _load_current_candidates(self, book: Mapping[str, Any]) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -1049,6 +1092,14 @@ class LitresExportService:
                 if (
                     current_master["master_manifest_sha256"] != candidate.get("master_manifest_sha256")
                     or current_master["audio_sha256"] != candidate.get("master_sha256")
+                ):
+                    continue
+                tool = manifest.get("ffmpeg")
+                encoder = candidate.get("encoder")
+                if not isinstance(tool, Mapping) or not isinstance(encoder, str):
+                    continue
+                if candidate.get("candidate_identity") != self._candidate_identity_from_tool(
+                    current_master, book, chapter, tool, encoder
                 ):
                     continue
                 result.append(candidate)
@@ -1183,6 +1234,13 @@ class LitresExportService:
         if prepared["decision"] == "BLOCKED":
             raise MasteringExportError(prepared["blockers"][0], prepared["blocker_message"])
         if prepared["decision"] == "ALREADY_EXPORTED":
+            current = self.status(master_value, book_value)
+            manifest_path = Path(current["manifest_path"])
+            self._publish_current_pointers(
+                self._profile_root(prepared["book"]["slug"]),
+                manifest_path.parent,
+                current["export_manifest"],
+            )
             return self.status(master_value, book_value)
         master, source, master_manifest = self._validate_master(prepared["master"])
         source_snapshot, manifest_snapshot = _file_snapshot(source), _file_snapshot(master_manifest)
@@ -1320,21 +1378,7 @@ class LitresExportService:
                     if winner is None:
                         raise MasteringExportError("publish_conflict", "Конфликт публикации export.")
                     manifest = winner
-                else:
-                    for record in manifest["chapters"]:
-                        atomic_write_json(profile_root / f"CURRENT-{record['job_id']}.json", {
-                            "schema_version": EXPORT_SCHEMA_VERSION,
-                            "candidate_identity": record["candidate_identity"],
-                            "manifest_path": str(output_dir / "MANIFEST.json"),
-                            "mp3_path": record["path"],
-                            "updated_at": utc_now_iso(),
-                        })
-                    atomic_write_json(profile_root / "CURRENT.json", {
-                        "schema_version": EXPORT_SCHEMA_VERSION,
-                        "export_identity": export_identity,
-                        "manifest_path": str(output_dir / "MANIFEST.json"),
-                        "updated_at": utc_now_iso(),
-                    })
+                self._publish_current_pointers(profile_root, output_dir, manifest)
                 return self.status(master_value, book_value)
             finally:
                 if package_temp.exists():

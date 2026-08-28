@@ -270,6 +270,21 @@ class MasteringExportTests(unittest.TestCase):
         self.assertEqual(first["provider_requests"], 0)
         self.assertNotIn("credential", json.dumps(first).lower())
 
+    def test_existing_master_repairs_missing_current_pointer(self):
+        manifest = self._create_master()
+        pointer = self.root / "masters" / self.book_slug / self.job_id / "CURRENT.json"
+        pointer.unlink()
+        recovered = self._create_master()
+        self.assertEqual(recovered["master_identity"], manifest["master_identity"])
+        self.assertTrue(pointer.is_file())
+        current = resolve_current_master(
+            workspace_root=self.root,
+            masters_root=self.root / "masters",
+            book_slug=self.book_slug,
+            job_id=self.job_id,
+        )
+        self.assertEqual(current["master_identity"], manifest["master_identity"])
+
     def test_loudness_true_peak_and_clipping_fail_closed(self):
         cases = ((self._measured(-18.0), "loudness_out_of_tolerance"), (self._measured(-19, -2.0), "true_peak_exceeded"))
         for verification, code in cases:
@@ -381,6 +396,24 @@ class MasteringExportTests(unittest.TestCase):
         self.assertFalse(first["book_export"]["ready"])
         self.assertEqual(first["export_manifest"]["provider_requests"], 0)
 
+    def test_existing_export_repairs_missing_chapter_and_book_pointers(self):
+        master = self._master_authority()
+        first = self._export(master)
+        profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
+        chapter_pointer = profile_root / f"CURRENT-{self.job_id}.json"
+        book_pointer = profile_root / "CURRENT.json"
+        chapter_pointer.unlink()
+        book_pointer.unlink()
+        recovered = self._export(master)
+        self.assertEqual(recovered["candidate_identity"], first["candidate_identity"])
+        self.assertTrue(chapter_pointer.is_file())
+        self.assertTrue(book_pointer.is_file())
+
+        book_pointer.unlink()
+        recovered_again = self._export(master)
+        self.assertEqual(recovered_again["candidate_identity"], first["candidate_identity"])
+        self.assertTrue(book_pointer.is_file())
+
     def test_export_stale_master_sha_path_and_manifest_are_blocked(self):
         master = self._master_authority()
         for field in ("audio_sha256", "path_identity", "master_manifest_sha256"):
@@ -425,6 +458,14 @@ class MasteringExportTests(unittest.TestCase):
             third = self.exporting.prepare(master, changed)["candidate_identity"]
         self.assertNotEqual(first, second)
         self.assertNotEqual(second, third)
+
+    def test_historical_candidate_is_excluded_after_current_metadata_changes(self):
+        master = self._master_authority()
+        self._export(master)
+        changed = copy.deepcopy(self.book)
+        changed["author"] = "Другой автор"
+        authority = canonical_book_authority(changed)
+        self.assertEqual(self.exporting._load_current_candidates(authority), [])
 
     def test_cover_path_escape_and_sha_mismatch_fail_closed(self):
         master = self._master_authority()
