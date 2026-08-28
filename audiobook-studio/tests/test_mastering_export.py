@@ -482,6 +482,25 @@ class MasteringExportTests(unittest.TestCase):
         self.assertEqual(other_pointer.read_bytes(), other_before)
         self.assertFalse(book_pointer.exists())
 
+    def test_export_recovery_revalidates_manifest_masters_before_book_pointer(self):
+        master = self._master_authority()
+        first = self._export(master)
+        profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
+        book_pointer = profile_root / "CURRENT.json"
+        book_pointer.unlink()
+        with mock.patch.object(
+            self.exporting,
+            "_revalidate_candidate_masters",
+            side_effect=MasteringExportError("stale_master", "changed"),
+        ) as revalidate, self.assertRaises(MasteringExportError) as raised:
+            self._export(master)
+        self.assertEqual(raised.exception.code, "stale_master")
+        self.assertFalse(book_pointer.exists())
+        self.assertEqual(
+            revalidate.call_args.args[1],
+            first["export_manifest"]["chapters"],
+        )
+
     def test_historical_master_change_before_publication_fails_closed(self):
         master = self._master_authority()
         first = self._export(master)
@@ -533,6 +552,52 @@ class MasteringExportTests(unittest.TestCase):
              self.assertRaises(MasteringExportError) as raised:
             self.exporting.export(master, changed_book)
         self.assertEqual(raised.exception.code, "stale_master")
+        self.assertEqual(
+            {path.name for path in profile_root.iterdir() if path.is_dir()},
+            before_directories,
+        )
+
+    def test_historical_mp3_change_during_copy_fails_closed(self):
+        master = self._master_authority()
+        first = self._export(master)
+        changed_book = copy.deepcopy(self.book)
+        changed_book["author"] = "Автор нового package"
+        historical = copy.deepcopy(first["chapter_export"])
+        historical.update({
+            "job_id": "chapter-ch002",
+            "chapter_id": "ch002",
+            "chapter_title": "Глава 2",
+            "position": 2,
+        })
+        historical_path = Path(historical["path"])
+        real_copy = shutil.copyfile
+
+        def copy_with_change(source, destination, **kwargs):
+            result = real_copy(source, destination, **kwargs)
+            if Path(source) == historical_path:
+                Path(destination).write_bytes(b"changed-after-validation")
+            return result
+
+        def encode(arguments, **_kwargs):
+            Path(arguments[-1]).write_bytes(b"ID3" + b"x" * 4093)
+            return subprocess.CompletedProcess(arguments, 0, b"", b"")
+
+        profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
+        before_directories = {path.name for path in profile_root.iterdir() if path.is_dir()}
+        with mock.patch.object(self.exporting, "_load_current_candidates", return_value=[historical]), \
+             mock.patch.object(self.exporting, "_revalidate_candidate_masters"), \
+             mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             mock.patch.object(self.exporting, "_inspect_mp3", return_value={
+                 "duration_seconds": master["wav"]["duration_seconds"],
+                 "sample_rate_hz": 48_000, "channels": 2, "channel_layout": "stereo",
+                 "bitrate_bps": 128_000, "size_bytes": 4096, "decodable": True,
+             }), \
+             mock.patch("mastering_export.subprocess.run", side_effect=encode), \
+             mock.patch("mastering_export.shutil.copyfile", side_effect=copy_with_change), \
+             self.assertRaises(MasteringExportError) as raised:
+            self.exporting.export(master, changed_book)
+        self.assertEqual(raised.exception.code, "historical_export_changed")
         self.assertEqual(
             {path.name for path in profile_root.iterdir() if path.is_dir()},
             before_directories,

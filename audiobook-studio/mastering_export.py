@@ -1377,6 +1377,10 @@ class LitresExportService:
                 raise MasteringExportError("book_authority_changed", "Book authority изменилась до восстановления CURRENT.")
             current = self.status(master_value, book_value)
             manifest_path = Path(current["manifest_path"])
+            self._revalidate_candidate_masters(
+                prepared["book"],
+                current["export_manifest"]["chapters"],
+            )
             self._repair_current_pointers(
                 self._profile_root(prepared["book"]["slug"]),
                 manifest_path.parent,
@@ -1497,15 +1501,22 @@ class LitresExportService:
                     destination = package_temp / final_name
                     if item["candidate_identity"] == candidate_identity:
                         shutil.copyfile(temporary_mp3, destination)
+                        copied_sha = sha256_file(destination)
                     else:
                         existing = _require_regular_path(Path(item["path"]), root=self.workspace_root, label="Existing chapter MP3")
                         shutil.copyfile(existing, destination)
+                        copied_sha = sha256_file(destination)
+                        if copied_sha != item.get("sha256"):
+                            raise MasteringExportError(
+                                "historical_export_changed",
+                                "Historical MP3 изменился после проверки и не может быть опубликован.",
+                            )
                     record = json.loads(json.dumps(item, ensure_ascii=False))
                     record.update({
                         "filename": final_name,
                         "path": str(output_dir / final_name),
                         "path_identity": path_identity(output_dir / final_name),
-                        "sha256": sha256_file(destination),
+                        "sha256": copied_sha,
                     })
                     chapter_records.append(record)
                 package_state = build_book_export_state(book, chapter_records)
