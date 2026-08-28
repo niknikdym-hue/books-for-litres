@@ -345,6 +345,96 @@ class NativeUIBridgeTests(unittest.TestCase):
         finally:
             profile_path.write_bytes(original)
 
+    def test_yandex_current_bridge_discovers_real_historical_root_before_symlink_alias(self):
+        from backends.yandex_speechkit import (
+            YandexSpeechKitBackend,
+            load_backend_config,
+            make_fingerprint,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory) / "workspace"
+            books = workspace / "books"
+            books.mkdir(parents=True)
+            shutil.copy2(ROOT / "books/demo-book.json", books / "demo-book.json")
+            env = dict(
+                os.environ,
+                AUDIOBOOK_STUDIO_HOME=str(workspace),
+                PYTHONDONTWRITEBYTECODE="1",
+            )
+            with mock.patch.dict(os.environ, env, clear=True):
+                backend = YandexSpeechKitBackend(load_backend_config(ROOT / "yandex-config.json"))
+
+            library = BookLibrary(books)
+            book = library.load_book_for_execution("demo-book.json")
+            job = book["jobs"]["short-test"]
+            text = "\n\n".join(segment["text"].strip() for segment in job["segments"])
+            segments = backend.segment(text)
+
+            historical_root = workspace / "runtime/studio-workspace/renders-yandex"
+            run_dir = historical_root / "demo-book/short-test/yandex_lera"
+            audio_path = run_dir / "short-test__lera-neutral-1.04.wav"
+            run_dir.mkdir(parents=True)
+            with wave.open(str(audio_path), "wb") as audio:
+                audio.setnchannels(1)
+                audio.setsampwidth(2)
+                audio.setframerate(22_050)
+                audio.writeframes(b"\x00\x10" * (22_050 * 5))
+
+            manifest_path = run_dir / "MANIFEST.json"
+            manifest_path.write_text(json.dumps({
+                "schema_version": 1,
+                "engine": "yandex_speechkit_v3",
+                "job_id": "short-test",
+                "status": "DONE",
+                "profile": {
+                    "voice": backend.profile.voice,
+                    "role": backend.profile.role,
+                    "speed": str(backend.profile.speed),
+                },
+                "segmentation": backend.manifest_segmentation(),
+                "request_routing": backend.request_routing_identity(),
+                "segments": {
+                    segment.segment_id: {
+                        "status": "DONE",
+                        "fingerprint": make_fingerprint(segment.text, backend.profile),
+                        "text": segment.text,
+                        "result": {"sample_rate_hz": 22_050},
+                    }
+                    for segment in segments
+                },
+                "joined_wav": audio_path.name,
+            }, ensure_ascii=False), encoding="utf-8")
+
+            configured_parent = workspace / "renders"
+            configured_parent.mkdir()
+            (configured_parent / "yandex").symlink_to(
+                Path("../runtime/studio-workspace/renders-yandex"),
+                target_is_directory=True,
+            )
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            result = json.loads(completed.stdout)
+            self.assertEqual(result["authority"]["manifest_path"], str(manifest_path.resolve()))
+            self.assertEqual(result["authority"]["audio_path"], str(audio_path.resolve()))
+            self.assertEqual(result["authority"]["profile_id"], "yandex_lera")
+            self.assertFalse(result["remote_request_sent"])
+
     def test_native_openai_cache_only_requires_explicit_exact_target_when_ambiguous(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")

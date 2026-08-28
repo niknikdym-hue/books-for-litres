@@ -214,13 +214,22 @@ def _audio_qa_authority(
     if provider == "yandex":
         backend, _, _ = _load_yandex_offline()
         relative = Path(slug) / job_id / profile_id / "MANIFEST.json"
-        candidates = [path for path in (
-            selected_manifest,
-            backend.config.output_root / relative,
-            WORKSPACE_PATHS.yandex_output_root / relative,
-            WORKSPACE_PATHS.runtime_root / "renders-yandex" / relative,
-            STUDIO_DIR / "renders-yandex" / relative,
-        ) if path is not None]
+        if selected_manifest is not None:
+            # An explicit authority must remain fail-closed, including every
+            # symlink/path-component guard applied by resolve_yandex_authority.
+            candidates = [selected_manifest]
+        else:
+            # Older production runs live in the real runtime renders-yandex
+            # directory while the configured workspace output may be a Finder-
+            # friendly symlink to it.  Discover the real supported roots first;
+            # a symlinked configured root is still rejected if it is the only
+            # available authority.
+            candidates = [
+                WORKSPACE_PATHS.runtime_root / "renders-yandex" / relative,
+                STUDIO_DIR / "renders-yandex" / relative,
+                backend.config.output_root / relative,
+                WORKSPACE_PATHS.yandex_output_root / relative,
+            ]
         allowed_output_roots = [
             (backend.config.output_root, WORKSPACE_PATHS.root),
             (WORKSPACE_PATHS.yandex_output_root, WORKSPACE_PATHS.root),
