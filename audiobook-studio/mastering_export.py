@@ -20,7 +20,6 @@ import subprocess
 import tempfile
 import unicodedata
 import wave
-from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -567,9 +566,13 @@ class MasteringService:
         ):
             with production_authority_lock(
                 self.workspace_root, provider="master", book_slug=book,
-                job_id=job, profile_id=MASTER_PRESET_ID, exclusive=True,
+                job_id="book", profile_id=MASTER_PRESET_ID, exclusive=True,
             ):
-                return self._master_locked(value, revalidate=revalidate)
+                with production_authority_lock(
+                    self.workspace_root, provider="master", book_slug=book,
+                    job_id=job, profile_id=MASTER_PRESET_ID, exclusive=True,
+                ):
+                    return self._master_locked(value, revalidate=revalidate)
 
     def _master_locked(
         self,
@@ -1339,20 +1342,18 @@ class LitresExportService:
         book = self._validated_book(book_value)
         if book["slug"] != book_slug:
             raise MasteringExportError("book_identity_mismatch", "Master относится к другой книге.")
-        with ExitStack() as locks:
-            for job_id in sorted({chapter["job_id"] for chapter in book["chapters"]}):
-                locks.enter_context(production_authority_lock(
-                    self.workspace_root, provider="master", book_slug=book_slug,
-                    job_id=job_id, profile_id=MASTER_PRESET_ID, exclusive=False,
-                ))
-            locks.enter_context(production_authority_lock(
+        with production_authority_lock(
+            self.workspace_root, provider="master", book_slug=book_slug,
+            job_id="book", profile_id=MASTER_PRESET_ID, exclusive=False,
+        ):
+            with production_authority_lock(
                 self.workspace_root, provider="export", book_slug=book_slug,
                 job_id="book", profile_id=LITRES_PROFILE_ID, exclusive=True,
-            ))
-            return self._export_locked(
-                master_value, book_value,
-                revalidate_master=revalidate_master, revalidate_book=revalidate_book,
-            )
+            ):
+                return self._export_locked(
+                    master_value, book_value,
+                    revalidate_master=revalidate_master, revalidate_book=revalidate_book,
+                )
 
     def _export_locked(
         self,
