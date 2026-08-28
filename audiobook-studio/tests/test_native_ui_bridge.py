@@ -10,6 +10,7 @@ import tempfile
 import unittest
 import wave
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -224,7 +225,10 @@ class NativeUIBridgeTests(unittest.TestCase):
     def test_native_build_compiles_shared_contract_file(self):
         build = (ROOT / "native" / "build_native_app.sh").read_text(encoding="utf-8")
         self.assertIn('"$script_dir/StudioContracts.swift"', build)
+        self.assertIn('"$script_dir/AudioQAContracts.swift"', build)
+        self.assertIn('"$script_dir/EmbeddedAudioPlayer.swift"', build)
         self.assertIn('"$script_dir/AudiobookStudioApp.swift"', build)
+        self.assertIn("-framework AVFoundation", build)
 
     def test_native_audio_qa_is_wired_to_current_authority_and_exact_review_identity(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
@@ -243,16 +247,22 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"--audio-qa-decide"', source)
         self.assertIn('"--audio-qa-downstream"', source)
         self.assertIn('Button("Открыть готовое аудио для проверки")', source)
-        self.assertIn('Button("Прослушать точный WAV")', source)
+        self.assertIn('playTitle: "Прослушать точный WAV"', source)
         self.assertIn('Button("Одобрить")', source)
         self.assertIn('Button("Отклонить", role: .destructive)', source)
         self.assertIn('Button("Запросить перегенерацию")', source)
-        self.assertIn("audioQAPlaybackIdentity != envelope.record.identity", decide)
+        self.assertIn("audioQAPlaybackIdentity == envelope.record.identity", decide)
+        self.assertIn("audioPlayer.validateLoadedIdentity(rehash: true)", decide)
         self.assertIn("audioQASelectionMatches", decide)
         self.assertNotIn("selectedBookID == envelope.authority.bookSlug", decide)
         self.assertIn('"--reviewed-audio-sha256", sha', decide)
         self.assertIn('"--reviewed-path-identity", envelope.record.identity.pathIdentity', decide)
         self.assertIn('"--reviewed-fingerprint", fingerprint', decide)
+        self.assertIn("AudioPlaybackBinding(", source)
+        self.assertIn('role: "qa-source"', source)
+        self.assertIn("audioPlayer.loadAndPlay(binding)", source)
+        self.assertIn("audioPlayer.clear()", source)
+        self.assertNotIn("NSWorkspace.shared.open(url)", source)
         self.assertIn("guard !result.remoteRequestSent", source)
         self.assertNotIn("--prepare-paid-run", regenerate)
         self.assertNotIn("--prepare-yandex-chapter-run", regenerate)
@@ -263,6 +273,8 @@ class NativeUIBridgeTests(unittest.TestCase):
                 "let expectedSelectionGeneration = executionSelectionGeneration",
                 operation,
             )
+        self.assertIn("audioPlayer.clear()", open_current)
+        self.assertIn("audioPlayer.clear()", open_target)
         self.assertGreaterEqual(
             load_targets.count(
                 "executionSelectionGeneration == expectedSelectionGeneration"
@@ -720,6 +732,94 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn("Автоматический повтор запрещён", contracts)
         self.assertIn("if engine == .yandex, let plan = yandexChapterPlan", source)
         self.assertIn("return plan.billing", source)
+
+    def test_openai_chapter_assembly_reports_incomplete_approved_set_without_publish(self):
+        authority = SimpleNamespace(
+            audio_path=self.workspace / "jobs/s0001.wav",
+            manifest_path=self.workspace / "jobs/MANIFEST.json",
+        )
+        segment_set = SimpleNamespace(
+            expected_segment_ids=("s0001", "s0002", "s0003"),
+            produced_segment_ids=("s0001",),
+            authorities=(authority,),
+            blockers=({"segment_id": "s0002", "reason": "missing_or_stale_output"},),
+            prepared_text_identity="prepared-identity",
+            complete=False,
+        )
+        qa = {
+            "authority": {"audio_path": str(authority.audio_path)},
+            "record": {"manual_state": "APPROVED"},
+            "eligible": True,
+        }
+        resolution = SimpleNamespace(to_dict=lambda: {
+            "available": False, "path": None, "version": None, "source": "unavailable"
+        })
+        service = SimpleNamespace(_resolution=lambda: resolution)
+        backend = SimpleNamespace(config=SimpleNamespace(jobs_root=self.workspace / "jobs"))
+        with mock.patch("backends.openai_tts.OpenAITTSBackend", return_value=backend), mock.patch(
+            "audiobook_studio_app_runner.resolve_openai_segment_set", return_value=segment_set
+        ), mock.patch("audiobook_studio_app_runner.audio_qa_current", return_value=qa), mock.patch(
+            "audiobook_studio_app_runner._chapter_assembly_service", return_value=service
+        ):
+            result = bridge.chapter_assembly_current(
+                action="assemble",
+                provider="openai",
+                book_name="demo-book",
+                job_id="short-test",
+                profile_id="openai_cedar",
+            )
+        self.assertEqual(result["assembly"]["decision"], "BLOCKED")
+        self.assertEqual(result["assembly"]["blockers"], ["incomplete_approved_segment_set"])
+        self.assertEqual(result["assembly"]["segment_counts"], {
+            "expected": 3, "produced": 1, "approved": 1, "blocked": 2,
+        })
+        self.assertEqual(result["provider_requests"], 0)
+
+    def test_openai_chapter_assembly_requires_qa_for_every_produced_segment(self):
+        authorities = tuple(SimpleNamespace(
+            audio_path=self.workspace / f"jobs/s{index:04d}.wav",
+            manifest_path=self.workspace / "jobs/MANIFEST.json",
+        ) for index in range(1, 4))
+        segment_set = SimpleNamespace(
+            expected_segment_ids=("s0001", "s0002", "s0003"),
+            produced_segment_ids=("s0001", "s0002", "s0003"),
+            authorities=authorities,
+            blockers=(),
+            prepared_text_identity="prepared-identity",
+            complete=True,
+        )
+        qa_items = [{
+            "authority": {"segment_id": f"s{index:04d}", "audio_path": str(authority.audio_path)},
+            "record": {"manual_state": "APPROVED" if index != 2 else "UNREVIEWED"},
+            "eligible": index != 2,
+        } for index, authority in enumerate(authorities, start=1)]
+        resolution = SimpleNamespace(to_dict=lambda: {
+            "available": False, "path": None, "version": None, "source": "unavailable"
+        })
+        service = SimpleNamespace(_resolution=lambda: resolution)
+        backend = SimpleNamespace(config=SimpleNamespace(jobs_root=self.workspace / "jobs"))
+        with mock.patch("backends.openai_tts.OpenAITTSBackend", return_value=backend), mock.patch(
+            "audiobook_studio_app_runner.resolve_openai_segment_set", return_value=segment_set
+        ), mock.patch("audiobook_studio_app_runner.audio_qa_current", side_effect=qa_items), mock.patch(
+            "audiobook_studio_app_runner._chapter_assembly_service", return_value=service
+        ):
+            result = bridge.chapter_assembly_current(
+                action="status", provider="openai", book_name="demo-book",
+                job_id="short-test", profile_id="openai_cedar",
+            )
+        self.assertEqual(result["assembly"]["segment_counts"]["approved"], 2)
+        self.assertEqual(result["assembly"]["decision"], "BLOCKED")
+        self.assertEqual(result["assembly"]["segment_blockers"], [{
+            "segment_id": "s0002", "reason": "qa_not_currently_approved",
+        }])
+
+    def test_native_chapter_assembly_passes_exact_selected_audio_identity(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        refresh = swift_function_body(source, "private func refreshChapterAssembly(")
+        assemble = swift_function_body(source, "func assembleCurrentChapter()")
+        for body in (refresh, assemble):
+            self.assertIn('"--audio-path", authority.audioPath', body)
+            self.assertIn('"--manifest-path", authority.manifestPath', body)
 
 
 if __name__ == "__main__":

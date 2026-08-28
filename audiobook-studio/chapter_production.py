@@ -17,6 +17,7 @@ from backends.yandex_speechkit import (
 from book_library import BookLibrary, BookLibraryError
 from cloud_billing import CloudBillingService, decimal_text, decimal_value
 from paid_run import PaidRunPlanStore
+from production_authority_lock import production_authority_lock
 
 
 SCHEMA_VERSION = 1
@@ -96,6 +97,7 @@ class YandexChapterProductionService:
         self.pricing = pricing
         self.billing = billing
         self.library = BookLibrary(books_dir)
+        self.workspace_root = Path(books_dir).resolve().parent
         self.store = PaidRunPlanStore(plans_dir)
         self.ttl_seconds = ttl_seconds
         self._now = now or (lambda: datetime.now(timezone.utc))
@@ -404,7 +406,14 @@ class YandexChapterProductionService:
             plan = self.store.load(plan_id)
             self._validate_plan_header(plan, plan_digest)
 
-        with shared_cache_execution_lock(self.backend.config.output_root):
+        with production_authority_lock(
+            self.workspace_root,
+            provider="yandex",
+            book_slug=str(plan["book_id"]),
+            job_id=str(plan["job_id"]),
+            profile_id=str(plan["profile_id"]),
+            exclusive=True,
+        ), shared_cache_execution_lock(self.backend.config.output_root):
             with self.store.locked(plan_id):
                 plan = self.store.load(plan_id)
                 self._validate_plan_header(plan, plan_digest)

@@ -6,9 +6,13 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+from production_authority_lock import production_authority_lock
+from workspace_paths import load_workspace_paths
 
 STUDIO_DIR = Path(__file__).resolve().parent
 
@@ -79,8 +83,18 @@ def main() -> int:
             raise RuntimeError("Prepared job not found. Generation was not started.")
         cfg = studio.load_config()
         title = book["title"]
+        normalized_speaker = re.sub(r"[^a-z0-9]+", "_", args.speaker.lower()).strip("_")
+        profile_id = f"qwen_{normalized_speaker}"
         try:
-            out = studio.run_generation(cfg, book_path, book, args.job, args.speaker)
+            with production_authority_lock(
+                load_workspace_paths().root,
+                provider="qwen",
+                book_slug=book_path.stem,
+                job_id=args.job,
+                profile_id=profile_id,
+                exclusive=True,
+            ):
+                out = studio.run_generation(cfg, book_path, book, args.job, args.speaker)
         except Exception as e:
             notify("Audiobook Studio — Qwen — ошибка", f"{title}: {type(e).__name__}: {e}")
             raise

@@ -19,6 +19,7 @@ from backends.openai_tts import (
 from cloud_billing import BillingLedger
 from book_library import BookLibrary, BookLibraryError
 from workspace_paths import load_workspace_paths
+from production_authority_lock import production_authority_lock
 
 
 STUDIO_DIR = Path(__file__).resolve().parent
@@ -115,12 +116,13 @@ def main(argv: list[str] | None = None) -> int:
             library=library,
         )
         profile_id = _require(args.profile_id, "--profile-id")
+        canonical_slug = library.resolve_book_profile(book_name).stem
         job_dir = job_directory(
             backend,
             book,
             args.job,
             profile_id,
-            canonical_book_slug=library.resolve_book_profile(book_name).stem,
+            canonical_book_slug=canonical_slug,
         )
         if args.preflight:
             print(json.dumps(
@@ -134,13 +136,21 @@ def main(argv: list[str] | None = None) -> int:
             # the production Cloud Billing gate is intentionally absent.
             if not backend.config.paid_execution_enabled:
                 raise PaidExecutionBlocked()
-            manifest = backend.run_text_job(
-                text,
-                job_dir,
+            with production_authority_lock(
+                workspace.root,
+                provider="openai",
+                book_slug=canonical_slug,
                 job_id=args.job,
                 profile_id=profile_id,
-                pricing=pricing,
-            )
+                exclusive=True,
+            ):
+                manifest = backend.run_text_job(
+                    text,
+                    job_dir,
+                    job_id=args.job,
+                    profile_id=profile_id,
+                    pricing=pricing,
+                )
             print(json.dumps({"manifest": str(manifest), "remote_request_sent": True}))
             return 0
         return 0

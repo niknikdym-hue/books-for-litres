@@ -25,6 +25,7 @@ from backends.openai_tts import (
 )
 from cloud_billing import BillingLedger, CloudBillingService, decimal_text
 from book_library import BookLibrary, BookLibraryError
+from production_authority_lock import production_authority_lock
 
 
 SCHEMA_VERSION = 1
@@ -138,6 +139,7 @@ class PaidRunService:
         self.pricing = pricing
         self.billing = billing
         self.books_dir = Path(books_dir)
+        self.workspace_root = self.books_dir.resolve().parent
         self.book_library = BookLibrary(self.books_dir)
         self.store = PaidRunPlanStore(plans_dir)
         self.ttl_seconds = ttl_seconds
@@ -445,14 +447,22 @@ class PaidRunService:
                 opener=one_request_opener,
                 billing_ledger=self.backend._billing_ledger,
             )
-            manifest_path, result = temporary_backend.run_approved_segment(
-                analysis["text"],
-                analysis["job_dir"],
+            with production_authority_lock(
+                self.workspace_root,
+                provider="openai",
+                book_slug=str(plan["book_id"]),
                 job_id=str(plan["job_id"]),
                 profile_id=str(plan["profile_id"]),
-                pricing=self.pricing,
-                selected_segment_id=plan.get("selected_segment_id"),
-            )
+                exclusive=True,
+            ):
+                manifest_path, result = temporary_backend.run_approved_segment(
+                    analysis["text"],
+                    analysis["job_dir"],
+                    job_id=str(plan["job_id"]),
+                    profile_id=str(plan["profile_id"]),
+                    pricing=self.pricing,
+                    selected_segment_id=plan.get("selected_segment_id"),
+                )
             if int(result["network_requests"]) != network_requests or network_requests > MAX_NETWORK_REQUESTS:
                 raise PaidRunError("Paid run exceeded its request cap.", category="request_cap_exceeded")
             return_value = {

@@ -22,12 +22,18 @@ from cloud_billing import CloudBillingService, decimal_text, decimal_value, save
 from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
 from chapter_production import YandexChapterProductionService
+from chapter_assembly import (
+    ChapterAssemblyService,
+    assembly_input_from_qa,
+    assembly_input_from_qa_segments,
+)
 from paid_run import PaidRunService
 from audio_qa_authority import (
     AudioQAAuthority,
     AudioQAAuthorityError,
     list_openai_qa_targets,
     resolve_openai_authority,
+    resolve_openai_segment_set,
     resolve_qwen_authority,
     resolve_yandex_authority,
 )
@@ -86,6 +92,9 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--audio-qa-openai-targets", action="store_true")
     mode.add_argument("--audio-qa-decide", action="store_true")
     mode.add_argument("--audio-qa-downstream", action="store_true")
+    mode.add_argument("--chapter-assembly-status", action="store_true")
+    mode.add_argument("--prepare-chapter-assembly", action="store_true")
+    mode.add_argument("--assemble-chapter", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--source-file", default="")
@@ -178,6 +187,13 @@ def _yandex_chapter_service() -> YandexChapterProductionService:
 
 def _audio_qa_service() -> AudioQAReviewService:
     return AudioQAReviewService(WORKSPACE_PATHS.qa_review_root)
+
+
+def _chapter_assembly_service() -> ChapterAssemblyService:
+    return ChapterAssemblyService(
+        workspace_root=WORKSPACE_PATHS.root,
+        chapters_root=WORKSPACE_PATHS.chapters_root,
+    )
 
 
 def _stable_symlink_identity(path: Path) -> tuple[tuple[int | str, ...], Path]:
@@ -469,6 +485,163 @@ def openai_qa_targets(*, book_name: str, job_id: str, profile_id: str) -> dict[s
             jobs_root_anchor=WORKSPACE_PATHS.root,
             manifest_path=manifest_path,
         ),
+        "remote_request_sent": False,
+    }
+
+
+def chapter_assembly_current(
+    *,
+    action: str,
+    provider: str,
+    book_name: str,
+    job_id: str,
+    profile_id: str,
+    audio_path: str = "",
+    manifest_path: str = "",
+) -> dict[str, Any]:
+    """Resolve exact current downstream authority, then operate entirely offline."""
+    if provider == "openai":
+        from backends.openai_tts import OpenAITTSBackend, load_backend_config
+        from openai_backend_runner import CONFIG_PATH as OPENAI_CONFIG_PATH
+
+        backend = OpenAITTSBackend(load_backend_config(OPENAI_CONFIG_PATH))
+        slug = BOOK_LIBRARY.resolve_book_profile(book_name).stem
+        canonical_manifest = (
+            backend.config.jobs_root / slug / job_id / "openai" / profile_id / "MANIFEST.json"
+        )
+        segment_set = resolve_openai_segment_set(
+            library=BOOK_LIBRARY,
+            backend=backend,
+            book_name=book_name,
+            job_id=job_id,
+            profile_id=profile_id,
+            jobs_root_anchor=WORKSPACE_PATHS.root,
+            manifest_path=canonical_manifest,
+        )
+        qa_items = [audio_qa_current(
+            provider="openai",
+            book_name=book_name,
+            job_id=job_id,
+            profile_id=profile_id,
+            audio_path=str(authority.audio_path),
+            manifest_path=str(authority.manifest_path),
+            downstream=True,
+        ) for authority in segment_set.authorities]
+        approved = [item for item in qa_items if item.get("eligible")]
+        qa_blockers = [{
+            "segment_id": str(item.get("authority", {}).get("segment_id") or "unknown"),
+            "reason": "qa_not_currently_approved",
+        } for item in qa_items if not item.get("eligible")]
+        selected_qa = next((
+            item for item in qa_items
+            if not audio_path or Path(item["authority"]["audio_path"]).resolve() == Path(audio_path).resolve()
+        ), qa_items[0] if qa_items else None)
+        counts = {
+            "expected": len(segment_set.expected_segment_ids),
+            "produced": len(segment_set.produced_segment_ids),
+            "approved": len(approved),
+            "blocked": len(segment_set.expected_segment_ids) - len(approved),
+        }
+        if not segment_set.complete or len(approved) != len(segment_set.expected_segment_ids):
+            resolution = _chapter_assembly_service()._resolution()
+            return {
+                "schema_version": 1,
+                "qa": selected_qa,
+                "assembly": {
+                    "schema_version": 1,
+                    "state": "BLOCKED",
+                    "decision": "BLOCKED",
+                    "blockers": ["incomplete_approved_segment_set"],
+                    "blocker_message": "Для сборки главы одобрены не все готовые сегменты.",
+                    "assembly_identity": segment_set.prepared_text_identity,
+                    "target": {
+                        "container": "WAV", "codec": "LPCM", "sample_rate_hz": 48000,
+                        "channels": 1, "sample_width_bytes": 2,
+                    },
+                    "ffmpeg": resolution.to_dict(),
+                    "output_path": None,
+                    "manifest_path": None,
+                    "assembly": None,
+                    "segment_counts": counts,
+                    "segment_blockers": list(segment_set.blockers) + qa_blockers,
+                    "provider_requests": 0,
+                    "remote_request_sent": False,
+                },
+                "provider_requests": 0,
+                "remote_request_sent": False,
+            }
+        assembly_input = assembly_input_from_qa_segments(
+            [(item["authority"], item["record"]) for item in qa_items],
+            expected_segment_ids=segment_set.expected_segment_ids,
+            prepared_text_identity=segment_set.prepared_text_identity,
+        )
+
+        def current_openai_input() -> Mapping[str, Any]:
+            current_set = resolve_openai_segment_set(
+                library=BOOK_LIBRARY,
+                backend=backend,
+                book_name=book_name,
+                job_id=job_id,
+                profile_id=profile_id,
+                jobs_root_anchor=WORKSPACE_PATHS.root,
+                manifest_path=canonical_manifest,
+            )
+            if not current_set.complete:
+                raise RuntimeError("Полный текущий набор OpenAI-сегментов больше не доступен.")
+            current_qa = [audio_qa_current(
+                provider="openai", book_name=book_name, job_id=job_id,
+                profile_id=profile_id, audio_path=str(authority.audio_path),
+                manifest_path=str(authority.manifest_path), downstream=True,
+            ) for authority in current_set.authorities]
+            if not all(item.get("eligible") for item in current_qa):
+                raise RuntimeError("Одобрение одного из OpenAI-сегментов устарело.")
+            return assembly_input_from_qa_segments(
+                [(item["authority"], item["record"]) for item in current_qa],
+                expected_segment_ids=current_set.expected_segment_ids,
+                prepared_text_identity=current_set.prepared_text_identity,
+            )
+        qa = selected_qa
+    else:
+        qa = audio_qa_current(
+            provider=provider,
+            book_name=book_name,
+            job_id=job_id,
+            profile_id=profile_id,
+            audio_path=audio_path,
+            manifest_path=manifest_path,
+            downstream=True,
+        )
+        if not qa.get("eligible") or not isinstance(qa.get("record"), Mapping):
+            raise RuntimeError("Для сборки требуется точное текущее одобренное аудио.")
+        assembly_input = assembly_input_from_qa(qa["authority"], qa["record"])
+
+        def current_chapter_input() -> Mapping[str, Any]:
+            current = audio_qa_current(
+                provider=provider, book_name=book_name, job_id=job_id,
+                profile_id=profile_id, audio_path=audio_path,
+                manifest_path=manifest_path, downstream=True,
+            )
+            if not current.get("eligible"):
+                raise RuntimeError("Одобрение исходного аудио устарело.")
+            return assembly_input_from_qa(current["authority"], current["record"])
+    service = _chapter_assembly_service()
+    if action == "status":
+        assembly = service.status(assembly_input)
+    elif action == "prepare":
+        assembly = service.prepare(assembly_input)
+    elif action == "assemble":
+        service.assemble(
+            assembly_input,
+            revalidate=current_openai_input if provider == "openai" else current_chapter_input,
+        )
+        assembly = service.status(assembly_input)
+    else:
+        raise RuntimeError("Unsupported chapter assembly action.")
+    return {
+        "schema_version": 1,
+        "qa": qa,
+        "assembly": assembly,
+        "provider_requests": 0,
         "remote_request_sent": False,
     }
 
@@ -904,6 +1077,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             decision=_require(args.decision, "--decision") if args.audio_qa_decide else "",
             reviewed_identity=reviewed_identity,
             downstream=args.audio_qa_downstream,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if (
+        args.chapter_assembly_status
+        or args.prepare_chapter_assembly
+        or args.assemble_chapter
+    ):
+        action = (
+            "status" if args.chapter_assembly_status else
+            "prepare" if args.prepare_chapter_assembly else
+            "assemble"
+        )
+        print(json.dumps(chapter_assembly_current(
+            action=action,
+            provider=_require(args.provider, "--provider"),
+            book_name=_require(args.book, "--book"),
+            job_id=_require(args.job, "--job"),
+            profile_id=_require(args.profile_id, "--profile-id"),
+            audio_path=args.audio_path,
+            manifest_path=args.manifest_path,
         ), ensure_ascii=False, indent=2))
         return 0
 

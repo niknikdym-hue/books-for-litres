@@ -67,9 +67,12 @@ struct AudioQAFFmpegFacts: Codable, Equatable {
     let status: String
     let available: Bool
     let exitCode: Int?
+    let path: String?
+    let version: String?
+    let source: String?
 
     enum CodingKeys: String, CodingKey {
-        case status, available
+        case status, available, path, version, source
         case exitCode = "exit_code"
     }
 }
@@ -189,6 +192,119 @@ struct AudioQADownstreamEnvelope: Codable {
     }
 }
 
+struct ChapterAssemblyFFmpeg: Codable, Equatable {
+    let available: Bool
+    let path: String?
+    let version: String?
+    let source: String
+}
+
+struct ChapterAssemblyTarget: Codable, Equatable {
+    let container: String
+    let codec: String
+    let sampleRateHz: Int
+    let channels: Int
+    let sampleWidthBytes: Int
+
+    enum CodingKeys: String, CodingKey {
+        case container, codec, channels
+        case sampleRateHz = "sample_rate_hz"
+        case sampleWidthBytes = "sample_width_bytes"
+    }
+}
+
+struct ChapterAssemblyOutput: Codable, Equatable {
+    let path: String
+    let pathIdentity: String
+    let sha256: String
+    let wav: AudioQAWavFacts
+
+    enum CodingKeys: String, CodingKey {
+        case path, sha256, wav
+        case pathIdentity = "path_identity"
+    }
+}
+
+struct ChapterAssemblyManifest: Codable, Equatable {
+    let schemaVersion: Int
+    let status: String
+    let assemblyIdentity: String
+    let output: ChapterAssemblyOutput
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case status, output
+        case schemaVersion = "schema_version"
+        case assemblyIdentity = "assembly_identity"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+    }
+}
+
+struct ChapterAssemblyStatus: Codable {
+    struct SegmentBlocker: Codable, Hashable {
+        let segmentID: String
+        let reason: String
+
+        enum CodingKeys: String, CodingKey {
+            case reason
+            case segmentID = "segment_id"
+        }
+    }
+
+    struct SegmentCounts: Codable {
+        let expected: Int
+        let produced: Int
+        let approved: Int
+        let blocked: Int
+    }
+
+    let schemaVersion: Int
+    let state: String
+    let decision: String
+    let blockers: [String]
+    let blockerMessage: String?
+    let assemblyIdentity: String
+    let target: ChapterAssemblyTarget
+    let ffmpeg: ChapterAssemblyFFmpeg
+    let outputPath: String?
+    let manifestPath: String?
+    let assembly: ChapterAssemblyManifest?
+    let segmentCounts: SegmentCounts?
+    let segmentBlockers: [SegmentBlocker]?
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case state, decision, blockers, target, ffmpeg, assembly
+        case schemaVersion = "schema_version"
+        case blockerMessage = "blocker_message"
+        case assemblyIdentity = "assembly_identity"
+        case outputPath = "output_path"
+        case manifestPath = "manifest_path"
+        case segmentCounts = "segment_counts"
+        case segmentBlockers = "segment_blockers"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+    }
+}
+
+struct ChapterAssemblyEnvelope: Codable {
+    let schemaVersion: Int
+    let qa: AudioQACurrentEnvelope
+    let assembly: ChapterAssemblyStatus
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case qa, assembly
+        case schemaVersion = "schema_version"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+    }
+}
+
 func audioQAStatusLabel(_ status: String) -> String {
     switch status {
     case "PASS": return "Техническая проверка пройдена"
@@ -206,5 +322,58 @@ func audioQAManualLabel(_ state: String) -> String {
     case "REGENERATE_REQUESTED": return "Запрошена перегенерация"
     case "STALE": return "Одобрение устарело"
     default: return state
+    }
+}
+
+func audioQAWarningLabel(_ code: String) -> String {
+    switch code {
+    case "ffmpeg_unavailable": return "Расширенная техническая проверка недоступна"
+    case "gross_clipping": return "Обнаружены участки возможного клиппинга"
+    case "near_total_silence": return "Аудио почти полностью состоит из тишины"
+    case "signal_metrics_unavailable": return "Расширенный анализ сигнала недоступен"
+    default: return "Техническое предупреждение"
+    }
+}
+
+func audioQAReasonLabel(_ code: String) -> String {
+    switch code {
+    case "ffmpeg_decode_failed": return "FFmpeg не смог проверить декодирование WAV"
+    case "missing_file": return "Аудиофайл не найден"
+    case "invalid_or_truncated_wav": return "WAV повреждён или записан не полностью"
+    case "audio_changed_during_scan": return "Аудиофайл изменился во время проверки"
+    default: return "Техническая проверка не пройдена"
+    }
+}
+
+func chapterAssemblyStateLabel(_ state: String, decision: String) -> String {
+    if decision == "ALREADY_ASSEMBLED" { return "Глава собрана" }
+    if decision == "BLOCKED" { return "Требуется FFmpeg" }
+    switch state {
+    case "STALE": return "Сборка устарела"
+    case "PREPARED": return "Готово к сборке"
+    case "READY": return "Глава собрана"
+    default: return "Недоступно"
+    }
+}
+
+func audioQAProviderLabel(_ provider: String) -> String {
+    switch provider {
+    case "yandex": return "Yandex SpeechKit"
+    case "openai": return "OpenAI TTS"
+    case "qwen": return "Qwen · локально"
+    default: return provider
+    }
+}
+
+func audioQAVoiceLabel(_ profileID: String) -> String {
+    switch profileID {
+    case "yandex_lera": return "Lera"
+    case "openai_cedar": return "Cedar"
+    case "openai_onyx": return "Onyx"
+    default:
+        return profileID
+            .split(separator: "_")
+            .last
+            .map { String($0).capitalized } ?? profileID
     }
 }

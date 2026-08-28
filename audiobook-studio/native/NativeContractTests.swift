@@ -10,6 +10,39 @@ private func require(_ condition: @autoclosure () -> Bool, _ message: String) {
 @main
 struct NativeContractTests {
     static func main() throws {
+        var player = AudioPlaybackStateMachine()
+        player.load(duration: 347.0)
+        require(player.state == .ready && player.elapsed == 0, "player loads ready")
+        player.play()
+        require(player.state == .playing, "player play state")
+        player.seek(to: 42)
+        require(player.elapsed == 42, "player seek")
+        player.pause()
+        require(player.state == .paused && player.elapsed == 42, "player pause preserves position")
+        player.play()
+        require(player.state == .playing && player.elapsed == 42, "player resume preserves position")
+        player.finish()
+        require(player.state == .finished && player.elapsed == 347, "player EOF")
+        player.seek(to: 42)
+        require(player.state == .paused && player.elapsed == 42, "seek backward leaves EOF")
+        player.finish()
+        player.play()
+        require(player.state == .playing && player.elapsed == 0, "play after EOF restarts")
+        player.stop()
+        require(player.state == .stopped && player.elapsed == 0, "player stop resets")
+        player.load(duration: 10)
+        require(player.state == .ready && player.duration == 10, "loading another audio replaces state")
+        require(audioTimeLabel(347) == "05:47", "audio duration label")
+        require(
+            audioQAWarningLabel("ffmpeg_unavailable")
+                == "Расширенная техническая проверка недоступна",
+            "raw FFmpeg warning is humanized"
+        )
+        require(
+            audioQAWarningLabel("ffmpeg_unavailable") != "ffmpeg_unavailable",
+            "raw warning code is not primary text"
+        )
+
         var intentGate = OneShotIntentGate()
         require(!intentGate.isArmed, "one-shot intent initially unarmed")
         require(intentGate.consume(nil) == nil, "consume without arm fails closed")
@@ -363,6 +396,41 @@ struct NativeContractTests {
             ),
             "changed book selection fails closed"
         )
+
+        let assemblyJSON = """
+        {
+          "schema_version": 1,
+          "qa": \(audioQAJSON),
+          "assembly": {
+            "schema_version": 1, "state": "READY", "decision": "ALREADY_ASSEMBLED",
+            "blockers": [], "blocker_message": null,
+            "assembly_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "target": {"container":"WAV","codec":"LPCM","sample_rate_hz":48000,"channels":1,"sample_width_bytes":2},
+            "ffmpeg": {"available":true,"path":"/opt/homebrew/bin/ffmpeg","version":"ffmpeg version 9","source":"known_macos_location"},
+            "output_path": "/tmp/chapter.wav", "manifest_path": "/tmp/MANIFEST.json",
+            "assembly": {
+              "schema_version": 1, "status": "READY",
+              "assembly_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "output": {
+                "path":"/tmp/chapter.wav",
+                "path_identity":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "wav":{"duration_seconds":347.0,"sample_rate_hz":48000,"channels":1,"sample_width_bytes":2,"frame_count":16656000,"compression_type":"NONE","data_bytes":33312000}
+              },
+              "provider_requests":0,"remote_request_sent":false
+            },
+            "provider_requests": 0, "remote_request_sent": false
+          },
+          "provider_requests": 0, "remote_request_sent": false
+        }
+        """
+        let assembly = try JSONDecoder().decode(
+            ChapterAssemblyEnvelope.self,
+            from: Data(assemblyJSON.utf8)
+        )
+        require(assembly.assembly.assembly?.output.wav.sampleRateHz == 48000, "assembly target decodes")
+        require(assembly.assembly.assembly?.providerRequests == 0, "assembly remains offline")
+        require(chapterAssemblyStateLabel(assembly.assembly.state, decision: assembly.assembly.decision) == "Глава собрана", "assembly label")
 
         print("NATIVE_CONTRACT_TESTS_PASS")
     }

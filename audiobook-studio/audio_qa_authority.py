@@ -17,6 +17,22 @@ class AudioQAAuthorityError(RuntimeError):
     """Raised when current synthesis identity cannot be proven offline."""
 
 
+@dataclass(frozen=True)
+class OpenAISegmentSetAuthority:
+    """Exact ordered OpenAI chapter authority derived from prepared job text."""
+
+    prepared_text_identity: str
+    expected_segment_ids: tuple[str, ...]
+    produced_segment_ids: tuple[str, ...]
+    authorities: tuple[AudioQAAuthority, ...]
+    blockers: tuple[dict[str, str], ...]
+    obsolete_segment_ids: tuple[str, ...]
+
+    @property
+    def complete(self) -> bool:
+        return not self.blockers and self.produced_segment_ids == self.expected_segment_ids
+
+
 def _canonical_hash(value: Mapping[str, Any]) -> str:
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -424,7 +440,12 @@ def _openai_candidates(
             lexical_output = _require_no_symlink_components(
                 Path(output_value), lexical_manifest_parent, "Canonical OpenAI audio"
             )
-            output = _require_below(lexical_output, manifest_path.parent, "OpenAI audio")
+            expected_output = (
+                lexical_manifest_parent / "segments" /
+                f"{segment.segment_id}__{fingerprint[:12]}.wav"
+            ).absolute()
+            if lexical_output.absolute() == expected_output:
+                output = _require_below(lexical_output, manifest_path.parent, "OpenAI audio")
         if (
             isinstance(entry, dict)
             and entry.get("state") == "SUCCEEDED"
@@ -511,6 +532,101 @@ def list_openai_qa_targets(
             "synthesis_fingerprint": authority.synthesis_fingerprint,
         })
     return targets
+
+
+def resolve_openai_segment_set(
+    *,
+    library: BookLibrary,
+    backend: Any,
+    book_name: str,
+    job_id: str,
+    profile_id: str,
+    jobs_root_anchor: Path,
+    manifest_path: Path,
+) -> OpenAISegmentSetAuthority:
+    """Resolve the complete current OpenAI output set in prepared-text order.
+
+    Missing, failed, ambiguous, stale, extra, and path-aliased entries are
+    represented as blockers.  No provider operation is performed.
+    """
+    book, _job_value, canonical_slug, text, authority_path, candidates = _openai_candidates(
+        library=library,
+        backend=backend,
+        book_name=book_name,
+        job_id=job_id,
+        profile_id=profile_id,
+        jobs_root_anchor=jobs_root_anchor,
+        manifest_path=manifest_path,
+    )
+    expected_segments = backend.segment(text)
+    expected_ids = tuple(str(segment.segment_id) for segment in expected_segments)
+    prepared_text_identity = _canonical_hash({
+        "book_slug": canonical_slug,
+        "job_id": job_id,
+        "segments": [
+            {"segment_id": str(segment.segment_id), "text": str(segment.text)}
+            for segment in expected_segments
+        ],
+    })
+    manifest = _load_json(authority_path)
+    entries = manifest["segments"]
+    candidate_by_id = {str(item[0].segment_id): item for item in candidates}
+    blockers: list[dict[str, str]] = []
+    expected_set = set(expected_ids)
+    # Old segmentation entries are immutable forensic history, not members of
+    # the current prepared authority.  They neither satisfy nor block the exact
+    # current set; every expected ID below is still validated fail-closed.
+    obsolete_ids = tuple(sorted(str(item) for item in set(entries) - expected_set))
+
+    produced_ids: list[str] = []
+    authorities: list[AudioQAAuthority] = []
+    output_identities: set[str] = set()
+    raw_output_counts: dict[str, int] = {}
+    for segment_id in expected_ids:
+        entry = entries.get(segment_id)
+        output_value = entry.get("output_path") if isinstance(entry, dict) else None
+        if isinstance(output_value, str):
+            raw_output_counts[output_value] = raw_output_counts.get(output_value, 0) + 1
+    for segment_id in expected_ids:
+        entry = entries.get(segment_id)
+        candidate = candidate_by_id.get(segment_id)
+        if candidate is None:
+            state = str(entry.get("state") or "MISSING") if isinstance(entry, dict) else "MISSING"
+            output_value = entry.get("output_path") if isinstance(entry, dict) else None
+            reason = "duplicate_output_path" if (
+                isinstance(output_value, str) and raw_output_counts.get(output_value, 0) > 1
+            ) else {
+                "AMBIGUOUS": "ambiguous_output",
+                "FAILED": "failed_output",
+            }.get(state, "missing_or_stale_output")
+            blockers.append({"segment_id": segment_id, "reason": reason})
+            continue
+        authority = _openai_authority_from_candidate(
+            book=book,
+            job=_job_value,
+            job_id=job_id,
+            profile_id=profile_id,
+            book_name=book_name,
+            canonical_book_slug=canonical_slug,
+            manifest_path=authority_path,
+            candidate=candidate,
+        )
+        output_identity = str(authority.audio_path.resolve(strict=True))
+        if output_identity in output_identities:
+            blockers.append({"segment_id": segment_id, "reason": "duplicate_output_path"})
+            continue
+        output_identities.add(output_identity)
+        produced_ids.append(segment_id)
+        authorities.append(authority)
+
+    return OpenAISegmentSetAuthority(
+        prepared_text_identity=prepared_text_identity,
+        expected_segment_ids=expected_ids,
+        produced_segment_ids=tuple(produced_ids),
+        authorities=tuple(authorities),
+        blockers=tuple(blockers),
+        obsolete_segment_ids=obsolete_ids,
+    )
 
 
 def resolve_openai_authority(
