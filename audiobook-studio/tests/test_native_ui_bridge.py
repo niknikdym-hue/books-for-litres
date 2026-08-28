@@ -435,9 +435,85 @@ class NativeUIBridgeTests(unittest.TestCase):
             self.assertEqual(result["authority"]["profile_id"], "yandex_lera")
             self.assertFalse(result["remote_request_sent"])
 
+            # The compatibility decision is valid for the whole authority
+            # operation, not merely at its first path check. Replacing the
+            # alias while the resolver runs must invalidate the result even
+            # when the replacement still reaches the historical directory.
+            paths = load_workspace_paths(env=env)
+            real_resolver = bridge.resolve_yandex_authority
+
+            def mutate_alias_then_resolve(**kwargs):
+                (configured_parent / "yandex").unlink()
+                (configured_parent / "yandex").symlink_to(
+                    Path("../runtime/studio-workspace/./renders-yandex"),
+                    target_is_directory=True,
+                )
+                return real_resolver(**kwargs)
+
+            with (
+                mock.patch.object(bridge, "WORKSPACE_PATHS", paths),
+                mock.patch.object(bridge, "BOOK_LIBRARY", library),
+                mock.patch.object(
+                    bridge,
+                    "_load_yandex_offline",
+                    return_value=(backend, None, None),
+                ),
+                mock.patch.object(
+                    bridge,
+                    "resolve_yandex_authority",
+                    side_effect=mutate_alias_then_resolve,
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    bridge.AudioQAAuthorityError,
+                    "changed during authority resolution",
+                ):
+                    bridge._audio_qa_authority(
+                        provider="yandex",
+                        book_name="demo-book.json",
+                        job_id="short-test",
+                        profile_id="yandex_lera",
+                    )
+
+            # Restore the exact direct compatibility link for the remaining
+            # subprocess scenarios.
+            (configured_parent / "yandex").unlink()
+            (configured_parent / "yandex").symlink_to(
+                Path("../runtime/studio-workspace/renders-yandex"),
+                target_is_directory=True,
+            )
+
+            # Reaching the historical root through another symlink is not the
+            # one supported direct alias identity and must fail closed.
+            (configured_parent / "yandex").unlink()
+            intermediate = workspace / "external-hop"
+            intermediate.symlink_to(historical_root, target_is_directory=True)
+            (configured_parent / "yandex").symlink_to(
+                Path("../external-hop"),
+                target_is_directory=True,
+            )
+            multi_hop = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(multi_hop.returncode, 2)
+            self.assertIn("symlink components", multi_hop.stderr)
+            (configured_parent / "yandex").unlink()
+            intermediate.unlink()
+
             # A different symlink target is not the known compatibility alias
             # and must not fall back to the valid historical artifact.
-            (configured_parent / "yandex").unlink()
             external_root = workspace / "external-yandex"
             external_root.mkdir()
             (configured_parent / "yandex").symlink_to(

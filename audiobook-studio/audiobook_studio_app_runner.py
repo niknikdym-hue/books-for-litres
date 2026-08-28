@@ -179,6 +179,36 @@ def _audio_qa_service() -> AudioQAReviewService:
     return AudioQAReviewService(WORKSPACE_PATHS.qa_review_root)
 
 
+def _stable_symlink_identity(path: Path) -> tuple[tuple[int | str, ...], Path]:
+    """Return a race-checked identity and the direct lexical symlink target."""
+    before = path.lstat()
+    raw_target = os.readlink(path)
+    after = path.lstat()
+    identity: tuple[int | str, ...] = (
+        before.st_dev,
+        before.st_ino,
+        before.st_mode,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+        raw_target,
+    )
+    if identity[:-1] != (
+        after.st_dev,
+        after.st_ino,
+        after.st_mode,
+        after.st_size,
+        after.st_mtime_ns,
+        after.st_ctime_ns,
+    ):
+        raise AudioQAAuthorityError(
+            "Yandex compatibility alias changed during identity verification."
+        )
+    raw_path = Path(raw_target)
+    direct_target = raw_path if raw_path.is_absolute() else path.parent / raw_path
+    return identity, Path(os.path.abspath(str(direct_target)))
+
+
 def _audio_qa_authority(
     *,
     provider: str,
@@ -219,6 +249,11 @@ def _audio_qa_authority(
         historical_root = (
             WORKSPACE_PATHS.runtime_root / "renders-yandex"
         ).expanduser().absolute()
+        expected_alias_targets = {
+            str(historical_root),
+            os.path.relpath(historical_root, workspace_alias.parent),
+        }
+        compatibility_alias_identity: tuple[int | str, ...] | None = None
         if selected_manifest is not None:
             # An explicit authority must remain fail-closed, including every
             # symlink/path-component guard applied by resolve_yandex_authority.
@@ -227,10 +262,15 @@ def _audio_qa_authority(
             known_historical_alias = False
             if configured_root == workspace_alias and workspace_alias.is_symlink():
                 try:
-                    known_historical_alias = (
-                        workspace_alias.resolve(strict=True)
-                        == historical_root.resolve(strict=True)
+                    alias_identity, direct_target = _stable_symlink_identity(
+                        workspace_alias
                     )
+                    known_historical_alias = (
+                        alias_identity[-1] in expected_alias_targets
+                        and direct_target == historical_root
+                    )
+                    if known_historical_alias:
+                        compatibility_alias_identity = alias_identity
                 except OSError:
                     known_historical_alias = False
             if known_historical_alias:
@@ -250,7 +290,7 @@ def _audio_qa_authority(
             (historical_root, WORKSPACE_PATHS.root),
             (STUDIO_DIR / "renders-yandex", STUDIO_DIR),
         ]
-        return resolve_yandex_authority(
+        authority = resolve_yandex_authority(
             library=BOOK_LIBRARY,
             backend=backend,
             book_name=book_name,
@@ -260,6 +300,22 @@ def _audio_qa_authority(
             allowed_output_roots=allowed_output_roots,
             audio_path=selected_audio,
         )
+        if compatibility_alias_identity is not None:
+            try:
+                current_identity, direct_target = _stable_symlink_identity(workspace_alias)
+            except OSError as error:
+                raise AudioQAAuthorityError(
+                    "Yandex compatibility alias changed during authority resolution."
+                ) from error
+            if (
+                current_identity != compatibility_alias_identity
+                or current_identity[-1] not in expected_alias_targets
+                or direct_target != historical_root
+            ):
+                raise AudioQAAuthorityError(
+                    "Yandex compatibility alias changed during authority resolution."
+                )
+        return authority
     if provider == "openai":
         from backends.openai_tts import OpenAITTSBackend, load_backend_config
         from openai_backend_runner import CONFIG_PATH as OPENAI_CONFIG_PATH
