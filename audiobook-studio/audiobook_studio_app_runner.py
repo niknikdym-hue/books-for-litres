@@ -203,9 +203,13 @@ def _audio_qa_authority(
             job_id=job_id,
             profile_id=profile_id,
             report_candidates=candidates,
-            allowed_output_roots=[WORKSPACE_PATHS.qwen_output_root],
+            allowed_output_roots=[(
+                WORKSPACE_PATHS.qwen_output_root,
+                WORKSPACE_PATHS.root,
+            )],
             config_path=STUDIO_DIR / "studio-config.json",
             audio_path=selected_audio,
+            fail_on_invalid_report=selected_manifest is not None,
         )
     if provider == "yandex":
         backend, _, _ = _load_yandex_offline()
@@ -218,10 +222,10 @@ def _audio_qa_authority(
             STUDIO_DIR / "renders-yandex" / relative,
         ) if path is not None]
         allowed_output_roots = [
-            backend.config.output_root,
-            WORKSPACE_PATHS.yandex_output_root,
-            WORKSPACE_PATHS.runtime_root / "renders-yandex",
-            STUDIO_DIR / "renders-yandex",
+            (backend.config.output_root, WORKSPACE_PATHS.root),
+            (WORKSPACE_PATHS.yandex_output_root, WORKSPACE_PATHS.root),
+            (WORKSPACE_PATHS.runtime_root / "renders-yandex", WORKSPACE_PATHS.root),
+            (STUDIO_DIR / "renders-yandex", STUDIO_DIR),
         ]
         return resolve_yandex_authority(
             library=BOOK_LIBRARY,
@@ -275,6 +279,8 @@ def audio_qa_current(
     )
     service = _audio_qa_service()
     identity = {
+        "provider": authority.provider,
+        "profile_id": authority.profile_id,
         "book_slug": authority.book_slug,
         "job_id": authority.job_id,
         "segment_id": authority.segment_id,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import multiprocessing
+import os
 import struct
 import sys
 import tempfile
@@ -36,6 +37,8 @@ def _delayed_status_scan(
 
     module.atomic_write_json = delayed_write
     AudioQAReviewService(Path(state_root)).scan(
+        provider="openai",
+        profile_id="openai_onyx",
         book_slug="book-one",
         job_id="chapter-ch001",
         segment_id="s0001",
@@ -87,6 +90,8 @@ class AudioQAReviewTests(unittest.TestCase):
         text_characters: int = 8,
     ):
         return self.service.scan(
+            provider="openai",
+            profile_id="openai_onyx",
             book_slug="book-one",
             job_id="chapter-ch001",
             segment_id="s0001",
@@ -99,6 +104,8 @@ class AudioQAReviewTests(unittest.TestCase):
     def decide(self, decision: str, *, fingerprint: str = "fp-1", reviewed_identity=None):
         reviewed_identity = reviewed_identity or self.scan(fingerprint=fingerprint)["identity"]
         return self.service.decide(
+            provider="openai",
+            profile_id="openai_onyx",
             book_slug="book-one",
             job_id="chapter-ch001",
             segment_id="s0001",
@@ -134,6 +141,8 @@ class AudioQAReviewTests(unittest.TestCase):
         self.assertTrue(approved["downstream_eligible"])
         restarted = AudioQAReviewService(self.state_root)
         result = restarted.scan(
+            provider="openai",
+            profile_id="openai_onyx",
             book_slug="book-one",
             job_id="chapter-ch001",
             segment_id="s0001",
@@ -160,6 +169,104 @@ class AudioQAReviewTests(unittest.TestCase):
         self.assertEqual(result["manual_state"], "STALE")
         self.assertFalse(result["downstream_eligible"])
 
+    def test_provider_and_profile_keys_preserve_independent_approvals(self):
+        qwen = self.service.scan(
+            provider="qwen",
+            profile_id="qwen_vivian",
+            book_slug="book-one",
+            job_id="chapter-ch001",
+            segment_id="chapter-ch001",
+            audio_path=self.audio,
+            synthesis_fingerprint="qwen-fp",
+            expected_sample_rate_hz=24_000,
+            text_characters=8,
+        )
+        self.service.decide(
+            provider="qwen",
+            profile_id="qwen_vivian",
+            book_slug="book-one",
+            job_id="chapter-ch001",
+            segment_id="chapter-ch001",
+            audio_path=self.audio,
+            synthesis_fingerprint="qwen-fp",
+            expected_sample_rate_hz=24_000,
+            text_characters=8,
+            decision="APPROVED",
+            reviewed_identity=qwen["identity"],
+        )
+
+        yandex_audio = self.root / "yandex.wav"
+        self.write_wav(yandex_audio, frequency=660.0)
+        yandex = self.service.scan(
+            provider="yandex",
+            profile_id="yandex_lera",
+            book_slug="book-one",
+            job_id="chapter-ch001",
+            segment_id="chapter-ch001",
+            audio_path=yandex_audio,
+            synthesis_fingerprint="yandex-fp",
+            expected_sample_rate_hz=24_000,
+            text_characters=8,
+        )
+        self.service.decide(
+            provider="yandex",
+            profile_id="yandex_lera",
+            book_slug="book-one",
+            job_id="chapter-ch001",
+            segment_id="chapter-ch001",
+            audio_path=yandex_audio,
+            synthesis_fingerprint="yandex-fp",
+            expected_sample_rate_hz=24_000,
+            text_characters=8,
+            decision="APPROVED",
+            reviewed_identity=yandex["identity"],
+        )
+
+        qwen_again = self.service.scan(
+            provider="qwen",
+            profile_id="qwen_vivian",
+            book_slug="book-one",
+            job_id="chapter-ch001",
+            segment_id="chapter-ch001",
+            audio_path=self.audio,
+            synthesis_fingerprint="qwen-fp",
+            expected_sample_rate_hz=24_000,
+            text_characters=8,
+        )
+        self.assertEqual(qwen_again["manual_state"], "APPROVED")
+        self.assertTrue(qwen_again["downstream_eligible"])
+        self.assertEqual(qwen_again["provider"], "qwen")
+        self.assertEqual(qwen_again["profile_id"], "qwen_vivian")
+        self.assertTrue(
+            (
+                self.state_root
+                / "book-one/qwen/qwen_vivian/chapter-ch001/chapter-ch001.json"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                self.state_root
+                / "book-one/yandex/yandex_lera/chapter-ch001/chapter-ch001.json"
+            ).is_file()
+        )
+
+    def test_atomic_path_replacement_during_scan_cannot_preserve_approval(self):
+        self.decide("APPROVED")
+        replacement = self.root / "replacement.wav"
+        self.write_wav(replacement, frequency=880.0)
+
+        def replace_during_ffmpeg(_snapshot: Path) -> dict:
+            os.replace(replacement, self.audio)
+            return {"status": "PASS", "available": True, "exit_code": 0}
+
+        with mock.patch("audio_qa_review._ffmpeg_check", side_effect=replace_during_ffmpeg):
+            result = self.scan()
+        self.assertIn("audio_changed_during_scan", result["automatic_reasons"])
+        self.assertEqual(result["automatic_status"], "FAIL")
+        self.assertEqual(result["manual_state"], "STALE")
+        self.assertFalse(result["downstream_eligible"])
+        self.assertIsNone(result["identity"]["audio_sha256"])
+
     def test_rejected_and_regenerate_requested_states_persist_without_provider_request(self):
         rejected = self.decide("REJECTED")
         self.assertEqual(rejected["manual_state"], "REJECTED")
@@ -168,11 +275,19 @@ class AudioQAReviewTests(unittest.TestCase):
         self.assertEqual(regenerated["manual_state"], "REGENERATE_REQUESTED")
         self.assertFalse(regenerated["remote_request_sent"])
         restarted = AudioQAReviewService(self.state_root)
-        stored = restarted.status(book_slug="book-one", job_id="chapter-ch001", segment_id="s0001")
+        stored = restarted.status(
+            provider="openai",
+            profile_id="openai_onyx",
+            book_slug="book-one",
+            job_id="chapter-ch001",
+            segment_id="s0001",
+        )
         self.assertEqual(stored["manual_state"], "REGENERATE_REQUESTED")
 
     def test_downstream_selector_admits_only_exact_current_approved_audio(self):
         self.assertIsNone(self.service.downstream_audio(
+            provider="openai",
+            profile_id="openai_onyx",
             book_slug="book-one",
             job_id="chapter-ch001",
             segment_id="s0001",
@@ -183,6 +298,8 @@ class AudioQAReviewTests(unittest.TestCase):
         ))
         self.decide("APPROVED")
         eligible = self.service.downstream_audio(
+            provider="openai",
+            profile_id="openai_onyx",
             book_slug="book-one",
             job_id="chapter-ch001",
             segment_id="s0001",
@@ -195,6 +312,8 @@ class AudioQAReviewTests(unittest.TestCase):
         self.assertTrue(eligible["downstream_eligible"])
         self.decide("REJECTED")
         self.assertIsNone(self.service.downstream_audio(
+            provider="openai",
+            profile_id="openai_onyx",
             book_slug="book-one",
             job_id="chapter-ch001",
             segment_id="s0001",
@@ -209,7 +328,13 @@ class AudioQAReviewTests(unittest.TestCase):
         self.write_wav(self.audio, frequency=880.0)
         with self.assertRaisesRegex(AudioQAError, "identity is stale"):
             self.decide("APPROVED", reviewed_identity=reviewed)
-        stored = self.service.status(book_slug="book-one", job_id="chapter-ch001", segment_id="s0001")
+        stored = self.service.status(
+            provider="openai",
+            profile_id="openai_onyx",
+            book_slug="book-one",
+            job_id="chapter-ch001",
+            segment_id="s0001",
+        )
         self.assertEqual(stored["manual_state"], "STALE")
         self.assertFalse(stored["downstream_eligible"])
 
@@ -217,7 +342,13 @@ class AudioQAReviewTests(unittest.TestCase):
         reviewed = self.scan(fingerprint="fp-1")["identity"]
         with self.assertRaisesRegex(AudioQAError, "identity is stale"):
             self.decide("APPROVED", fingerprint="fp-2", reviewed_identity=reviewed)
-        stored = self.service.status(book_slug="book-one", job_id="chapter-ch001", segment_id="s0001")
+        stored = self.service.status(
+            provider="openai",
+            profile_id="openai_onyx",
+            book_slug="book-one",
+            job_id="chapter-ch001",
+            segment_id="s0001",
+        )
         self.assertEqual(stored["manual_state"], "STALE")
 
     def test_provider_specific_sample_rate_contracts(self):
@@ -234,6 +365,8 @@ class AudioQAReviewTests(unittest.TestCase):
         for value in (".", "..", "...", "../escape", "a/b"):
             with self.subTest(value=value), self.assertRaises(AudioQAError):
                 self.service.scan(
+                    provider="openai",
+                    profile_id="openai_onyx",
                     book_slug=value,
                     job_id="chapter-ch001",
                     segment_id="s0001",
@@ -245,6 +378,8 @@ class AudioQAReviewTests(unittest.TestCase):
 
     def test_unicode_book_slug_persists_and_preserves_exact_identity(self):
         scanned = self.service.scan(
+            provider="openai",
+            profile_id="openai_onyx",
             book_slug="война-и-мир",
             job_id="chapter-ch001",
             segment_id="s0001",
@@ -254,6 +389,8 @@ class AudioQAReviewTests(unittest.TestCase):
             text_characters=8,
         )
         approved = self.service.decide(
+            provider="openai",
+            profile_id="openai_onyx",
             book_slug="война-и-мир",
             job_id="chapter-ch001",
             segment_id="s0001",
@@ -267,11 +404,17 @@ class AudioQAReviewTests(unittest.TestCase):
         self.assertEqual(approved["book_slug"], "война-и-мир")
         restarted = AudioQAReviewService(self.state_root)
         stored = restarted.status(
-            book_slug="война-и-мир", job_id="chapter-ch001", segment_id="s0001"
+            provider="openai",
+            profile_id="openai_onyx",
+            book_slug="война-и-мир",
+            job_id="chapter-ch001",
+            segment_id="s0001",
         )
         self.assertEqual(stored["manual_state"], "APPROVED")
         self.write_wav(self.audio, frequency=660.0)
         stale = restarted.scan(
+            provider="openai",
+            profile_id="openai_onyx",
             book_slug="война-и-мир",
             job_id="chapter-ch001",
             segment_id="s0001",
@@ -282,7 +425,10 @@ class AudioQAReviewTests(unittest.TestCase):
         )
         self.assertEqual(stale["manual_state"], "STALE")
         self.assertTrue(
-            (self.state_root / "война-и-мир/chapter-ch001/s0001.json")
+            (
+                self.state_root
+                / "война-и-мир/openai/openai_onyx/chapter-ch001/s0001.json"
+            )
             .resolve()
             .is_relative_to(self.state_root.resolve())
         )
@@ -291,6 +437,8 @@ class AudioQAReviewTests(unittest.TestCase):
         for value in (".", "..", "...", "../foo", "foo/bar", "foo\\bar", "война/мир"):
             with self.subTest(value=value), self.assertRaises(AudioQAError):
                 self.service.scan(
+                    provider="openai",
+                    profile_id="openai_onyx",
                     book_slug=value,
                     job_id="chapter-ch001",
                     segment_id="s0001",
@@ -327,6 +475,8 @@ class AudioQAReviewTests(unittest.TestCase):
         process.start()
         self.assertTrue(entered.wait(5), "delayed status did not reach the write")
         rejected = self.service.decide(
+            provider="openai",
+            profile_id="openai_onyx",
             book_slug="book-one",
             job_id="chapter-ch001",
             segment_id="s0001",
@@ -340,12 +490,25 @@ class AudioQAReviewTests(unittest.TestCase):
         process.join(5)
         self.assertEqual(process.exitcode, 0)
         self.assertEqual(rejected["manual_state"], "REJECTED")
-        stored = self.service.status(book_slug="book-one", job_id="chapter-ch001", segment_id="s0001")
+        stored = self.service.status(
+            provider="openai",
+            profile_id="openai_onyx",
+            book_slug="book-one",
+            job_id="chapter-ch001",
+            segment_id="s0001",
+        )
         self.assertEqual(stored["manual_state"], "REJECTED")
 
     def test_state_contains_no_credentials_or_secret_fields(self):
         self.decide("APPROVED")
-        state_file = self.state_root / "book-one" / "chapter-ch001" / "s0001.json"
+        state_file = (
+            self.state_root
+            / "book-one"
+            / "openai"
+            / "openai_onyx"
+            / "chapter-ch001"
+            / "s0001.json"
+        )
         payload = state_file.read_text(encoding="utf-8").lower()
         for forbidden in ("api_key", "apikey", "credential", "password", "bearer"):
             self.assertNotIn(forbidden, payload)

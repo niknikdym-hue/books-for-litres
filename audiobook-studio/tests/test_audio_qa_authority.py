@@ -78,7 +78,7 @@ class AudioQAAuthorityTests(unittest.TestCase):
             job_id="short-test",
             profile_id="qwen_vivian",
             report_candidates=[report_path],
-            allowed_output_roots=[self.root / "qwen"],
+            allowed_output_roots=[(self.root / "qwen", self.root)],
             config_path=config_path,
         )
         self.assertEqual(authority.provider, "qwen")
@@ -96,7 +96,7 @@ class AudioQAAuthorityTests(unittest.TestCase):
                 job_id="short-test",
                 profile_id="qwen_vivian",
                 report_candidates=[report_path],
-                allowed_output_roots=[self.root / "qwen"],
+                allowed_output_roots=[(self.root / "qwen", self.root)],
                 config_path=config_path,
             )
 
@@ -139,7 +139,7 @@ class AudioQAAuthorityTests(unittest.TestCase):
             job_id="short-test",
             profile_id="yandex_lera",
             manifest_candidates=[manifest],
-            allowed_output_roots=[output_root],
+            allowed_output_roots=[(output_root, self.root)],
         )
         self.assertEqual(authority.expected_sample_rate_hz, 22050)
         self.assertEqual(authority.audio_path, audio.resolve())
@@ -183,7 +183,7 @@ class AudioQAAuthorityTests(unittest.TestCase):
                 job_id="short-test",
                 profile_id="qwen_vivian",
                 report_candidates=[report_path],
-                allowed_output_roots=[self.root / "qwen-canonical"],
+                allowed_output_roots=[(self.root / "qwen-canonical", self.root)],
                 config_path=config_path,
             )
             self.assertEqual(authority.book_slug, "demo-book")
@@ -219,7 +219,7 @@ class AudioQAAuthorityTests(unittest.TestCase):
                 job_id="short-test",
                 profile_id="qwen_vivian",
                 report_candidates=[report_path],
-                allowed_output_roots=[allowed_root],
+                allowed_output_roots=[(allowed_root, self.root)],
                 config_path=config_path,
             )
 
@@ -234,7 +234,22 @@ class AudioQAAuthorityTests(unittest.TestCase):
                 job_id="short-test",
                 profile_id="qwen_vivian",
                 report_candidates=[symlinked_report],
-                allowed_output_roots=[allowed_root],
+                allowed_output_roots=[(allowed_root, self.root)],
+                config_path=config_path,
+            )
+
+        trusted_anchor = self.root / "trusted-qwen"
+        trusted_anchor.mkdir()
+        symlinked_root = trusted_anchor / "renders-studio"
+        symlinked_root.symlink_to(external_run, target_is_directory=True)
+        with self.assertRaisesRegex(AudioQAAuthorityError, "root cannot contain symlink"):
+            resolve_qwen_authority(
+                library=self.library,
+                book_name="demo-book",
+                job_id="short-test",
+                profile_id="qwen_vivian",
+                report_candidates=[symlinked_root / "RUN-REPORT.json"],
+                allowed_output_roots=[(symlinked_root, trusted_anchor)],
                 config_path=config_path,
             )
 
@@ -250,8 +265,58 @@ class AudioQAAuthorityTests(unittest.TestCase):
                 job_id="short-test",
                 profile_id="qwen_vivian",
                 report_candidates=[canonical_report],
-                allowed_output_roots=[allowed_root],
+                allowed_output_roots=[(allowed_root, self.root)],
                 config_path=config_path,
+            )
+
+    def test_qwen_automatic_discovery_skips_malformed_historical_report(self):
+        config = json.loads((ROOT / "studio-config.json").read_text(encoding="utf-8"))
+        config_path = self.root / "studio-config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        output_root = self.root / "qwen-auto"
+        valid_run = output_root / "valid"
+        invalid_run = output_root / "newer-broken"
+        output = valid_run / "demo.wav"
+        valid_report = valid_run / "RUN-REPORT.json"
+        invalid_report = invalid_run / "RUN-REPORT.json"
+        write_wav(output, rate=24000)
+        valid_report.write_text(json.dumps({
+            "book_profile_sha256": sha256(self.root / "books/demo-book.json"),
+            "job": "short-test",
+            "job_label": self.job["label"],
+            "speaker": "Vivian",
+            "model": config["model"],
+            "generation": config["default_generation"],
+            "audiobook_instruct": self.book["audiobook_instruct"],
+            "segments": [{"id": "t01", "seed": 1}],
+            "segment_count": 1,
+            "sample_rate": 24000,
+            "joined_wav": output.name,
+        }), encoding="utf-8")
+        invalid_run.mkdir(parents=True)
+        invalid_report.write_text('{"truncated":', encoding="utf-8")
+
+        authority = resolve_qwen_authority(
+            library=self.library,
+            book_name="demo-book",
+            job_id="short-test",
+            profile_id="qwen_vivian",
+            report_candidates=[invalid_report, valid_report],
+            allowed_output_roots=[(output_root, self.root)],
+            config_path=config_path,
+            fail_on_invalid_report=False,
+        )
+        self.assertEqual(authority.manifest_path, valid_report.resolve())
+        with self.assertRaisesRegex(AudioQAAuthorityError, "Invalid production authority"):
+            resolve_qwen_authority(
+                library=self.library,
+                book_name="demo-book",
+                job_id="short-test",
+                profile_id="qwen_vivian",
+                report_candidates=[invalid_report],
+                allowed_output_roots=[(output_root, self.root)],
+                config_path=config_path,
+                fail_on_invalid_report=True,
             )
 
     def test_yandex_manifest_must_be_below_root_without_symlink_components(self):
@@ -296,7 +361,7 @@ class AudioQAAuthorityTests(unittest.TestCase):
                 job_id="short-test",
                 profile_id="yandex_lera",
                 manifest_candidates=[manifest],
-                allowed_output_roots=[allowed_root],
+                allowed_output_roots=[(allowed_root, self.root)],
             )
 
         (allowed_root / "demo-book").symlink_to(
@@ -311,7 +376,7 @@ class AudioQAAuthorityTests(unittest.TestCase):
                 job_id="short-test",
                 profile_id="yandex_lera",
                 manifest_candidates=[symlinked_manifest],
-                allowed_output_roots=[allowed_root],
+                allowed_output_roots=[(allowed_root, self.root)],
             )
 
         canonical_run = allowed_root / "safe/run"
@@ -327,7 +392,22 @@ class AudioQAAuthorityTests(unittest.TestCase):
                 job_id="short-test",
                 profile_id="yandex_lera",
                 manifest_candidates=[canonical_manifest],
-                allowed_output_roots=[allowed_root],
+                allowed_output_roots=[(allowed_root, self.root)],
+            )
+
+        trusted_anchor = self.root / "trusted-yandex"
+        trusted_anchor.mkdir()
+        symlinked_root = trusted_anchor / "renders-yandex"
+        symlinked_root.symlink_to(external_run, target_is_directory=True)
+        with self.assertRaisesRegex(AudioQAAuthorityError, "root cannot contain symlink"):
+            resolve_yandex_authority(
+                library=self.library,
+                backend=backend,
+                book_name="demo-book",
+                job_id="short-test",
+                profile_id="yandex_lera",
+                manifest_candidates=[symlinked_root / "MANIFEST.json"],
+                allowed_output_roots=[(symlinked_root, trusted_anchor)],
             )
 
 

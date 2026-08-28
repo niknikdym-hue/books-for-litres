@@ -96,17 +96,22 @@ def _require_no_symlink_components(path: Path, root: Path, label: str) -> Path:
 
 def _require_under_allowed_roots(
     path: Path,
-    roots: list[Path],
+    roots: list[tuple[Path, Path]],
     label: str,
 ) -> tuple[Path, Path]:
     """Return a canonical path and its lexical provider root, failing closed."""
     candidate = Path(path).expanduser().absolute()
-    for root in roots:
+    for root, trusted_anchor in roots:
         boundary = Path(root).expanduser().absolute()
         try:
             candidate.relative_to(boundary)
         except ValueError:
             continue
+        _require_no_symlink_components(
+            boundary,
+            Path(trusted_anchor).expanduser().absolute(),
+            f"{label} root",
+        )
         lexical = _require_no_symlink_components(candidate, boundary, label)
         return _require_below(lexical, boundary, label), boundary
     raise AudioQAAuthorityError(f"{label} escapes its production root.")
@@ -153,9 +158,10 @@ def resolve_qwen_authority(
     job_id: str,
     profile_id: str,
     report_candidates: list[Path],
-    allowed_output_roots: list[Path],
+    allowed_output_roots: list[tuple[Path, Path]],
     config_path: Path,
     audio_path: Path | None = None,
+    fail_on_invalid_report: bool = True,
 ) -> AudioQAAuthority:
     book, job, text = _job(library, book_name, job_id)
     profile_path = library.resolve_book_profile(book_name)
@@ -173,7 +179,12 @@ def resolve_qwen_authority(
         )
         if not path.is_file():
             continue
-        report = _load_json(path)
+        try:
+            report = _load_json(path)
+        except AudioQAAuthorityError:
+            if fail_on_invalid_report:
+                raise
+            continue
         speaker = report.get("speaker")
         entries = report.get("segments")
         joined_name = report.get("joined_wav")
@@ -241,7 +252,7 @@ def resolve_yandex_authority(
     job_id: str,
     profile_id: str,
     manifest_candidates: list[Path],
-    allowed_output_roots: list[Path],
+    allowed_output_roots: list[tuple[Path, Path]],
     audio_path: Path | None = None,
 ) -> AudioQAAuthority:
     from backends.yandex_speechkit import make_fingerprint

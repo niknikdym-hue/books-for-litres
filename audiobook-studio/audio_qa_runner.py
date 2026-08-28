@@ -37,6 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--downstream", action="store_true")
     parser.add_argument("--book", default="")
     parser.add_argument("--job", default="")
+    parser.add_argument("--provider", default="")
+    parser.add_argument("--profile-id", default="")
     parser.add_argument("--segment-id", default="")
     parser.add_argument("--audio-path", default="")
     parser.add_argument("--fingerprint", default="")
@@ -55,6 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _identity(args: argparse.Namespace) -> dict[str, str]:
     return {
+        "provider": _required(args.provider, "--provider"),
+        "profile_id": _required(args.profile_id, "--profile-id"),
         "book_slug": _required(args.book, "--book"),
         "job_id": _required(args.job, "--job"),
         "segment_id": _required(args.segment_id, "--segment-id"),

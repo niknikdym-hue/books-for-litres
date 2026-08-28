@@ -55,6 +55,8 @@ class AudioQARunnerTests(unittest.TestCase):
 
     def base_args(self) -> tuple[str, ...]:
         return (
+            "--provider", "openai",
+            "--profile-id", "openai_onyx",
             "--book", "book-one",
             "--job", "chapter-ch001",
             "--segment-id", "s0001",
