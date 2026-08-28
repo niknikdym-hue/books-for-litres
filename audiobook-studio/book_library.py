@@ -97,8 +97,11 @@ class BookLibrary:
             return []
         return sorted(
             path
-            for path in self.books_root.glob("*.json")
-            if path.is_file() and path.name != "BOOK-TEMPLATE.json" and not path.name.startswith(".")
+            for path in self.books_root.iterdir()
+            if path.is_file()
+            and path.suffix.lower() == ".json"
+            and path.name.casefold() != "book-template.json"
+            and not path.name.startswith(".")
         )
 
     def resolve_book_profile(self, book_id: str | Path) -> Path:

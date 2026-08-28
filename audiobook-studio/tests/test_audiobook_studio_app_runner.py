@@ -289,7 +289,7 @@ class UniversalBridgeTests(unittest.TestCase):
 
     def test_quarantine_slug_comes_from_enumerated_case_variant_path(self):
         library = mock.Mock()
-        library.list_book_profiles.return_value = [Path("Demo-Book.json")]
+        library.list_book_profiles.return_value = [Path("Demo-Book.JSON")]
         service = mock.Mock()
         service.quarantine_release_authority.return_value = {
             "release_authority_revoked": True,
@@ -301,8 +301,8 @@ class UniversalBridgeTests(unittest.TestCase):
              ), \
              mock.patch.object(bridge, "_litres_export_service", return_value=service):
             result = bridge.reconcile_all_litres_release_authorities()
-        self.assertEqual(result["failed_book_ids"], ["Demo-Book.json"])
-        self.assertEqual(result["quarantined_book_ids"], ["Demo-Book.json"])
+        self.assertEqual(result["failed_book_ids"], ["Demo-Book.JSON"])
+        self.assertEqual(result["quarantined_book_ids"], ["Demo-Book.JSON"])
         service.quarantine_release_authority.assert_called_once()
         self.assertEqual(
             service.quarantine_release_authority.call_args.args[0], "demo-book",
