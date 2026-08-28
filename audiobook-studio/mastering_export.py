@@ -1146,8 +1146,7 @@ class LitresExportService:
         must remove that pointer even when mastering/export prerequisites are
         unavailable.
         """
-        initial = canonical_book_authority(book_value)
-        book_slug = initial["slug"]
+        book_slug = _safe_slug(book_value.get("slug"))
         with production_authority_lock(
             self.workspace_root, provider="book-authority", book_slug=book_slug,
             job_id="profile", profile_id="canonical-v1", exclusive=False,
@@ -1156,10 +1155,8 @@ class LitresExportService:
                 self.workspace_root, provider="export", book_slug=book_slug,
                 job_id="book", profile_id=LITRES_PROFILE_ID, exclusive=True,
             ):
-                current = canonical_book_authority(
-                    revalidate_book() if revalidate_book is not None else book_value
-                )
-                if current["slug"] != book_slug:
+                current = revalidate_book() if revalidate_book is not None else book_value
+                if _safe_slug(current.get("slug")) != book_slug:
                     raise MasteringExportError(
                         "book_authority_changed",
                         "Canonical book authority изменилась во время проверки прав.",

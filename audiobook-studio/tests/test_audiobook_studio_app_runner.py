@@ -184,6 +184,27 @@ class UniversalBridgeTests(unittest.TestCase):
             ]), 0)
         reconcile.assert_called_once_with(book_name="demo-book")
 
+    def test_release_authority_reconciliation_uses_profile_not_execution_loader(self):
+        profile = ROOT / "books" / "demo-book.json"
+        book = json.loads(profile.read_text(encoding="utf-8"))
+        service = mock.Mock()
+
+        def reconcile(value, *, revalidate_book):
+            self.assertEqual(value["slug"], "demo-book")
+            self.assertEqual(revalidate_book()["slug"], "demo-book")
+            return {"state": "SAFE_NO_CURRENT", "provider_requests": 0}
+
+        service.reconcile_release_authority.side_effect = reconcile
+        library = mock.Mock()
+        library.resolve_book_profile.return_value = profile
+        library.load_book_profile.return_value = book
+        with mock.patch.object(bridge, "BOOK_LIBRARY", library), \
+             mock.patch.object(bridge, "_litres_export_service", return_value=service):
+            result = bridge.reconcile_litres_release_authority(book_name="demo-book")
+        self.assertEqual(result["state"], "SAFE_NO_CURRENT")
+        self.assertEqual(library.load_book_profile.call_count, 2)
+        library.load_book_for_execution.assert_not_called()
+
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):

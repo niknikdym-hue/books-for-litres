@@ -228,10 +228,17 @@ def _litres_export_service() -> LitresExportService:
 
 def reconcile_litres_release_authority(*, book_name: str) -> dict[str, Any]:
     """Apply current book rights to the release pointer without media tools."""
-    book = BOOK_LIBRARY.load_book_for_execution(book_name)
+    profile_path = BOOK_LIBRARY.resolve_book_profile(book_name)
+
+    def load_profile_authority() -> dict[str, Any]:
+        book = BOOK_LIBRARY.load_book_profile(profile_path.name)
+        book["slug"] = profile_path.stem
+        return book
+
+    book = load_profile_authority()
     return _litres_export_service().reconcile_release_authority(
         book,
-        revalidate_book=lambda: BOOK_LIBRARY.load_book_for_execution(book_name),
+        revalidate_book=load_profile_authority,
     )
 
 

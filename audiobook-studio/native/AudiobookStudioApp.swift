@@ -146,6 +146,9 @@ final class StudioModel: ObservableObject {
         defer { isLoading = false }
         do {
             let snapshot: StudioSnapshot = try await runBridgeJSON(["--ui-snapshot"])
+            for book in snapshot.books {
+                try await reconcileLitresReleaseAuthority(bookID: book.slug ?? book.id)
+            }
             books = snapshot.books
             voiceLibrary = snapshot.voiceLibrary
             profile = snapshot.yandexProfile
@@ -165,6 +168,18 @@ final class StudioModel: ObservableObject {
             errorMessage = nil
         } catch {
             showError(error)
+        }
+    }
+
+    private func reconcileLitresReleaseAuthority(bookID: String) async throws {
+        let releaseAuthority: LitresReleaseAuthorityStatus = try await runBridgeJSON([
+            "--reconcile-litres-release-authority",
+            "--book", bookID,
+        ])
+        guard !releaseAuthority.remoteRequestSent,
+              releaseAuthority.providerRequests == 0,
+              !releaseAuthority.billingChanged else {
+            throw BridgeError.message("Проверка прав выпуска нарушила offline contract.")
         }
     }
 
@@ -1177,15 +1192,7 @@ final class StudioModel: ObservableObject {
     ) async {
         guard executionSelectionGeneration == expectedSelectionGeneration else { return }
         do {
-            let releaseAuthority: LitresReleaseAuthorityStatus = try await runBridgeJSON([
-                "--reconcile-litres-release-authority",
-                "--book", authority.bookSlug,
-            ])
-            guard !releaseAuthority.remoteRequestSent,
-                  releaseAuthority.providerRequests == 0,
-                  !releaseAuthority.billingChanged else {
-                throw BridgeError.message("Проверка прав выпуска нарушила offline contract.")
-            }
+            try await reconcileLitresReleaseAuthority(bookID: authority.bookSlug)
             guard executionSelectionGeneration == expectedSelectionGeneration,
                   audioQA?.authority == authority else { return }
             let result: MasteringEnvelope = try await runBridgeJSON(
