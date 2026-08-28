@@ -86,6 +86,8 @@ final class StudioModel: ObservableObject {
     @Published var audioQA: AudioQACurrentEnvelope?
     @Published private(set) var audioQAPlaybackIdentity: AudioQAIdentity?
     @Published private(set) var downstreamApprovedOutput: URL?
+    @Published private(set) var chapterAssembly: ChapterAssemblyStatus?
+    let audioPlayer = EmbeddedAudioPlayer()
     @Published var audioQAStatusText = ""
     @Published private(set) var openAIQATargets: [OpenAIQATarget] = []
     @Published private(set) var showPrepareConfirmation = false
@@ -117,6 +119,9 @@ final class StudioModel: ObservableObject {
         if let requested = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_ENGINE"],
            let initialEngine = Engine(rawValue: requested) {
             engine = initialEngine
+        }
+        audioPlayer.onIdentityInvalidated = { [weak self] in
+            self?.audioQAPlaybackIdentity = nil
         }
         Task { await reload() }
     }
@@ -641,6 +646,7 @@ final class StudioModel: ObservableObject {
 
     private func executionSelectionDidChange() {
         executionSelectionGeneration &+= 1
+        audioPlayer.clear()
         invalidateOpenAIIntent()
         paidPlan = nil
         yandexChapterPlan = nil
@@ -651,6 +657,7 @@ final class StudioModel: ObservableObject {
         audioQA = nil
         audioQAPlaybackIdentity = nil
         downstreamApprovedOutput = nil
+        chapterAssembly = nil
         audioQAStatusText = ""
         openAIQATargets = []
         openAIQASelection = nil
@@ -727,6 +734,7 @@ final class StudioModel: ObservableObject {
                        && $0.manifestPath == current.authority.manifestPath
                        && $0.synthesisFingerprint == current.authority.synthesisFingerprint
                }) {
+                audioPlayer.clear()
                 audioQA = nil
                 audioQAPlaybackIdentity = nil
                 downstreamApprovedOutput = nil
@@ -762,8 +770,31 @@ final class StudioModel: ObservableObject {
             errorMessage = "Текущий WAV больше не совпадает с production authority."
             return
         }
-        audioQAPlaybackIdentity = envelope.record.identity
-        NSWorkspace.shared.open(audio)
+        guard let sha = envelope.record.identity.audioSHA256,
+              let fingerprint = envelope.record.identity.synthesisFingerprint else {
+            errorMessage = "Точная identity текущего WAV недоступна."
+            return
+        }
+        let binding = AudioPlaybackBinding(
+            url: audio,
+            audioSHA256: sha,
+            pathIdentity: envelope.record.identity.pathIdentity,
+            synthesisFingerprint: fingerprint,
+            provider: envelope.authority.provider,
+            profileID: envelope.authority.profileID,
+            bookSlug: envelope.authority.bookSlug,
+            jobID: envelope.authority.jobID,
+            segmentID: envelope.authority.segmentID,
+            role: "qa-source"
+        )
+        audioPlayer.loadAndPlay(binding)
+        if audioPlayer.binding == binding {
+            audioQAPlaybackIdentity = envelope.record.identity
+            errorMessage = nil
+        } else {
+            audioQAPlaybackIdentity = nil
+            errorMessage = audioPlayer.errorMessage
+        }
     }
 
     func decideAudioQA(_ decision: String) {
@@ -777,9 +808,20 @@ final class StudioModel: ObservableObject {
             errorMessage = "Выбор изменился. Откройте текущее аудио для проверки заново."
             return
         }
-        if decision == "APPROVED" && audioQAPlaybackIdentity != envelope.record.identity {
-            errorMessage = "Перед одобрением прослушайте именно текущую версию WAV."
-            return
+        if decision == "APPROVED" {
+            guard audioQAPlaybackIdentity == envelope.record.identity,
+                  audioPlayer.binding?.audioSHA256 == envelope.record.identity.audioSHA256,
+                  audioPlayer.binding?.pathIdentity == envelope.record.identity.pathIdentity,
+                  audioPlayer.binding?.synthesisFingerprint == envelope.record.identity.synthesisFingerprint,
+                  audioPlayer.binding?.provider == envelope.authority.provider,
+                  audioPlayer.binding?.profileID == envelope.authority.profileID,
+                  audioPlayer.binding?.bookSlug == envelope.authority.bookSlug,
+                  audioPlayer.binding?.jobID == envelope.authority.jobID,
+                  audioPlayer.binding?.segmentID == envelope.authority.segmentID,
+                  audioPlayer.validateLoadedIdentity(rehash: true) else {
+                errorMessage = "Перед одобрением прослушайте именно текущую версию WAV."
+                return
+            }
         }
         guard let sha = envelope.record.identity.audioSHA256,
               let fingerprint = envelope.record.identity.synthesisFingerprint else {
@@ -905,8 +947,10 @@ final class StudioModel: ObservableObject {
                   selectedJobID == jobID,
                   selectedProfileID == profileID,
                   executionSelectionGeneration == expectedSelectionGeneration else { return }
+            audioPlayer.clear()
             audioQA = result
             audioQAPlaybackIdentity = nil
+            chapterAssembly = nil
             completedOutput = URL(fileURLWithPath: result.record.audioPath)
             await refreshAudioQADownstream(
                 authority: result.authority,
@@ -961,6 +1005,14 @@ final class StudioModel: ObservableObject {
             downstreamApprovedOutput = result.eligible
                 ? URL(fileURLWithPath: result.record.audioPath)
                 : nil
+            if result.eligible {
+                await refreshChapterAssembly(
+                    authority: result.authority,
+                    expectedSelectionGeneration: expectedSelectionGeneration
+                )
+            } else {
+                chapterAssembly = nil
+            }
         } catch {
             guard engine == expectedEngine,
                   selectedBook?.slug == expectedBookSlug,
@@ -970,6 +1022,103 @@ final class StudioModel: ObservableObject {
             downstreamApprovedOutput = nil
             technicalDetails = error.localizedDescription
         }
+    }
+
+    private func refreshChapterAssembly(
+        authority: AudioQAAuthority,
+        expectedSelectionGeneration: UInt64
+    ) async {
+        guard executionSelectionGeneration == expectedSelectionGeneration else { return }
+        do {
+            let result: ChapterAssemblyEnvelope = try await runBridgeJSON([
+                "--chapter-assembly-status",
+                "--provider", authority.provider,
+                "--book", authority.bookSlug,
+                "--job", authority.jobID,
+                "--profile-id", authority.profileID,
+            ])
+            guard !result.remoteRequestSent,
+                  result.providerRequests == 0,
+                  !result.assembly.remoteRequestSent,
+                  result.assembly.providerRequests == 0 else {
+                throw BridgeError.message("Сборка главы нарушила offline contract.")
+            }
+            guard executionSelectionGeneration == expectedSelectionGeneration,
+                  audioQA?.authority == authority else { return }
+            chapterAssembly = result.assembly
+        } catch {
+            guard executionSelectionGeneration == expectedSelectionGeneration else { return }
+            chapterAssembly = nil
+            technicalDetails = error.localizedDescription
+        }
+    }
+
+    func assembleCurrentChapter() {
+        guard let qa = audioQA,
+              qa.eligible,
+              downstreamApprovedOutput != nil else {
+            errorMessage = "Для сборки требуется точное текущее одобренное аудио."
+            return
+        }
+        let expectedSelectionGeneration = executionSelectionGeneration
+        let authority = qa.authority
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let result: ChapterAssemblyEnvelope = try await runBridgeJSON([
+                    "--assemble-chapter",
+                    "--provider", authority.provider,
+                    "--book", authority.bookSlug,
+                    "--job", authority.jobID,
+                    "--profile-id", authority.profileID,
+                ])
+                guard !result.remoteRequestSent,
+                      result.providerRequests == 0,
+                      !result.assembly.remoteRequestSent,
+                      result.assembly.providerRequests == 0 else {
+                    throw BridgeError.message("Сборка главы нарушила offline contract.")
+                }
+                guard executionSelectionGeneration == expectedSelectionGeneration,
+                      audioQA?.authority == authority else { return }
+                chapterAssembly = result.assembly
+                errorMessage = nil
+            } catch {
+                guard executionSelectionGeneration == expectedSelectionGeneration else { return }
+                showError(error)
+            }
+        }
+    }
+
+    func playAssembledChapter() {
+        guard let output = chapterAssembly?.assembly?.output,
+              let qa = audioQA else {
+            errorMessage = "Собранный WAV пока недоступен."
+            return
+        }
+        let binding = AudioPlaybackBinding(
+            url: URL(fileURLWithPath: output.path),
+            audioSHA256: output.sha256,
+            pathIdentity: output.pathIdentity,
+            synthesisFingerprint: chapterAssembly?.assemblyIdentity ?? "",
+            provider: qa.authority.provider,
+            profileID: qa.authority.profileID,
+            bookSlug: qa.authority.bookSlug,
+            jobID: qa.authority.jobID,
+            segmentID: qa.authority.segmentID,
+            role: "assembled-chapter"
+        )
+        audioQAPlaybackIdentity = nil
+        audioPlayer.loadAndPlay(binding)
+        if audioPlayer.binding != binding {
+            errorMessage = audioPlayer.errorMessage
+        }
+    }
+
+    func revealCurrentAudioInFinder() {
+        guard let url = audioPlayer.binding?.url
+            ?? audioQA.map({ URL(fileURLWithPath: $0.record.audioPath) }) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     private func invalidateOpenAIIntent() {
@@ -1457,31 +1606,52 @@ private struct AudioQAReviewSection: View {
             }
             if let qa = model.audioQA {
                 Section("Проверка готового аудио") {
-                    LabeledContent("Книга", value: qa.authority.bookTitle)
-                    LabeledContent("Задача", value: qa.authority.jobLabel)
-                    LabeledContent("Сегмент", value: qa.authority.segmentID)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(qa.authority.jobLabel)
+                                    .font(.title3.weight(.semibold))
+                                Text("\(qa.authority.bookTitle) · \(audioQAProviderLabel(qa.authority.provider))")
+                                    .foregroundStyle(.secondary)
+                                Text("Голос: \(audioQAVoiceLabel(qa.authority.profileID))")
+                                    .font(.callout)
+                            }
+                            Spacer()
+                            Label(
+                                audioQAStatusLabel(qa.record.automaticStatus),
+                                systemImage: qa.record.automaticStatus == "FAIL"
+                                    ? "xmark.octagon.fill" : "checkmark.seal.fill"
+                            )
+                            .foregroundStyle(qa.record.automaticStatus == "FAIL" ? Color.red : Color.green)
+                        }
+                        if let wav = qa.record.wav {
+                            Text("\(audioTimeLabel(wav.durationSeconds)) · \(wav.sampleRateHz.formatted()) Гц · \(wav.channels == 1 ? "моно" : "\(wav.channels) канала")")
+                                .font(.callout.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    AudioTransportCard(
+                        player: model.audioPlayer,
+                        role: "qa-source",
+                        playTitle: "Прослушать точный WAV",
+                        onLoad: model.playExactAudioForQA,
+                        onReveal: model.revealCurrentAudioInFinder
+                    )
+
+                    LabeledContent("Ручное решение", value: audioQAManualLabel(qa.record.manualState))
                     DisclosureGroup("Точный текст синтеза · \(qa.authority.textCharacters) символов") {
                         Text(qa.authority.segmentText).textSelection(.enabled)
                     }
-                    LabeledContent("Автопроверка", value: audioQAStatusLabel(qa.record.automaticStatus))
-                    LabeledContent("Ручное решение", value: audioQAManualLabel(qa.record.manualState))
-                    if let wav = qa.record.wav {
-                        LabeledContent(
-                            "WAV",
-                            value: "\(wav.sampleRateHz) Hz · \(wav.channels) ch · \(wav.durationSeconds.formatted(.number.precision(.fractionLength(2)))) с"
-                        )
-                    }
-                    LabeledContent("SHA-256", value: qa.record.identity.audioSHA256 ?? "Недоступно")
-                    LabeledContent("Synthesis fingerprint", value: qa.record.identity.synthesisFingerprint ?? "Недоступно")
                     ForEach(qa.record.automaticReasons, id: \.self) { reason in
-                        Label(reason, systemImage: "xmark.octagon").foregroundStyle(.red)
+                        Label(audioQAReasonLabel(reason), systemImage: "xmark.octagon").foregroundStyle(.red)
                     }
                     ForEach(qa.record.automaticWarnings, id: \.self) { warning in
-                        Label(warning, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                        Label(audioQAWarningLabel(warning), systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                     }
                     HStack {
-                        Button("Прослушать точный WAV") { model.playExactAudioForQA() }
                         Button("Одобрить") { model.decideAudioQA("APPROVED") }
+                            .buttonStyle(.borderedProminent)
                             .disabled(
                                 model.isRunning
                                     || qa.record.automaticStatus == "FAIL"
@@ -1499,6 +1669,27 @@ private struct AudioQAReviewSection: View {
                         systemImage: model.downstreamApprovedOutput == nil ? "lock.fill" : "checkmark.shield.fill"
                     )
                     .foregroundStyle(model.downstreamApprovedOutput == nil ? Color.secondary : Color.green)
+
+                    ChapterAssemblyCard(model: model, qa: qa)
+
+                    DisclosureGroup("Технические подробности") {
+                        LabeledContent("Сегмент", value: qa.authority.segmentID)
+                        LabeledContent("SHA-256", value: qa.record.identity.audioSHA256 ?? "Недоступно")
+                        LabeledContent("Synthesis fingerprint", value: qa.record.identity.synthesisFingerprint ?? "Недоступно")
+                        LabeledContent("Path identity", value: qa.record.identity.pathIdentity)
+                        LabeledContent("WAV", value: qa.record.audioPath)
+                        LabeledContent("Manifest", value: qa.authority.manifestPath)
+                        LabeledContent("FFmpeg", value: qa.record.ffmpeg.version ?? "Недоступно")
+                        if let path = qa.record.ffmpeg.path {
+                            LabeledContent("FFmpeg path", value: path)
+                        }
+                        if !qa.record.automaticReasons.isEmpty {
+                            Text("Коды ошибок: \(qa.record.automaticReasons.joined(separator: ", "))")
+                        }
+                        if !qa.record.automaticWarnings.isEmpty {
+                            Text("Коды предупреждений: \(qa.record.automaticWarnings.joined(separator: ", "))")
+                        }
+                    }
                     if !model.audioQAStatusText.isEmpty {
                         Text(model.audioQAStatusText).font(.caption).foregroundStyle(.secondary)
                     }
@@ -1512,6 +1703,117 @@ private struct AudioQAReviewSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+}
+
+private struct AudioTransportCard: View {
+    @ObservedObject var player: EmbeddedAudioPlayer
+    let role: String
+    let playTitle: String
+    let onLoad: () -> Void
+    let onReveal: () -> Void
+
+    private var isCurrent: Bool { player.binding?.role == role }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Button {
+                    if isCurrent { player.togglePlayPause() } else { onLoad() }
+                } label: {
+                    Label(
+                        isCurrent && player.state == .playing ? "Пауза" : playTitle,
+                        systemImage: isCurrent && player.state == .playing ? "pause.fill" : "play.fill"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Стоп", systemImage: "stop.fill") { player.stop() }
+                    .disabled(!isCurrent || player.state == .stopped)
+                Spacer()
+                Button("Показать в Finder", systemImage: "folder") { onReveal() }
+                    .buttonStyle(.borderless)
+            }
+            HStack(spacing: 10) {
+                Text(audioTimeLabel(isCurrent ? player.elapsed : 0))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .leading)
+                Slider(
+                    value: Binding(
+                        get: { isCurrent ? player.elapsed : 0 },
+                        set: { player.seek(to: $0) }
+                    ),
+                    in: 0...max(isCurrent ? player.duration : 0, 0.001)
+                )
+                .disabled(!isCurrent || player.duration <= 0)
+                Text(audioTimeLabel(isCurrent ? player.duration : 0))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+            }
+            Text(isCurrent ? playbackStateLabel(player.state) : "Готово к воспроизведению")
+                .font(.caption)
+                .foregroundStyle(player.state == .error ? Color.red : Color.secondary)
+            if isCurrent, let error = player.errorMessage {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct ChapterAssemblyCard: View {
+    @ObservedObject var model: StudioModel
+    let qa: AudioQACurrentEnvelope
+
+    var body: some View {
+        if qa.eligible, let assembly = model.chapterAssembly {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label(
+                        "Мастер-файл главы",
+                        systemImage: assembly.assembly == nil ? "waveform.badge.plus" : "waveform.badge.checkmark"
+                    )
+                    .font(.headline)
+                    Spacer()
+                    Text(chapterAssemblyStateLabel(assembly.state, decision: assembly.decision))
+                        .foregroundStyle(assembly.decision == "BLOCKED" ? Color.orange : Color.secondary)
+                }
+                Text("WAV · PCM 16-bit · 48 000 Гц · моно")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let blockerMessage = assembly.blockerMessage {
+                    Label(blockerMessage, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                } else if assembly.assembly == nil {
+                    Button("Собрать мастер-файл главы") { model.assembleCurrentChapter() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isRunning || assembly.decision != "READY_TO_ASSEMBLE")
+                } else {
+                    AudioTransportCard(
+                        player: model.audioPlayer,
+                        role: "assembled-chapter",
+                        playTitle: "Прослушать мастер-файл",
+                        onLoad: model.playAssembledChapter,
+                        onReveal: model.revealCurrentAudioInFinder
+                    )
+                }
+                DisclosureGroup("Технические подробности сборки") {
+                    LabeledContent("Assembly identity", value: assembly.assemblyIdentity)
+                    LabeledContent("FFmpeg", value: assembly.ffmpeg.version ?? "Недоступно")
+                    if let manifestPath = assembly.manifestPath {
+                        LabeledContent("Manifest", value: manifestPath)
+                    }
+                    if let output = assembly.assembly?.output {
+                        LabeledContent("SHA-256", value: output.sha256)
+                        LabeledContent("WAV", value: output.path)
+                    }
+                    if !assembly.blockers.isEmpty {
+                        Text("Blockers: \(assembly.blockers.joined(separator: ", "))")
+                    }
+                }
+            }
+            .padding(.vertical, 6)
         }
     }
 }

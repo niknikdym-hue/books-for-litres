@@ -22,6 +22,10 @@ from cloud_billing import CloudBillingService, decimal_text, decimal_value, save
 from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
 from chapter_production import YandexChapterProductionService
+from chapter_assembly import (
+    ChapterAssemblyService,
+    assembly_input_from_qa,
+)
 from paid_run import PaidRunService
 from audio_qa_authority import (
     AudioQAAuthority,
@@ -86,6 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--audio-qa-openai-targets", action="store_true")
     mode.add_argument("--audio-qa-decide", action="store_true")
     mode.add_argument("--audio-qa-downstream", action="store_true")
+    mode.add_argument("--chapter-assembly-status", action="store_true")
+    mode.add_argument("--prepare-chapter-assembly", action="store_true")
+    mode.add_argument("--assemble-chapter", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--source-file", default="")
@@ -178,6 +185,13 @@ def _yandex_chapter_service() -> YandexChapterProductionService:
 
 def _audio_qa_service() -> AudioQAReviewService:
     return AudioQAReviewService(WORKSPACE_PATHS.qa_review_root)
+
+
+def _chapter_assembly_service() -> ChapterAssemblyService:
+    return ChapterAssemblyService(
+        workspace_root=WORKSPACE_PATHS.root,
+        chapters_root=WORKSPACE_PATHS.chapters_root,
+    )
 
 
 def _stable_symlink_identity(path: Path) -> tuple[tuple[int | str, ...], Path]:
@@ -469,6 +483,44 @@ def openai_qa_targets(*, book_name: str, job_id: str, profile_id: str) -> dict[s
             jobs_root_anchor=WORKSPACE_PATHS.root,
             manifest_path=manifest_path,
         ),
+        "remote_request_sent": False,
+    }
+
+
+def chapter_assembly_current(
+    *,
+    action: str,
+    provider: str,
+    book_name: str,
+    job_id: str,
+    profile_id: str,
+) -> dict[str, Any]:
+    """Resolve exact current downstream authority, then operate entirely offline."""
+    qa = audio_qa_current(
+        provider=provider,
+        book_name=book_name,
+        job_id=job_id,
+        profile_id=profile_id,
+        downstream=True,
+    )
+    if not qa.get("eligible") or not isinstance(qa.get("record"), Mapping):
+        raise RuntimeError("Для сборки требуется точное текущее одобренное аудио.")
+    assembly_input = assembly_input_from_qa(qa["authority"], qa["record"])
+    service = _chapter_assembly_service()
+    if action == "status":
+        assembly = service.status(assembly_input)
+    elif action == "prepare":
+        assembly = service.prepare(assembly_input)
+    elif action == "assemble":
+        service.assemble(assembly_input)
+        assembly = service.status(assembly_input)
+    else:
+        raise RuntimeError("Unsupported chapter assembly action.")
+    return {
+        "schema_version": 1,
+        "qa": qa,
+        "assembly": assembly,
+        "provider_requests": 0,
         "remote_request_sent": False,
     }
 
@@ -904,6 +956,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             decision=_require(args.decision, "--decision") if args.audio_qa_decide else "",
             reviewed_identity=reviewed_identity,
             downstream=args.audio_qa_downstream,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if (
+        args.chapter_assembly_status
+        or args.prepare_chapter_assembly
+        or args.assemble_chapter
+    ):
+        action = (
+            "status" if args.chapter_assembly_status else
+            "prepare" if args.prepare_chapter_assembly else
+            "assemble"
+        )
+        print(json.dumps(chapter_assembly_current(
+            action=action,
+            provider=_require(args.provider, "--provider"),
+            book_name=_require(args.book, "--book"),
+            job_id=_require(args.job, "--job"),
+            profile_id=_require(args.profile_id, "--profile-id"),
         ), ensure_ascii=False, indent=2))
         return 0
 

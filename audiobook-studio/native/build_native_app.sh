@@ -30,6 +30,7 @@ SWIFT_MODULECACHE_PATH="$module_cache/swift" \
 xcrun swiftc \
   "$script_dir/StudioContracts.swift" \
   "$script_dir/AudioQAContracts.swift" \
+  "$script_dir/EmbeddedAudioPlayer.swift" \
   "$script_dir/AudiobookStudioApp.swift" \
   -parse-as-library \
   -target "$target_arch-apple-macosx$deployment_target" \
@@ -37,7 +38,8 @@ xcrun swiftc \
   -module-cache-path "$module_cache/swift" \
   -o "$contents/MacOS/Audiobook Studio" \
   -framework SwiftUI \
-  -framework AppKit
+  -framework AppKit \
+  -framework AVFoundation
 plutil -lint "$contents/Info.plist"
 xattr -cr "$staged_app"
 codesign --force --sign - --timestamp=none "$staged_app"

@@ -68,6 +68,14 @@ class WorkspacePaths:
         return self.root / "runtime" / "qa-review"
 
     @property
+    def chapters_root(self) -> Path:
+        return self.root / "chapters"
+
+    @property
+    def media_tools_config(self) -> Path:
+        return self.root / "settings" / "media-tools.json"
+
+    @property
     def cloud_billing_settings(self) -> Path:
         return self.root / "settings" / "cloud-billing.json"
 

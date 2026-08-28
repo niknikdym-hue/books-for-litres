@@ -18,6 +18,8 @@ from typing import Any, BinaryIO, Iterator, Mapping
 
 from backends.common import WavValidationError, atomic_write_json, inspect_pcm_wav, utc_now_iso
 from book_library import BookLibraryError, normalize_slug
+from media_tools import resolve_ffmpeg
+from workspace_paths import load_workspace_paths
 
 
 QA_SCHEMA_VERSION = 3
@@ -106,7 +108,7 @@ def _safe_book_slug(value: str) -> str:
         raise AudioQAError(f"Invalid book_slug: {value!r}") from error
 
 
-def _path_identity(path: Path) -> str:
+def path_identity(path: Path) -> str:
     resolved = str(Path(path).expanduser().resolve(strict=False))
     return hashlib.sha256(resolved.encode("utf-8")).hexdigest()
 
@@ -214,23 +216,40 @@ def _signal_metrics(path: Path, sample_width_bytes: int, *, chunk_bytes: int = 6
 
 
 def _ffmpeg_check(path: Path) -> dict[str, Any]:
-    executable = shutil.which("ffmpeg")
-    if executable is None:
-        return {"status": "UNAVAILABLE", "available": False, "exit_code": None}
+    resolution = resolve_ffmpeg(load_workspace_paths().root)
+    if not resolution.available or resolution.path is None:
+        return {
+            "status": "UNAVAILABLE",
+            "available": False,
+            "exit_code": None,
+            "path": None,
+            "version": None,
+            "source": resolution.source,
+        }
     try:
         completed = subprocess.run(
-            [executable, "-v", "error", "-i", str(path), "-f", "null", "-"],
+            [str(resolution.path), "-v", "error", "-i", str(path), "-f", "null", "-"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             timeout=60,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return {"status": "ERROR", "available": True, "exit_code": None}
+        return {
+            "status": "ERROR",
+            "available": True,
+            "exit_code": None,
+            "path": str(resolution.path),
+            "version": resolution.version,
+            "source": resolution.source,
+        }
     return {
         "status": "PASS" if completed.returncode == 0 else "FAIL",
         "available": True,
         "exit_code": completed.returncode,
+        "path": str(resolution.path),
+        "version": resolution.version,
+        "source": resolution.source,
     }
 
 
@@ -391,7 +410,7 @@ class AudioQAReviewService:
         previous = self._read_record(state_path)
         identity = {
             "audio_sha256": audio_sha,
-            "path_identity": _path_identity(path),
+            "path_identity": path_identity(path),
             "synthesis_fingerprint": synthesis_fingerprint,
         }
         previous_identity = (previous or {}).get("identity") if isinstance(previous, dict) else None
