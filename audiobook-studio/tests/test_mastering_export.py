@@ -29,7 +29,7 @@ from mastering_export import (
     MasteringExportError,
     MasteringService,
     _boundary_measurements,
-    _canonical_hash,
+    _export_identity,
     _parse_loudnorm_json,
     _safe_output_name,
     build_book_export_state,
@@ -447,6 +447,19 @@ class MasteringExportTests(unittest.TestCase):
         manifest["whole_book"]["ready"] = True
         manifest["whole_book"]["blockers"] = []
         manifest["status"] = "RELEASE_READY"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertIsNone(self.exporting._read_export(output_dir, identity))
+
+        manifest_path.write_bytes(original)
+        manifest = json.loads(original)
+        manifest["chapters"][0]["sha256"] = "0" * 64
+        manifest["whole_book"] = build_book_export_state(manifest["book"], manifest["chapters"])
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertIsNone(self.exporting._read_export(output_dir, identity))
+
+        manifest_path.write_bytes(original)
+        manifest = json.loads(original)
+        manifest["book"]["chapters"][0] = None
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         self.assertIsNone(self.exporting._read_export(output_dir, identity))
 
@@ -978,14 +991,7 @@ class MasteringExportTests(unittest.TestCase):
         })
         manifest["chapters"].append(second)
         profile_root = manifest_path.parent.parent
-        export_identity = _canonical_hash({
-            "schema_version": 1,
-            "profile_hash": litres_profile_hash(),
-            "book": authority,
-            "ordered_candidate_identities": [
-                item["candidate_identity"] for item in manifest["chapters"]
-            ],
-        })
+        export_identity = _export_identity(authority, manifest["chapters"])
         output_dir = profile_root / export_identity
         output_dir.mkdir()
         for item in manifest["chapters"]:

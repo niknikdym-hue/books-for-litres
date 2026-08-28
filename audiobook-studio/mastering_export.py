@@ -87,6 +87,23 @@ LITRES_PROFILE: dict[str, Any] = {
     "duration_tolerance_seconds": 0.25,
 }
 
+EXPORT_CHAPTER_IDENTITY_FIELDS = (
+    "candidate_identity",
+    "job_id",
+    "chapter_id",
+    "chapter_title",
+    "position",
+    "master_identity",
+    "master_manifest_sha256",
+    "master_sha256",
+    "sha256",
+    "facts",
+    "encoder",
+    "tool",
+    "arguments",
+    "metadata",
+)
+
 
 class MasteringExportError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
@@ -961,6 +978,22 @@ def build_book_export_state(
     }
 
 
+def _export_identity(book: Mapping[str, Any], chapters: Sequence[Mapping[str, Any]]) -> str:
+    if not isinstance(book, Mapping):
+        raise MasteringExportError("invalid_export_manifest", "Export book authority повреждена.")
+    records: list[dict[str, Any]] = []
+    for chapter in chapters:
+        if not isinstance(chapter, Mapping) or any(field not in chapter for field in EXPORT_CHAPTER_IDENTITY_FIELDS):
+            raise MasteringExportError("invalid_export_manifest", "Export chapter record повреждён.")
+        records.append({field: chapter[field] for field in EXPORT_CHAPTER_IDENTITY_FIELDS})
+    return _canonical_hash({
+        "schema_version": EXPORT_SCHEMA_VERSION,
+        "profile_hash": litres_profile_hash(),
+        "book": book,
+        "chapter_outputs": records,
+    })
+
+
 @dataclass
 class LitresExportService:
     workspace_root: Path
@@ -1536,13 +1569,7 @@ class LitresExportService:
             candidates = [item for item in self._load_current_candidates(book) if item.get("job_id") != master["job_id"]]
             candidates.append(candidate)
             state = build_book_export_state(book, candidates)
-            ordered_candidate_identities = [item["candidate_identity"] for item in state["ordered_candidates"]]
-            export_identity = _canonical_hash({
-                "schema_version": EXPORT_SCHEMA_VERSION,
-                "profile_hash": litres_profile_hash(),
-                "book": book,
-                "ordered_candidate_identities": ordered_candidate_identities,
-            })
+            export_identity = _export_identity(book, state["ordered_candidates"])
             output_dir = profile_root / export_identity
             package_temp = Path(tempfile.mkdtemp(prefix=".package-", dir=profile_root))
             try:
@@ -1708,14 +1735,15 @@ class LitresExportService:
                 return None
             book = payload.get("book")
             chapters = payload.get("chapters")
-            if not isinstance(book, Mapping) or not isinstance(chapters, list):
+            if (
+                not isinstance(book, Mapping)
+                or not isinstance(book.get("chapters"), list)
+                or not all(isinstance(item, Mapping) for item in book["chapters"])
+                or not isinstance(chapters, list)
+                or not all(isinstance(item, Mapping) for item in chapters)
+            ):
                 return None
-            derived_identity = _canonical_hash({
-                "schema_version": EXPORT_SCHEMA_VERSION,
-                "profile_hash": litres_profile_hash(),
-                "book": book,
-                "ordered_candidate_identities": [item["candidate_identity"] for item in chapters],
-            })
+            derived_identity = _export_identity(book, chapters)
             derived_state = build_book_export_state(book, chapters)
             if (
                 identity != derived_identity
@@ -1736,8 +1764,15 @@ class LitresExportService:
             cover = payload.get("cover")
             cover_ffmpeg = self._resolution() if isinstance(cover, Mapping) else None
             for item in payload.get("chapters", []):
+                filename = _safe_output_name(int(item["position"]), str(item["chapter_title"]))
+                expected_path = output_dir / filename
                 path = _require_regular_path(Path(item["path"]), root=self.workspace_root, label="Export MP3")
-                if item.get("sha256") != sha256_file(path) or item.get("path_identity") != path_identity(path):
+                if (
+                    item.get("filename") != filename
+                    or path != expected_path
+                    or item.get("sha256") != sha256_file(path)
+                    or item.get("path_identity") != path_identity(path)
+                ):
                     return None
                 if isinstance(cover, Mapping) and (
                     not isinstance(item.get("facts"), Mapping)
@@ -1751,5 +1786,5 @@ class LitresExportService:
             if validate_package_cover and not self._package_cover_is_valid(payload):
                 return None
             return payload
-        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired, MasteringExportError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.TimeoutExpired, MasteringExportError):
             return None
