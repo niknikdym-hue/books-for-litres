@@ -1281,6 +1281,29 @@ class LitresExportService:
             ):
                 return False
             derived_state = build_book_export_state(book, chapters)
+            for chapter in chapters:
+                output = _require_regular_path(
+                    Path(chapter["path"]),
+                    root=self.workspace_root,
+                    label="Export MP3",
+                )
+                if (
+                    chapter.get("sha256") != sha256_file(output)
+                    or chapter.get("path_identity") != path_identity(output)
+                ):
+                    return False
+            cover = manifest.get("cover")
+            if isinstance(cover, Mapping):
+                package_cover = _require_regular_path(
+                    Path(cover["package_path"]),
+                    root=self.workspace_root,
+                    label="Package cover",
+                )
+                if (
+                    cover.get("package_sha256") != sha256_file(package_cover)
+                    or cover.get("package_path_identity") != path_identity(package_cover)
+                ):
+                    return False
             return bool(
                 identity == manifest.get("export_identity")
                 and identity == manifest_path.parent.name
@@ -1353,13 +1376,12 @@ class LitresExportService:
         output_dir: Path,
         manifest: Mapping[str, Any],
     ) -> None:
-        identity = _safe_id(manifest.get("export_identity"), "export_identity")
-        validated = self._read_export(output_dir, identity)
-        if validated is None:
-            raise MasteringExportError("invalid_export_winner", "Export package не прошёл проверку перед публикацией CURRENT.")
-        manifest_path = output_dir / "MANIFEST.json"
         book_pointer = profile_root / "CURRENT.json"
-        if validated["whole_book"]["ready"] is not True:
+        declared_state = manifest.get("whole_book")
+        if (
+            not isinstance(declared_state, Mapping)
+            or declared_state.get("ready") is not True
+        ):
             if book_pointer.exists() or book_pointer.is_symlink():
                 if book_pointer.is_symlink() or not book_pointer.is_file():
                     raise MasteringExportError(
@@ -1367,6 +1389,11 @@ class LitresExportService:
                         "Export CURRENT должен быть обычным файлом.",
                     )
                 book_pointer.unlink()
+        identity = _safe_id(manifest.get("export_identity"), "export_identity")
+        validated = self._read_export(output_dir, identity)
+        if validated is None:
+            raise MasteringExportError("invalid_export_winner", "Export package не прошёл проверку перед публикацией CURRENT.")
+        manifest_path = output_dir / "MANIFEST.json"
         for record in validated["chapters"]:
             atomic_write_json(profile_root / f"CURRENT-{record['job_id']}.json", {
                 "schema_version": EXPORT_SCHEMA_VERSION,

@@ -492,7 +492,7 @@ class MasteringExportTests(unittest.TestCase):
         )
         self.assertEqual(first["export_manifest"]["provider_requests"], 0)
 
-    def test_incomplete_publication_revokes_release_pointer_before_chapter_failure(self):
+    def test_incomplete_publication_revokes_release_pointer_before_validation_failure(self):
         first = self._export()
         manifest_path = Path(first["manifest_path"])
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -502,7 +502,10 @@ class MasteringExportTests(unittest.TestCase):
         book_pointer.write_text("stale-release-ready", encoding="utf-8")
         chapter_pointer.unlink()
         chapter_pointer.mkdir()
-        with self.assertRaises(OSError):
+        with mock.patch.object(
+            self.exporting, "_read_export",
+            side_effect=MasteringExportError("invalid_export", "forced failure"),
+        ), self.assertRaises(MasteringExportError):
             self.exporting._publish_current_pointers(
                 profile_root, manifest_path.parent, manifest,
             )
@@ -813,6 +816,18 @@ class MasteringExportTests(unittest.TestCase):
         self.assertTrue(recovered_changed["book_pointer_invalidated"])
         self.assertFalse(book_pointer.exists())
         self.assertTrue(stale_pointer)
+
+        stale_payload = json.loads(stale_pointer)
+        stale_manifest = json.loads(
+            Path(stale_payload["manifest_path"]).read_text(encoding="utf-8")
+        )
+        stale_mp3 = Path(stale_manifest["chapters"][0]["path"])
+        stale_mp3.write_bytes(b"corrupted-after-publication")
+        self.assertFalse(
+            self.exporting._release_pointer_payload_matches_book_authority(
+                stale_payload, self.book,
+            )
+        )
 
     def test_export_recovery_revalidates_and_never_rewinds_other_chapter_pointers(self):
         master = self._master_authority()
