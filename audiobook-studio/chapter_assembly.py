@@ -9,9 +9,10 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from audio_qa_review import path_identity, sha256_file
 from backends.common import atomic_write_json, inspect_pcm_wav, utc_now_iso
@@ -155,6 +156,58 @@ def assembly_input_from_qa(
     }
 
 
+def assembly_input_from_qa_segments(
+    items: Sequence[tuple[Mapping[str, Any], Mapping[str, Any]]],
+    *,
+    expected_segment_ids: Sequence[str],
+    prepared_text_identity: str,
+) -> dict[str, Any]:
+    """Build one immutable ordered chapter input from every expected segment."""
+    expected = [_safe_id(value, "segment_id") for value in expected_segment_ids]
+    if not expected or len(set(expected)) != len(expected):
+        raise ChapterAssemblyError("invalid_order", "Ожидаемый набор сегментов неоднозначен.")
+    if len(items) != len(expected):
+        raise ChapterAssemblyError(
+            "incomplete_approved_segment_set",
+            "Для сборки главы одобрены не все готовые сегменты.",
+        )
+    if not isinstance(prepared_text_identity, str) or not prepared_text_identity:
+        raise ChapterAssemblyError("invalid_prepared_text_identity", "Identity подготовленного текста недоступна.")
+
+    chapter_inputs = [assembly_input_from_qa(authority, record) for authority, record in items]
+    first = chapter_inputs[0]
+    ordered: list[dict[str, Any]] = []
+    for position, (segment_id, value) in enumerate(zip(expected, chapter_inputs), start=1):
+        if value["segment_id"] != segment_id:
+            raise ChapterAssemblyError("invalid_order", "Порядок сегментов не совпадает с подготовленным текстом.")
+        for field in ("book_slug", "job_id", "provider", "profile_id"):
+            if value[field] != first[field]:
+                raise ChapterAssemblyError("mixed_chapter_identity", "Сегменты относятся к разным заданиям.")
+        ordered.append({
+            "position": position,
+            "segment_id": segment_id,
+            "source": value["source"],
+            "qa": value["qa"],
+            "wav": value["wav"],
+        })
+    return {
+        "schema_version": ASSEMBLY_SCHEMA_VERSION,
+        "book_slug": first["book_slug"],
+        "book_title": first["book_title"],
+        "job_id": first["job_id"],
+        "job_label": first["job_label"],
+        "provider": first["provider"],
+        "profile_id": first["profile_id"],
+        "segment_id": first["job_id"],
+        "granularity": "segments",
+        "prepared_text_identity": prepared_text_identity,
+        "expected_segment_count": len(expected),
+        "ordered_segment_ids": expected,
+        "pause_contract": "no_added_intersegment_silence_v1",
+        "ordered_inputs": ordered,
+    }
+
+
 @dataclass
 class ChapterAssemblyService:
     workspace_root: Path
@@ -185,88 +238,121 @@ class ChapterAssemblyService:
         object.__setattr__(self, "workspace_root", workspace)
         object.__setattr__(self, "chapters_root", chapters)
 
-    def _validate_input(self, value: Mapping[str, Any]) -> tuple[dict[str, Any], Path, Path]:
+    def _validate_source(
+        self,
+        *,
+        source: dict[str, Any],
+        qa: dict[str, Any],
+        wav: dict[str, Any],
+        label: str,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], Path, Path]:
+        if qa.get("automatic_status") == "FAIL":
+            raise ChapterAssemblyError("automatic_qa_failed", f"Автопроверка {label} не пройдена.")
+        if qa.get("automatic_status") not in {"PASS", "WARN"}:
+            raise ChapterAssemblyError("automatic_qa_unavailable", f"Автопроверка {label} недоступна.")
+        if qa.get("manual_state") != "APPROVED":
+            raise ChapterAssemblyError("manual_approval_required", f"Для сборки требуется одобрение {label}.")
+        if qa.get("downstream_eligible") is not True:
+            raise ChapterAssemblyError("downstream_blocked", f"{label} не допущен к следующему этапу.")
+        audio = _require_real_path(
+            Path(source.get("audio_path") or ""), root=self.workspace_root, label=label
+        )
+        manifest = _require_real_path(
+            Path(source.get("manifest_path") or ""), root=self.workspace_root, label="Production manifest"
+        )
+        expected = tuple(source.get(field) for field in (
+            "audio_sha256", "path_identity", "synthesis_fingerprint"
+        ))
+        if not all(isinstance(item, str) and item for item in expected):
+            raise ChapterAssemblyError("qa_identity_unavailable", "Точная QA identity недоступна.")
+        if sha256_file(audio) != expected[0]:
+            raise ChapterAssemblyError("source_sha_mismatch", f"SHA {label} изменился после проверки.")
+        if path_identity(audio) != expected[1]:
+            raise ChapterAssemblyError("source_path_mismatch", f"Путь {label} изменился после проверки.")
+        metadata = inspect_pcm_wav(audio)
+        facts = metadata.to_dict()
+        for field in ("sample_rate_hz", "channels", "sample_width_bytes", "duration_seconds"):
+            if wav.get(field) != facts.get(field):
+                raise ChapterAssemblyError("wav_facts_mismatch", f"PCM-параметры {label} изменились.")
+        if metadata.channels != 1 or metadata.sample_width_bytes != 2:
+            raise ChapterAssemblyError("unsupported_pcm", "Сборка поддерживает только mono PCM16 WAV.")
+        manifest_sha = sha256_file(manifest)
+        if source.get("manifest_sha256") not in {None, manifest_sha}:
+            raise ChapterAssemblyError("manifest_sha_mismatch", "Production manifest изменился.")
+        normalized_source = dict(source)
+        normalized_source.update({
+            "audio_path": str(audio),
+            "manifest_path": str(manifest),
+            "manifest_sha256": manifest_sha,
+        })
+        return normalized_source, dict(qa), facts, audio, manifest
+
+    def _validate_input(self, value: Mapping[str, Any]) -> tuple[dict[str, Any], list[Path], list[Path]]:
         payload = json.loads(json.dumps(value, ensure_ascii=False))
         if payload.get("schema_version") != ASSEMBLY_SCHEMA_VERSION:
             raise ChapterAssemblyError("invalid_schema", "Неподдерживаемая схема входа сборки.")
         payload["book_slug"] = _safe_slug(payload.get("book_slug"))
         for field in ("job_id", "provider", "profile_id", "segment_id"):
             payload[field] = _safe_id(payload.get(field), field)
-        qa = payload.get("qa")
-        source = payload.get("source")
-        wav = payload.get("wav")
         ordered = payload.get("ordered_inputs")
-        if not all(isinstance(item, dict) for item in (qa, source, wav)):
-            raise ChapterAssemblyError("invalid_input", "Неполный вход сборки главы.")
         if not isinstance(ordered, list) or not ordered:
             raise ChapterAssemblyError("invalid_order", "Порядок входных аудиофайлов недоступен.")
         positions = [item.get("position") for item in ordered if isinstance(item, dict)]
         if positions != list(range(1, len(ordered) + 1)) or len(positions) != len(ordered):
             raise ChapterAssemblyError("invalid_order", "Порядок входных аудиофайлов неоднозначен.")
-        if qa.get("automatic_status") == "FAIL":
-            raise ChapterAssemblyError("automatic_qa_failed", "Автопроверка исходного аудио не пройдена.")
-        if qa.get("automatic_status") not in {"PASS", "WARN"}:
-            raise ChapterAssemblyError("automatic_qa_unavailable", "Автопроверка исходного аудио недоступна.")
-        if qa.get("manual_state") != "APPROVED":
-            raise ChapterAssemblyError("manual_approval_required", "Для сборки требуется ручное одобрение аудио.")
-        if qa.get("downstream_eligible") is not True:
-            raise ChapterAssemblyError("downstream_blocked", "Исходное аудио не допущено к следующему этапу.")
-
-        audio = _require_real_path(
-            Path(source.get("audio_path") or ""), root=self.workspace_root, label="Исходный WAV"
-        )
-        manifest = _require_real_path(
-            Path(source.get("manifest_path") or ""), root=self.workspace_root, label="Production manifest"
-        )
-        expected_sha = source.get("audio_sha256")
-        expected_path_identity = source.get("path_identity")
-        expected_fingerprint = source.get("synthesis_fingerprint")
-        if not all(isinstance(item, str) and item for item in (
-            expected_sha, expected_path_identity, expected_fingerprint
-        )):
-            raise ChapterAssemblyError("qa_identity_unavailable", "Точная QA identity недоступна.")
-        if sha256_file(audio) != expected_sha:
-            raise ChapterAssemblyError("source_sha_mismatch", "SHA исходного WAV изменился после проверки.")
-        if path_identity(audio) != expected_path_identity:
-            raise ChapterAssemblyError("source_path_mismatch", "Путь исходного WAV изменился после проверки.")
-        metadata = inspect_pcm_wav(audio)
-        facts = metadata.to_dict()
-        for field in ("sample_rate_hz", "channels", "sample_width_bytes"):
-            if wav.get(field) != facts.get(field):
-                raise ChapterAssemblyError("wav_facts_mismatch", "PCM-параметры исходного WAV изменились.")
-        if wav.get("duration_seconds") != facts.get("duration_seconds"):
-            raise ChapterAssemblyError("wav_facts_mismatch", "Длительность исходного WAV изменилась.")
-        if metadata.channels != 1 or metadata.sample_width_bytes != 2:
-            raise ChapterAssemblyError("unsupported_pcm", "Сборка поддерживает только mono PCM16 WAV.")
-        for item in ordered:
+        granularity = payload.get("granularity")
+        audios: list[Path] = []
+        manifests: list[Path] = []
+        if granularity == "chapter":
+            qa, source, wav = payload.get("qa"), payload.get("source"), payload.get("wav")
+            if not all(isinstance(item, dict) for item in (qa, source, wav)) or len(ordered) != 1:
+                raise ChapterAssemblyError("invalid_input", "Неполный вход сборки главы.")
+            normalized_source, normalized_qa, normalized_wav, audio, manifest = self._validate_source(
+                source=source, qa=qa, wav=wav, label="Исходный WAV"
+            )
+            item = ordered[0]
             if not isinstance(item, dict) or any(
-                item.get(field) != source.get(field)
+                item.get(field) != normalized_source.get(field)
                 for field in ("audio_sha256", "path_identity", "synthesis_fingerprint")
             ):
                 raise ChapterAssemblyError("ordered_identity_mismatch", "Ordered input identity не совпадает.")
-        manifest_sha = sha256_file(manifest)
-        expected_manifest_sha = source.get("manifest_sha256")
-        if expected_manifest_sha is not None and expected_manifest_sha != manifest_sha:
-            raise ChapterAssemblyError(
-                "manifest_sha_mismatch", "Production manifest изменился после подготовки сборки."
-            )
-        payload["source"]["audio_path"] = str(audio)
-        payload["source"]["manifest_path"] = str(manifest)
-        payload["source"]["manifest_sha256"] = manifest_sha
-        payload["wav"] = {
-            "sample_rate_hz": metadata.sample_rate_hz,
-            "channels": metadata.channels,
-            "sample_width_bytes": metadata.sample_width_bytes,
-            "duration_seconds": metadata.duration_seconds,
-            "compression_type": metadata.compression_type,
-        }
-        return payload, audio, manifest
+            payload.update({"source": normalized_source, "qa": normalized_qa, "wav": normalized_wav})
+            audios.append(audio)
+            manifests.append(manifest)
+        elif granularity == "segments":
+            segment_ids = payload.get("ordered_segment_ids")
+            expected_count = payload.get("expected_segment_count")
+            if (
+                not isinstance(segment_ids, list)
+                or segment_ids != [item.get("segment_id") for item in ordered]
+                or expected_count != len(ordered)
+                or len(set(segment_ids)) != len(segment_ids)
+                or payload.get("pause_contract") != "no_added_intersegment_silence_v1"
+                or not isinstance(payload.get("prepared_text_identity"), str)
+            ):
+                raise ChapterAssemblyError("invalid_order", "Полный порядок сегментов не доказан.")
+            for item in ordered:
+                source, qa, wav = item.get("source"), item.get("qa"), item.get("wav")
+                if not all(isinstance(value, dict) for value in (source, qa, wav)):
+                    raise ChapterAssemblyError("invalid_input", "Неполная identity сегмента.")
+                normalized_source, normalized_qa, normalized_wav, audio, manifest = self._validate_source(
+                    source=source, qa=qa, wav=wav, label=f"Сегмент {item['segment_id']}"
+                )
+                item.update({"source": normalized_source, "qa": normalized_qa, "wav": normalized_wav})
+                audios.append(audio)
+                manifests.append(manifest)
+            if len({str(path) for path in audios}) != len(audios):
+                raise ChapterAssemblyError("duplicate_segment", "Один WAV назначен нескольким сегментам.")
+        else:
+            raise ChapterAssemblyError("invalid_granularity", "Неподдерживаемая гранулярность сборки.")
+        return payload, audios, manifests
 
     def _resolution(self) -> FFmpegResolution:
         return resolve_ffmpeg(self.workspace_root)
 
     def _identity(self, payload: Mapping[str, Any], ffmpeg: FFmpegResolution) -> str:
-        conversion_required = int(payload["wav"]["sample_rate_hz"]) != TARGET_SAMPLE_RATE_HZ
+        input_rates = self._input_rates(payload)
+        conversion_required = any(rate != TARGET_SAMPLE_RATE_HZ for rate in input_rates)
         contract = {
             "schema_version": ASSEMBLY_SCHEMA_VERSION,
             "input": payload,
@@ -279,16 +365,27 @@ class ChapterAssemblyService:
             },
             "normalization": {
                 "required": conversion_required,
+                "input_sample_rates_hz": input_rates,
                 "tool": "ffmpeg" if conversion_required else "copy",
                 "tool_version": ffmpeg.version if conversion_required else None,
+            },
+            "concat": {
+                "contract": "pcm16_mono_48000_ordered_frames_v1",
+                "pause_contract": payload.get("pause_contract", "source_is_joined_chapter_v1"),
             },
         }
         return _canonical_hash(contract)
 
+    @staticmethod
+    def _input_rates(payload: Mapping[str, Any]) -> list[int]:
+        if payload.get("granularity") == "segments":
+            return [int(item["wav"]["sample_rate_hz"]) for item in payload["ordered_inputs"]]
+        return [int(payload["wav"]["sample_rate_hz"])]
+
     def prepare(self, value: Mapping[str, Any]) -> dict[str, Any]:
         payload, _, _ = self._validate_input(value)
         ffmpeg = self._resolution()
-        conversion_required = int(payload["wav"]["sample_rate_hz"]) != TARGET_SAMPLE_RATE_HZ
+        conversion_required = any(rate != TARGET_SAMPLE_RATE_HZ for rate in self._input_rates(payload))
         blockers: list[str] = []
         if conversion_required and not ffmpeg.available:
             blockers.append("missing_ffmpeg")
@@ -313,11 +410,108 @@ class ChapterAssemblyService:
             "ffmpeg": ffmpeg.to_dict(),
             "output_path": existing.get("output", {}).get("path") if existing else None,
             "manifest_path": str(output_dir / "MANIFEST.json") if existing else None,
+            "segment_counts": {
+                "expected": int(payload.get("expected_segment_count") or 1),
+                "produced": int(payload.get("expected_segment_count") or 1),
+                "approved": int(payload.get("expected_segment_count") or 1),
+                "blocked": 0,
+            },
             "provider_requests": 0,
             "remote_request_sent": False,
         }
 
-    def assemble(self, value: Mapping[str, Any]) -> dict[str, Any]:
+    @staticmethod
+    def _prepared_ffmpeg(prepared: Mapping[str, Any]) -> FFmpegResolution:
+        facts = prepared["ffmpeg"]
+        return FFmpegResolution(
+            available=facts["available"],
+            path=Path(facts["path"]) if facts.get("path") else None,
+            version=facts.get("version"),
+            source=facts["source"],
+        )
+
+    def _normalize_source(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        sample_rate_hz: int,
+        ffmpeg: FFmpegResolution,
+    ) -> dict[str, Any]:
+        arguments: list[str] = []
+        converted = sample_rate_hz != TARGET_SAMPLE_RATE_HZ
+        if converted:
+            if not ffmpeg.available or ffmpeg.path is None:
+                raise ChapterAssemblyError("missing_ffmpeg", "Для нормализации требуется FFmpeg.")
+            arguments = [
+                str(ffmpeg.path), "-nostdin", "-hide_banner", "-loglevel", "error",
+                "-i", str(source), "-map_metadata", "-1", "-vn", "-ac", "1",
+                "-ar", str(TARGET_SAMPLE_RATE_HZ), "-c:a", "pcm_s16le",
+                "-fflags", "+bitexact", "-flags:a", "+bitexact", str(destination),
+            ]
+            completed = subprocess.run(arguments, capture_output=True, timeout=300, check=False)
+            if completed.returncode != 0:
+                raise ChapterAssemblyError("ffmpeg_failed", "FFmpeg не смог подготовить WAV главы.")
+        else:
+            shutil.copyfile(source, destination)
+        metadata = inspect_pcm_wav(destination)
+        if (
+            metadata.sample_rate_hz != TARGET_SAMPLE_RATE_HZ
+            or metadata.channels != TARGET_CHANNELS
+            or metadata.sample_width_bytes != TARGET_SAMPLE_WIDTH_BYTES
+        ):
+            raise ChapterAssemblyError("invalid_output", "Нормализованный WAV не соответствует PCM-контракту.")
+        return {
+            "required": converted,
+            "performed": converted,
+            "source_sha256": sha256_file(source),
+            "normalized_sha256": sha256_file(destination),
+            "wav": metadata.to_dict(),
+            "ffmpeg_path": str(ffmpeg.path) if converted else None,
+            "ffmpeg_version": ffmpeg.version if converted else None,
+            "arguments": [
+                "<ffmpeg>" if item == str(ffmpeg.path) else
+                "<source>" if item == str(source) else
+                "<output>" if item == str(destination) else item
+                for item in arguments
+            ],
+        }
+
+    @staticmethod
+    def _concatenate_pcm(inputs: Sequence[Path], output: Path) -> tuple[int, list[int]]:
+        per_input_frames: list[int] = []
+        with wave.open(str(output), "wb") as target:
+            target.setnchannels(TARGET_CHANNELS)
+            target.setsampwidth(TARGET_SAMPLE_WIDTH_BYTES)
+            target.setframerate(TARGET_SAMPLE_RATE_HZ)
+            for source_path in inputs:
+                with wave.open(str(source_path), "rb") as source:
+                    if (
+                        source.getnchannels() != TARGET_CHANNELS
+                        or source.getsampwidth() != TARGET_SAMPLE_WIDTH_BYTES
+                        or source.getframerate() != TARGET_SAMPLE_RATE_HZ
+                        or source.getcomptype() != "NONE"
+                    ):
+                        raise ChapterAssemblyError("invalid_output", "Сегмент не соответствует PCM-контракту.")
+                    frames = source.getnframes()
+                    per_input_frames.append(frames)
+                    remaining = frames
+                    while remaining:
+                        count = min(remaining, 65_536)
+                        data = source.readframes(count)
+                        if len(data) != count * TARGET_SAMPLE_WIDTH_BYTES * TARGET_CHANNELS:
+                            raise ChapterAssemblyError("truncated_segment", "Сегмент оборван во время сборки.")
+                        target.writeframesraw(data)
+                        remaining -= count
+            target.writeframes(b"")
+        return sum(per_input_frames), per_input_frames
+
+    def assemble(
+        self,
+        value: Mapping[str, Any],
+        *,
+        revalidate: Callable[[], Mapping[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         prepared = self.prepare(value)
         if prepared["decision"] == "BLOCKED":
             raise ChapterAssemblyError("missing_ffmpeg", prepared["blocker_message"])
@@ -327,50 +521,68 @@ class ChapterAssemblyService:
                 prepared["assembly_identity"],
             ) or prepared
 
-        payload, source, _ = self._validate_input(prepared["input"])
+        payload, sources, manifests = self._validate_input(prepared["input"])
         assembly_identity = prepared["assembly_identity"]
         output_dir = self._output_dir(payload, assembly_identity)
         parent = output_dir.parent
         self._prepare_output_parent(parent)
         temporary = Path(tempfile.mkdtemp(prefix=".assembly-", dir=parent))
         try:
-            source_before = self._file_snapshot(source)
+            source_snapshots = [self._file_snapshot(source) for source in sources]
+            manifest_snapshots = [self._file_snapshot(manifest) for manifest in manifests]
             temporary_wav = temporary / "chapter.wav"
-            conversion_required = int(payload["wav"]["sample_rate_hz"]) != TARGET_SAMPLE_RATE_HZ
-            ffmpeg_facts = prepared["ffmpeg"]
-            ffmpeg = FFmpegResolution(
-                available=ffmpeg_facts["available"],
-                path=Path(ffmpeg_facts["path"]) if ffmpeg_facts.get("path") else None,
-                version=ffmpeg_facts.get("version"),
-                source=ffmpeg_facts["source"],
-            )
-            arguments: list[str] = []
-            if conversion_required:
-                if not ffmpeg.available or ffmpeg.path is None:
-                    raise ChapterAssemblyError(
-                        "missing_ffmpeg",
-                        "Для подготовки мастер-файла требуется FFmpeg. Инструмент не найден.",
+            ffmpeg = self._prepared_ffmpeg(prepared)
+            normalization: list[dict[str, Any]] = []
+            normalized_paths: list[Path] = []
+            if payload["granularity"] == "segments":
+                for index, (item, source) in enumerate(zip(payload["ordered_inputs"], sources), start=1):
+                    normalized = temporary / f"normalized-{index:04d}.wav"
+                    facts = self._normalize_source(
+                        source, normalized,
+                        sample_rate_hz=int(item["wav"]["sample_rate_hz"]),
+                        ffmpeg=ffmpeg,
                     )
-                arguments = [
-                    str(ffmpeg.path), "-nostdin", "-hide_banner", "-loglevel", "error",
-                    "-i", str(source), "-map_metadata", "-1", "-vn", "-ac", "1",
-                    "-ar", str(TARGET_SAMPLE_RATE_HZ), "-c:a", "pcm_s16le",
-                    "-fflags", "+bitexact", "-flags:a", "+bitexact", str(temporary_wav),
-                ]
-                completed = subprocess.run(arguments, capture_output=True, timeout=300, check=False)
-                if completed.returncode != 0:
-                    raise ChapterAssemblyError("ffmpeg_failed", "FFmpeg не смог подготовить WAV главы.")
+                    facts.update({"position": index, "segment_id": item["segment_id"]})
+                    normalization.append(facts)
+                    normalized_paths.append(normalized)
+                output_frames, input_frames = self._concatenate_pcm(normalized_paths, temporary_wav)
+                concat = {
+                    "version": "pcm16_mono_48000_ordered_frames_v1",
+                    "ordered_input_count": len(normalized_paths),
+                    "ordered_input_frames": input_frames,
+                    "output_frames": output_frames,
+                    "pause_contract": payload["pause_contract"],
+                    "added_pause_frames": 0,
+                }
             else:
-                shutil.copyfile(source, temporary_wav)
-
-            if (
-                self._file_snapshot(source) != source_before
-                or sha256_file(source) != payload["source"]["audio_sha256"]
-            ):
-                raise ChapterAssemblyError(
-                    "source_changed_during_assembly",
-                    "Исходный WAV изменился во время сборки главы.",
+                facts = self._normalize_source(
+                    sources[0], temporary_wav,
+                    sample_rate_hz=int(payload["wav"]["sample_rate_hz"]),
+                    ffmpeg=ffmpeg,
                 )
+                facts.update({"position": 1, "segment_id": payload["segment_id"]})
+                normalization.append(facts)
+                with wave.open(str(temporary_wav), "rb") as result_wave:
+                    output_frames = result_wave.getnframes()
+                concat = {
+                    "version": "source_is_joined_chapter_v1",
+                    "ordered_input_count": 1,
+                    "ordered_input_frames": [output_frames],
+                    "output_frames": output_frames,
+                    "pause_contract": "source_is_joined_chapter_v1",
+                    "added_pause_frames": 0,
+                }
+
+            for item, source, snapshot in zip(
+                payload["ordered_inputs"] if payload["granularity"] == "segments" else [payload],
+                sources,
+                source_snapshots,
+            ):
+                expected_source = item["source"] if payload["granularity"] == "segments" else payload["source"]
+                if self._file_snapshot(source) != snapshot or sha256_file(source) != expected_source["audio_sha256"]:
+                    raise ChapterAssemblyError(
+                        "source_changed_during_assembly", "Исходный WAV изменился во время сборки главы."
+                    )
 
             metadata = inspect_pcm_wav(temporary_wav)
             if (
@@ -380,6 +592,25 @@ class ChapterAssemblyService:
             ):
                 raise ChapterAssemblyError("invalid_output", "Собранный WAV не соответствует PCM-контракту.")
             output_sha = sha256_file(temporary_wav)
+            if metadata.duration_seconds != output_frames / TARGET_SAMPLE_RATE_HZ:
+                raise ChapterAssemblyError("duration_mismatch", "Длительность собранной главы не совпадает с входами.")
+            if revalidate is not None:
+                current_payload, _, _ = self._validate_input(revalidate())
+                if _canonical_json(current_payload) != _canonical_json(payload):
+                    raise ChapterAssemblyError(
+                        "assembly_input_became_stale",
+                        "Набор сегментов или QA-состояние изменились во время сборки.",
+                    )
+            if any(
+                self._file_snapshot(path) != snapshot
+                for path, snapshot in zip(manifests, manifest_snapshots)
+            ):
+                raise ChapterAssemblyError(
+                    "manifest_changed_during_assembly",
+                    "Production manifest изменился во время сборки главы.",
+                )
+            for normalized_path in normalized_paths:
+                normalized_path.unlink()
             final_wav = output_dir / "chapter.wav"
             final_manifest = output_dir / "MANIFEST.json"
             manifest = {
@@ -392,21 +623,21 @@ class ChapterAssemblyService:
                 "job_label": payload["job_label"],
                 "created_at": utc_now_iso(),
                 "input_granularity": payload["granularity"],
+                "expected_segment_count": int(payload.get("expected_segment_count") or 1),
+                "ordered_segment_ids": payload.get("ordered_segment_ids", [payload["segment_id"]]),
                 "ordered_inputs": payload["ordered_inputs"],
                 "input": payload,
                 "normalization": {
-                    "required": conversion_required,
-                    "performed": conversion_required,
+                    "required": any(item["required"] for item in normalization),
+                    "performed": any(item["performed"] for item in normalization),
                     "effects": [],
-                    "ffmpeg_path": str(ffmpeg.path) if conversion_required else None,
-                    "ffmpeg_version": ffmpeg.version if conversion_required else None,
-                    "arguments": [
-                        "<ffmpeg>" if item == str(ffmpeg.path) else
-                        "<source>" if item == str(source) else
-                        "<output>" if item == str(temporary_wav) else item
-                        for item in arguments
-                    ],
+                    "ffmpeg_path": str(ffmpeg.path) if any(item["performed"] for item in normalization) else None,
+                    "ffmpeg_version": ffmpeg.version if any(item["performed"] for item in normalization) else None,
+                    "ffmpeg_resolution": prepared["ffmpeg"],
+                    "segments": normalization,
                 },
+                "pause_contract": concat["pause_contract"],
+                "concat": concat,
                 "output": {
                     "path": str(final_wav),
                     "path_identity": path_identity(final_wav),
@@ -417,6 +648,24 @@ class ChapterAssemblyService:
                 "remote_request_sent": False,
             }
             atomic_write_json(temporary / "MANIFEST.json", manifest)
+            for item, source, snapshot in zip(
+                payload["ordered_inputs"] if payload["granularity"] == "segments" else [payload],
+                sources,
+                source_snapshots,
+            ):
+                expected_source = item["source"] if payload["granularity"] == "segments" else payload["source"]
+                if self._file_snapshot(source) != snapshot or sha256_file(source) != expected_source["audio_sha256"]:
+                    raise ChapterAssemblyError(
+                        "source_changed_during_assembly", "Исходный WAV изменился во время сборки главы."
+                    )
+            if any(
+                self._file_snapshot(path) != snapshot
+                for path, snapshot in zip(manifests, manifest_snapshots)
+            ):
+                raise ChapterAssemblyError(
+                    "manifest_changed_during_assembly",
+                    "Production manifest изменился во время сборки главы.",
+                )
             try:
                 temporary.rename(output_dir)
             except FileExistsError:

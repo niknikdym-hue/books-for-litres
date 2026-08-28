@@ -1040,6 +1040,8 @@ final class StudioModel: ObservableObject {
                 "--book", authority.bookSlug,
                 "--job", authority.jobID,
                 "--profile-id", authority.profileID,
+                "--audio-path", authority.audioPath,
+                "--manifest-path", authority.manifestPath,
             ])
             guard !result.remoteRequestSent,
                   result.providerRequests == 0,
@@ -1076,6 +1078,8 @@ final class StudioModel: ObservableObject {
                     "--book", authority.bookSlug,
                     "--job", authority.jobID,
                     "--profile-id", authority.profileID,
+                    "--audio-path", authority.audioPath,
+                    "--manifest-path", authority.manifestPath,
                 ])
                 guard !result.remoteRequestSent,
                       result.providerRequests == 0,
@@ -1795,6 +1799,14 @@ private struct ChapterAssemblyCard: View {
                 Text("WAV · PCM 16-bit · 48 000 Гц · моно")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let counts = assembly.segmentCounts, counts.expected > 1 {
+                    Text("Готово \(counts.produced) из \(counts.expected) сегментов")
+                    Text("Одобрено \(counts.approved) из \(counts.expected)")
+                    if counts.blocked > 0 {
+                        Text("Сборка главы недоступна")
+                            .foregroundStyle(.orange)
+                    }
+                }
                 if let blockerMessage = assembly.blockerMessage {
                     Label(blockerMessage, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
@@ -1823,6 +1835,9 @@ private struct ChapterAssemblyCard: View {
                     }
                     if !assembly.blockers.isEmpty {
                         Text("Blockers: \(assembly.blockers.joined(separator: ", "))")
+                    }
+                    ForEach(assembly.segmentBlockers ?? [], id: \.self) { blocker in
+                        Text("\(blocker.segmentID): \(blocker.reason)")
                     }
                 }
             } else {

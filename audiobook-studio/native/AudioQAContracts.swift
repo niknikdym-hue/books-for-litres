@@ -243,6 +243,23 @@ struct ChapterAssemblyManifest: Codable, Equatable {
 }
 
 struct ChapterAssemblyStatus: Codable {
+    struct SegmentBlocker: Codable, Hashable {
+        let segmentID: String
+        let reason: String
+
+        enum CodingKeys: String, CodingKey {
+            case reason
+            case segmentID = "segment_id"
+        }
+    }
+
+    struct SegmentCounts: Codable {
+        let expected: Int
+        let produced: Int
+        let approved: Int
+        let blocked: Int
+    }
+
     let schemaVersion: Int
     let state: String
     let decision: String
@@ -254,6 +271,8 @@ struct ChapterAssemblyStatus: Codable {
     let outputPath: String?
     let manifestPath: String?
     let assembly: ChapterAssemblyManifest?
+    let segmentCounts: SegmentCounts?
+    let segmentBlockers: [SegmentBlocker]?
     let providerRequests: Int
     let remoteRequestSent: Bool
 
@@ -264,6 +283,8 @@ struct ChapterAssemblyStatus: Codable {
         case assemblyIdentity = "assembly_identity"
         case outputPath = "output_path"
         case manifestPath = "manifest_path"
+        case segmentCounts = "segment_counts"
+        case segmentBlockers = "segment_blockers"
         case providerRequests = "provider_requests"
         case remoteRequestSent = "remote_request_sent"
     }

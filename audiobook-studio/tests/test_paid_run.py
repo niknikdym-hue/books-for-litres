@@ -25,6 +25,7 @@ from audio_qa_authority import (
     AudioQAAuthorityError,
     list_openai_qa_targets,
     resolve_openai_authority,
+    resolve_openai_segment_set,
 )
 
 
@@ -521,6 +522,66 @@ class PaidRunTests(unittest.TestCase):
                 )
                 self.assertEqual(authority.book_slug, "demo-book")
                 self.assertEqual(self.calls, 0)
+
+    def test_openai_complete_segment_set_uses_prepared_order_and_blocks_defects(self):
+        self.write_book([
+            "Первый достаточно длинный сегмент для отдельного запроса.",
+            "Второй достаточно длинный сегмент для следующего запроса.",
+            "Третий достаточно длинный сегмент завершает эту главу.",
+        ])
+        service = self.service()
+        profile = __import__(
+            "backends.openai_client", fromlist=["load_approved_profile"]
+        ).load_approved_profile("openai_onyx")
+        _, _, _, text = service._load_source(self.book_path.name, "job-1")
+        segments = service.backend.segment(text)
+        self.assertEqual(len(segments), 3)
+        for segment in segments:
+            fingerprint = make_fingerprint(normalize_input_text(segment.text), profile)
+            cache = service.backend.config.cache_root / f"{fingerprint}.wav"
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_bytes(wav_bytes())
+        plan = self.prepare(service)
+        result = service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        manifest_path = Path(result["manifest"])
+
+        def resolve():
+            return resolve_openai_segment_set(
+                library=service.book_library,
+                backend=service.backend,
+                book_name=self.book_path.name,
+                job_id="job-1",
+                profile_id="openai_onyx",
+                jobs_root_anchor=self.root,
+                manifest_path=manifest_path,
+            )
+
+        complete = resolve()
+        expected = tuple(segment.segment_id for segment in segments)
+        self.assertTrue(complete.complete)
+        self.assertEqual(complete.expected_segment_ids, expected)
+        self.assertEqual(complete.produced_segment_ids, expected)
+        self.assertEqual(tuple(item.segment_id for item in complete.authorities), expected)
+
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["segments"] = dict(reversed(list(manifest["segments"].items())))
+        atomic_write_json(manifest_path, manifest)
+        self.assertEqual(resolve().produced_segment_ids, expected)
+
+        baseline = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for mutation, expected_reason in (
+            (lambda value: value["segments"].pop("s0002"), "missing_or_stale_output"),
+            (lambda value: value["segments"]["s0002"].__setitem__("state", "FAILED"), "failed_output"),
+            (lambda value: value["segments"]["s0002"].__setitem__("state", "AMBIGUOUS"), "ambiguous_output"),
+            (lambda value: value["segments"]["s0002"].__setitem__("output_path", value["segments"]["s0001"]["output_path"]), "duplicate_output_path"),
+        ):
+            damaged = json.loads(json.dumps(baseline))
+            mutation(damaged)
+            atomic_write_json(manifest_path, damaged)
+            inspected = resolve()
+            self.assertFalse(inspected.complete)
+            self.assertIn(expected_reason, {item["reason"] for item in inspected.blockers})
+        self.assertEqual(self.calls, 0)
 
     def test_ambiguous_and_failed_manifest_block_without_retry(self):
         service = self.service()

@@ -10,6 +10,7 @@ import tempfile
 import unittest
 import wave
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -732,15 +733,93 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn("if engine == .yandex, let plan = yandexChapterPlan", source)
         self.assertIn("return plan.billing", source)
 
-    def test_openai_chapter_assembly_cannot_publish_one_fragment(self):
-        with self.assertRaisesRegex(RuntimeError, "complete ordered approved segment set"):
-            bridge.chapter_assembly_current(
+    def test_openai_chapter_assembly_reports_incomplete_approved_set_without_publish(self):
+        authority = SimpleNamespace(
+            audio_path=self.workspace / "jobs/s0001.wav",
+            manifest_path=self.workspace / "jobs/MANIFEST.json",
+        )
+        segment_set = SimpleNamespace(
+            expected_segment_ids=("s0001", "s0002", "s0003"),
+            produced_segment_ids=("s0001",),
+            authorities=(authority,),
+            blockers=({"segment_id": "s0002", "reason": "missing_or_stale_output"},),
+            prepared_text_identity="prepared-identity",
+            complete=False,
+        )
+        qa = {
+            "authority": {"audio_path": str(authority.audio_path)},
+            "record": {"manual_state": "APPROVED"},
+            "eligible": True,
+        }
+        resolution = SimpleNamespace(to_dict=lambda: {
+            "available": False, "path": None, "version": None, "source": "unavailable"
+        })
+        service = SimpleNamespace(_resolution=lambda: resolution)
+        backend = SimpleNamespace(config=SimpleNamespace(jobs_root=self.workspace / "jobs"))
+        with mock.patch("backends.openai_tts.OpenAITTSBackend", return_value=backend), mock.patch(
+            "audiobook_studio_app_runner.resolve_openai_segment_set", return_value=segment_set
+        ), mock.patch("audiobook_studio_app_runner.audio_qa_current", return_value=qa), mock.patch(
+            "audiobook_studio_app_runner._chapter_assembly_service", return_value=service
+        ):
+            result = bridge.chapter_assembly_current(
                 action="assemble",
                 provider="openai",
                 book_name="demo-book",
                 job_id="short-test",
                 profile_id="openai_cedar",
             )
+        self.assertEqual(result["assembly"]["decision"], "BLOCKED")
+        self.assertEqual(result["assembly"]["blockers"], ["incomplete_approved_segment_set"])
+        self.assertEqual(result["assembly"]["segment_counts"], {
+            "expected": 3, "produced": 1, "approved": 1, "blocked": 2,
+        })
+        self.assertEqual(result["provider_requests"], 0)
+
+    def test_openai_chapter_assembly_requires_qa_for_every_produced_segment(self):
+        authorities = tuple(SimpleNamespace(
+            audio_path=self.workspace / f"jobs/s{index:04d}.wav",
+            manifest_path=self.workspace / "jobs/MANIFEST.json",
+        ) for index in range(1, 4))
+        segment_set = SimpleNamespace(
+            expected_segment_ids=("s0001", "s0002", "s0003"),
+            produced_segment_ids=("s0001", "s0002", "s0003"),
+            authorities=authorities,
+            blockers=(),
+            prepared_text_identity="prepared-identity",
+            complete=True,
+        )
+        qa_items = [{
+            "authority": {"segment_id": f"s{index:04d}", "audio_path": str(authority.audio_path)},
+            "record": {"manual_state": "APPROVED" if index != 2 else "UNREVIEWED"},
+            "eligible": index != 2,
+        } for index, authority in enumerate(authorities, start=1)]
+        resolution = SimpleNamespace(to_dict=lambda: {
+            "available": False, "path": None, "version": None, "source": "unavailable"
+        })
+        service = SimpleNamespace(_resolution=lambda: resolution)
+        backend = SimpleNamespace(config=SimpleNamespace(jobs_root=self.workspace / "jobs"))
+        with mock.patch("backends.openai_tts.OpenAITTSBackend", return_value=backend), mock.patch(
+            "audiobook_studio_app_runner.resolve_openai_segment_set", return_value=segment_set
+        ), mock.patch("audiobook_studio_app_runner.audio_qa_current", side_effect=qa_items), mock.patch(
+            "audiobook_studio_app_runner._chapter_assembly_service", return_value=service
+        ):
+            result = bridge.chapter_assembly_current(
+                action="status", provider="openai", book_name="demo-book",
+                job_id="short-test", profile_id="openai_cedar",
+            )
+        self.assertEqual(result["assembly"]["segment_counts"]["approved"], 2)
+        self.assertEqual(result["assembly"]["decision"], "BLOCKED")
+        self.assertEqual(result["assembly"]["segment_blockers"], [{
+            "segment_id": "s0002", "reason": "qa_not_currently_approved",
+        }])
+
+    def test_native_chapter_assembly_passes_exact_selected_audio_identity(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        refresh = swift_function_body(source, "private func refreshChapterAssembly(")
+        assemble = swift_function_body(source, "func assembleCurrentChapter()")
+        for body in (refresh, assemble):
+            self.assertIn('"--audio-path", authority.audioPath', body)
+            self.assertIn('"--manifest-path", authority.manifestPath', body)
 
 
 if __name__ == "__main__":

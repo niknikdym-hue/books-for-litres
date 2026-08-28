@@ -20,6 +20,7 @@ from chapter_assembly import (
     ChapterAssemblyError,
     ChapterAssemblyService,
     assembly_input_from_qa,
+    assembly_input_from_qa_segments,
 )
 from media_tools import FFmpegResolution
 
@@ -120,6 +121,47 @@ class ChapterAssemblyTests(unittest.TestCase):
     def _available(self) -> FFmpegResolution:
         return FFmpegResolution(
             True, self.fake_ffmpeg, "ffmpeg version deterministic-test", "environment"
+        )
+
+    def _segment_input(self, rates=(48_000, 48_000, 48_000), order=None) -> dict:
+        pairs = []
+        segment_ids = [f"s{index:04d}" for index in range(1, len(rates) + 1)]
+        for index, (segment_id, rate) in enumerate(zip(segment_ids, rates), start=1):
+            audio = self.root / f"renders/openai/segments/{segment_id}.wav"
+            manifest = self.root / "renders/openai/MANIFEST.json"
+            self._write_wav(audio, rate, seconds=index / 100)
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text('{"state":"SUCCEEDED"}', encoding="utf-8")
+            fingerprint = str(index) * 64
+            authority = dict(
+                self.authority,
+                provider="openai",
+                profile_id="openai_cedar",
+                segment_id=segment_id,
+                audio_path=str(audio),
+                manifest_path=str(manifest),
+                synthesis_fingerprint=fingerprint,
+            )
+            record = dict(
+                self.record,
+                provider="openai",
+                profile_id="openai_cedar",
+                segment_id=segment_id,
+                audio_path=str(audio),
+                identity={
+                    "audio_sha256": sha256_file(audio),
+                    "path_identity": path_identity(audio),
+                    "synthesis_fingerprint": fingerprint,
+                },
+                wav=self._facts(audio),
+            )
+            pairs.append((authority, record))
+        actual_order = order or segment_ids
+        by_id = {pair[0]["segment_id"]: pair for pair in pairs}
+        return assembly_input_from_qa_segments(
+            [by_id[item] for item in actual_order],
+            expected_segment_ids=segment_ids,
+            prepared_text_identity="prepared-text-v1",
         )
 
     def test_approved_22050_input_assembles_to_48000_and_is_idempotent(self):
@@ -298,6 +340,134 @@ class ChapterAssemblyTests(unittest.TestCase):
             result = self.service.assemble(self._input())
         self.assertEqual(resolution.call_count, 1)
         self.assertEqual(result["normalization"]["ffmpeg_version"], "ffmpeg version deterministic-test")
+
+    def test_three_approved_segments_preserve_order_duration_and_idempotence(self):
+        value = self._segment_input()
+        with mock.patch.object(self.service, "_resolution", return_value=FFmpegResolution(False, None, None, "unavailable")):
+            first = self.service.assemble(value)
+            second = self.service.assemble(value)
+        self.assertEqual(first["assembly_identity"], second["assembly_identity"])
+        self.assertEqual(first["ordered_segment_ids"], ["s0001", "s0002", "s0003"])
+        self.assertEqual(first["input_granularity"], "segments")
+        self.assertEqual(first["pause_contract"], "no_added_intersegment_silence_v1")
+        self.assertEqual(first["concat"]["added_pause_frames"], 0)
+        self.assertEqual(first["concat"]["output_frames"], sum(first["concat"]["ordered_input_frames"]))
+        self.assertAlmostEqual(
+            first["output"]["wav"]["duration_seconds"],
+            sum(item["wav"]["duration_seconds"] for item in first["normalization"]["segments"]),
+            places=9,
+        )
+        self.assertFalse(first["normalization"]["performed"])
+        self.assertEqual(first["provider_requests"], 0)
+
+    def test_pcm_output_preserves_prepared_segment_order(self):
+        value = self._segment_input()
+        frame_counts = []
+        expected_samples = []
+        for index, item in enumerate(value["ordered_inputs"], start=1):
+            path = Path(item["source"]["audio_path"])
+            frames = index * 20
+            frame_counts.append(frames)
+            expected_samples.extend([index * 1000] * frames)
+            with wave.open(str(path), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(48_000)
+                output.writeframes(b"".join(struct.pack("<h", index * 1000) for _ in range(frames)))
+            item["source"]["audio_sha256"] = sha256_file(path)
+            item["wav"] = self._facts(path)
+        with mock.patch.object(self.service, "_resolution", return_value=FFmpegResolution(False, None, None, "unavailable")):
+            result = self.service.assemble(value)
+        with wave.open(result["output"]["path"], "rb") as assembled:
+            samples = [item[0] for item in struct.iter_unpack("<h", assembled.readframes(assembled.getnframes()))]
+        self.assertEqual(samples, expected_samples)
+        self.assertEqual(result["concat"]["ordered_input_frames"], frame_counts)
+
+    def test_new_expected_segment_stales_existing_assembly(self):
+        original = self._segment_input()
+        unavailable = FFmpegResolution(False, None, None, "unavailable")
+        with mock.patch.object(self.service, "_resolution", return_value=unavailable):
+            first = self.service.assemble(original)
+        expanded = self._segment_input(rates=(48_000, 48_000, 48_000, 48_000))
+        expanded["prepared_text_identity"] = "prepared-text-v2"
+        with mock.patch.object(self.service, "_resolution", return_value=unavailable):
+            status = self.service.status(expanded)
+        self.assertNotEqual(first["assembly_identity"], status["assembly_identity"])
+        self.assertEqual(status["state"], "STALE")
+        self.assertEqual(status["decision"], "READY_TO_ASSEMBLE")
+
+    def test_segment_set_rejects_incomplete_duplicate_wrong_order_and_qa(self):
+        with self.assertRaisesRegex(ChapterAssemblyError, "одобрены не все"):
+            base = self._segment_input()
+            pairs = []
+            for item in base["ordered_inputs"][:2]:
+                authority = dict(self.authority, provider="openai", profile_id="openai_cedar", segment_id=item["segment_id"], **item["source"])
+                pairs.append((authority, dict(item["qa"], **{"provider": "openai"})))
+            assembly_input_from_qa_segments(pairs, expected_segment_ids=["s0001", "s0002", "s0003"], prepared_text_identity="x")
+        with self.assertRaisesRegex(ChapterAssemblyError, "Порядок сегментов"):
+            self._segment_input(order=["s0002", "s0001", "s0003"])
+        duplicate = self._segment_input()
+        duplicate["ordered_inputs"][1]["source"] = copy.deepcopy(duplicate["ordered_inputs"][0]["source"])
+        duplicate["ordered_inputs"][1]["wav"] = copy.deepcopy(duplicate["ordered_inputs"][0]["wav"])
+        with self.assertRaises(ChapterAssemblyError):
+            self.service.prepare(duplicate)
+        for field, value in (("manual_state", "UNREVIEWED"), ("manual_state", "STALE"), ("downstream_eligible", False)):
+            blocked = self._segment_input()
+            blocked["ordered_inputs"][1]["qa"][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ChapterAssemblyError):
+                self.service.prepare(blocked)
+
+    def test_any_segment_identity_change_changes_identity_or_blocks(self):
+        value = self._segment_input()
+        with mock.patch.object(self.service, "_resolution", return_value=FFmpegResolution(False, None, None, "unavailable")):
+            original = self.service.prepare(value)
+            reordered = copy.deepcopy(value)
+            reordered["ordered_inputs"] = list(reversed(reordered["ordered_inputs"]))
+            for position, item in enumerate(reordered["ordered_inputs"], start=1):
+                item["position"] = position
+            reordered["ordered_segment_ids"] = [item["segment_id"] for item in reordered["ordered_inputs"]]
+            changed_order = self.service.prepare(reordered)
+        self.assertNotEqual(original["assembly_identity"], changed_order["assembly_identity"])
+        for field, replacement in (("audio_sha256", "0" * 64), ("path_identity", "0" * 64)):
+            changed = copy.deepcopy(value)
+            changed["ordered_inputs"][1]["source"][field] = replacement
+            with self.subTest(field=field), self.assertRaises(ChapterAssemblyError):
+                self.service.prepare(changed)
+        changed = copy.deepcopy(value)
+        changed["ordered_inputs"][1]["source"]["synthesis_fingerprint"] = "9" * 64
+        with mock.patch.object(self.service, "_resolution", return_value=FFmpegResolution(False, None, None, "unavailable")):
+            self.assertNotEqual(original["assembly_identity"], self.service.prepare(changed)["assembly_identity"])
+
+    def test_mixed_rates_normalize_per_segment_with_one_prepared_ffmpeg(self):
+        value = self._segment_input(rates=(48_000, 22_050, 44_100))
+        other = FFmpegResolution(True, Path("/wrong/ffmpeg"), "wrong", "config")
+        with mock.patch.object(self.service, "_resolution", side_effect=[self._available(), other]) as resolution:
+            result = self.service.assemble(value)
+        self.assertEqual(resolution.call_count, 1)
+        self.assertEqual([item["performed"] for item in result["normalization"]["segments"]], [False, True, True])
+        self.assertEqual(result["output"]["wav"]["sample_rate_hz"], 48_000)
+
+    def test_revalidation_and_partial_normalization_failure_never_publish(self):
+        value = self._segment_input(rates=(48_000, 22_050, 48_000))
+        stale = copy.deepcopy(value)
+        stale["ordered_inputs"][2]["qa"]["manual_state"] = "STALE"
+        with mock.patch.object(self.service, "_resolution", return_value=self._available()), self.assertRaises(ChapterAssemblyError):
+            self.service.assemble(value, revalidate=lambda: stale)
+        self.assertFalse(any((self.root / "chapters").rglob("MANIFEST.json")))
+
+        original = self.service._normalize_source
+        calls = 0
+        def fail_second(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise ChapterAssemblyError("simulated_failure", "simulated")
+            return original(*args, **kwargs)
+        with mock.patch.object(self.service, "_resolution", return_value=self._available()), mock.patch.object(
+            self.service, "_normalize_source", side_effect=fail_second
+        ), self.assertRaisesRegex(ChapterAssemblyError, "simulated"):
+            self.service.assemble(value)
+        self.assertFalse(any((self.root / "chapters").rglob("MANIFEST.json")))
 
 
 if __name__ == "__main__":
