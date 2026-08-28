@@ -246,14 +246,27 @@ def reconcile_litres_release_authority(*, book_name: str) -> dict[str, Any]:
     )
 
 
-def _profile_requires_release_quarantine(profile_name: str) -> bool:
+def _profile_requires_release_quarantine(
+    profile_name: str, book_slug: str,
+) -> bool:
     """Revalidate whether a profile must not retain book release authority."""
+    canonical_name = f"{normalize_slug(book_slug)}.json"
     try:
         book = BOOK_LIBRARY.load_book_profile(
-            profile_name, allow_disabled=True,
+            canonical_name, allow_disabled=True,
         )
     except BookLibraryError:
-        return True
+        # If no recovered canonical profile exists, preserve the original
+        # enumerated-name check.  This keeps case-variant malformed profiles
+        # quarantinable on case-sensitive filesystems.
+        if profile_name == canonical_name:
+            return True
+        try:
+            book = BOOK_LIBRARY.load_book_profile(
+                profile_name, allow_disabled=True,
+            )
+        except BookLibraryError:
+            return True
     if book.get("enabled", True) is False:
         return True
     rights = book.get("rights_provenance")
@@ -281,8 +294,8 @@ def reconcile_all_litres_release_authorities() -> dict[str, Any]:
                 book_slug = normalize_slug(profile_path.stem)
                 quarantine = _litres_export_service().quarantine_release_authority(
                     book_slug,
-                    revalidate_quarantine=lambda name=profile_path.name: (
-                        _profile_requires_release_quarantine(name)
+                    revalidate_quarantine=lambda name=profile_path.name, slug=book_slug: (
+                        _profile_requires_release_quarantine(name, slug)
                     ),
                 )
                 if quarantine["release_authority_revoked"]:

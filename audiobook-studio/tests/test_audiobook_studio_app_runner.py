@@ -309,6 +309,39 @@ class UniversalBridgeTests(unittest.TestCase):
         )
         library.resolve_book_profile.assert_not_called()
 
+    def test_quarantine_revalidation_prefers_recovered_canonical_profile(self):
+        library = mock.Mock()
+        library.list_book_profiles.return_value = [Path("Demo-Book.JSON")]
+        recovered = {
+            "enabled": True,
+            "rights_provenance": {
+                "third_party_assets": ["music"],
+                "verified": True,
+            },
+        }
+        library.load_book_profile.return_value = recovered
+        service = mock.Mock()
+
+        def quarantine(book_slug, *, revalidate_quarantine):
+            self.assertEqual(book_slug, "demo-book")
+            revoked = revalidate_quarantine()
+            return {"release_authority_revoked": revoked}
+
+        service.quarantine_release_authority.side_effect = quarantine
+        with mock.patch.object(bridge, "BOOK_LIBRARY", library), \
+             mock.patch.object(
+                 bridge, "reconcile_litres_release_authority",
+                 side_effect=bridge.BookLibraryError("renamed while waiting for lock"),
+             ), \
+             mock.patch.object(bridge, "_litres_export_service", return_value=service):
+            result = bridge.reconcile_all_litres_release_authorities()
+        self.assertEqual(result["failed_book_ids"], ["Demo-Book.JSON"])
+        self.assertEqual(result["quarantined_book_ids"], [])
+        self.assertEqual(result["quarantine_failed_book_ids"], [])
+        library.load_book_profile.assert_called_once_with(
+            "demo-book.json", allow_disabled=True,
+        )
+
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):
