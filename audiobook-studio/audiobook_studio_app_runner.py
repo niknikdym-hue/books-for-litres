@@ -246,10 +246,30 @@ def reconcile_litres_release_authority(*, book_name: str) -> dict[str, Any]:
     )
 
 
+def _profile_requires_release_quarantine(profile_name: str) -> bool:
+    """Revalidate whether a profile must not retain book release authority."""
+    try:
+        book = BOOK_LIBRARY.load_book_profile(
+            profile_name, allow_disabled=True,
+        )
+    except BookLibraryError:
+        return True
+    if book.get("enabled", True) is False:
+        return True
+    rights = book.get("rights_provenance")
+    return bool(
+        isinstance(rights, Mapping)
+        and rights.get("third_party_assets")
+        and rights.get("verified") is not True
+    )
+
+
 def reconcile_all_litres_release_authorities() -> dict[str, Any]:
     """Reconcile every readable profile before fallible UI snapshot services."""
     results: list[dict[str, Any]] = []
     failed_book_ids: list[str] = []
+    quarantined_book_ids: list[str] = []
+    quarantine_failed_book_ids: list[str] = []
     for profile_path in BOOK_LIBRARY.list_book_profiles():
         try:
             results.append(reconcile_litres_release_authority(book_name=profile_path.name))
@@ -257,10 +277,24 @@ def reconcile_all_litres_release_authorities() -> dict[str, Any]:
             # Continue so one malformed profile cannot prevent release cleanup
             # for every other canonical book.  No exception text is exposed.
             failed_book_ids.append(profile_path.name)
+            try:
+                canonical_path = BOOK_LIBRARY.resolve_book_profile(profile_path.name)
+                quarantine = _litres_export_service().quarantine_release_authority(
+                    canonical_path.stem,
+                    revalidate_quarantine=lambda name=canonical_path.name: (
+                        _profile_requires_release_quarantine(name)
+                    ),
+                )
+                if quarantine["release_authority_revoked"]:
+                    quarantined_book_ids.append(profile_path.name)
+            except (BookLibraryError, MasteringExportError, OSError, ValueError):
+                quarantine_failed_book_ids.append(profile_path.name)
     return {
         "schema_version": 1,
         "processed_books": len(results),
         "failed_book_ids": failed_book_ids,
+        "quarantined_book_ids": quarantined_book_ids,
+        "quarantine_failed_book_ids": quarantine_failed_book_ids,
         "results": results,
         "provider_requests": 0,
         "remote_request_sent": False,

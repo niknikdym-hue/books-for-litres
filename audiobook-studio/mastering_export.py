@@ -1133,6 +1133,61 @@ class LitresExportService:
     def _profile_root(self, book_slug: str) -> Path:
         return self.exports_root / book_slug / LITRES_PROFILE_ID
 
+    def _remove_book_release_pointer(self, book_slug: str) -> bool:
+        profile_root = self._profile_root(book_slug)
+        _validate_output_root(
+            self.workspace_root, profile_root, "LitRes profile root"
+        )
+        pointer = profile_root / "CURRENT.json"
+        if not (pointer.exists() or pointer.is_symlink()):
+            return False
+        if not pointer.is_symlink() and not pointer.is_file():
+            raise MasteringExportError(
+                "invalid_export_pointer",
+                "Export CURRENT должен быть обычным файлом или ссылкой.",
+            )
+        pointer.unlink()
+        return True
+
+    def quarantine_release_authority(
+        self,
+        book_slug_value: str,
+        *,
+        revalidate_quarantine: Callable[[], bool],
+    ) -> dict[str, Any]:
+        """Revoke release authority when the canonical profile is unusable."""
+        book_slug = _safe_slug(book_slug_value)
+        with production_authority_lock(
+            self.workspace_root, provider="book-authority", book_slug=book_slug,
+            job_id="profile", profile_id="canonical-v1", exclusive=False,
+        ):
+            with production_authority_lock(
+                self.workspace_root, provider="export", book_slug=book_slug,
+                job_id="book", profile_id=LITRES_PROFILE_ID, exclusive=True,
+            ):
+                if revalidate_quarantine() is not True:
+                    return {
+                        "schema_version": EXPORT_SCHEMA_VERSION,
+                        "book_slug": book_slug,
+                        "release_authority_revoked": False,
+                        "book_pointer_invalidated": False,
+                        "state": "AUTHORITY_RECOVERED",
+                        "provider_requests": 0,
+                        "remote_request_sent": False,
+                        "billing_changed": False,
+                    }
+                invalidated = self._remove_book_release_pointer(book_slug)
+                return {
+                    "schema_version": EXPORT_SCHEMA_VERSION,
+                    "book_slug": book_slug,
+                    "release_authority_revoked": True,
+                    "book_pointer_invalidated": invalidated,
+                    "state": "INVALIDATED" if invalidated else "SAFE_NO_CURRENT",
+                    "provider_requests": 0,
+                    "remote_request_sent": False,
+                    "billing_changed": False,
+                }
+
     def reconcile_release_authority(
         self,
         book_value: Mapping[str, Any],
@@ -1169,20 +1224,9 @@ class LitresExportService:
                 )
                 profile_disabled = current.get("enabled", True) is False
                 release_blocked = rights_blocked or profile_disabled
-                profile_root = self._profile_root(book_slug)
-                _validate_output_root(
-                    self.workspace_root, profile_root, "LitRes profile root"
-                )
-                pointer = profile_root / "CURRENT.json"
                 invalidated = False
-                if release_blocked and (pointer.exists() or pointer.is_symlink()):
-                    if not pointer.is_symlink() and not pointer.is_file():
-                        raise MasteringExportError(
-                            "invalid_export_pointer",
-                            "Export CURRENT должен быть обычным файлом или ссылкой.",
-                        )
-                    pointer.unlink()
-                    invalidated = True
+                if release_blocked:
+                    invalidated = self._remove_book_release_pointer(book_slug)
                 return {
                     "schema_version": EXPORT_SCHEMA_VERSION,
                     "book_slug": book_slug,

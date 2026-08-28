@@ -262,6 +262,31 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertFalse(disabled["remote_request_sent"])
         self.assertFalse(disabled["billing_changed"])
 
+    def test_all_release_authorities_quarantine_malformed_profile_pointer(self):
+        profile_path = bridge.WORKSPACE_PATHS.books_root / "malformed-book.json"
+        profile_path.write_text("{not-json", encoding="utf-8")
+        profile_root = (
+            bridge.WORKSPACE_PATHS.exports_root
+            / "malformed-book" / "litres_author_v1"
+        )
+        profile_root.mkdir(parents=True)
+        pointer = profile_root / "CURRENT.json"
+        pointer.write_text("forensic-release-ready", encoding="utf-8")
+        try:
+            result = bridge.reconcile_all_litres_release_authorities()
+        finally:
+            profile_path.unlink(missing_ok=True)
+            shutil.rmtree(profile_root.parent, ignore_errors=True)
+        self.assertIn("malformed-book.json", result["failed_book_ids"])
+        self.assertIn("malformed-book.json", result["quarantined_book_ids"])
+        self.assertNotIn(
+            "malformed-book.json", result["quarantine_failed_book_ids"],
+        )
+        self.assertFalse(pointer.exists())
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse(result["billing_changed"])
+
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):

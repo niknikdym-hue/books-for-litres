@@ -615,6 +615,24 @@ class MasteringExportTests(unittest.TestCase):
         self.assertFalse(disabled["rights_blocked"])
         self.assertFalse(book_pointer.exists())
 
+        book_pointer.write_text("forensic-current", encoding="utf-8")
+        quarantined = self.exporting.quarantine_release_authority(
+            self.book_slug, revalidate_quarantine=lambda: True,
+        )
+        self.assertEqual(quarantined["state"], "INVALIDATED")
+        self.assertTrue(quarantined["release_authority_revoked"])
+        self.assertFalse(book_pointer.exists())
+
+        book_pointer.write_text("current-authority", encoding="utf-8")
+        recovered = self.exporting.quarantine_release_authority(
+            self.book_slug, revalidate_quarantine=lambda: False,
+        )
+        self.assertEqual(recovered["state"], "AUTHORITY_RECOVERED")
+        self.assertFalse(recovered["release_authority_revoked"])
+        self.assertEqual(
+            book_pointer.read_text(encoding="utf-8"), "current-authority",
+        )
+
     def test_verified_rights_change_repackages_without_reencoding(self):
         master = self._master_authority()
         cover = self.root / "assets" / "cover.jpg"
