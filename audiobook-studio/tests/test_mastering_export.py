@@ -914,6 +914,84 @@ class MasteringExportTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "cover_changed_during_export")
         self.assertFalse((profile_root / "CURRENT.json").exists())
 
+    def test_damaged_package_cover_reuses_other_valid_chapters(self):
+        master = self._master_authority()
+        cover = self.root / "assets" / "cover.jpg"
+        cover.parent.mkdir()
+        cover.write_bytes(b"canonical-cover")
+        self.book["cover"] = {"path": str(cover), "sha256": sha256_file(cover)}
+        facts = {
+            "duration_seconds": master["wav"]["duration_seconds"],
+            "sample_rate_hz": 48_000,
+            "channels": 2,
+            "channel_layout": "stereo",
+            "bitrate_bps": 128_000,
+            "size_bytes": 4096,
+            "decodable": True,
+            "cover_art_embedded": True,
+        }
+        first = self._export(master, facts)
+        manifest_path = Path(first["manifest_path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        authority = self.exporting._validated_book(self.book)
+        second_master = {
+            **master,
+            "job_id": "chapter-ch002",
+            "master_identity": "b" * 64,
+        }
+        second = copy.deepcopy(manifest["chapters"][0])
+        second.update({
+            "job_id": "chapter-ch002",
+            "chapter_id": "ch002",
+            "chapter_title": "Глава 2",
+            "position": 2,
+            "master_identity": second_master["master_identity"],
+            "candidate_identity": self.exporting._candidate_identity_from_tool(
+                second_master,
+                authority,
+                authority["chapters"][1],
+                second["tool"],
+                second["encoder"],
+            ),
+        })
+        manifest["chapters"].append(second)
+        manifest["whole_book"] = build_book_export_state(authority, manifest["chapters"])
+        manifest["status"] = "RELEASE_READY"
+        manifest["total_file_count"] = 2
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        profile_root = manifest_path.parent.parent
+        (profile_root / "CURRENT-chapter-ch002.json").write_text(json.dumps({
+            "schema_version": 1,
+            "candidate_identity": second["candidate_identity"],
+            "manifest_path": str(manifest_path),
+            "mp3_path": second["path"],
+        }), encoding="utf-8")
+        Path(manifest["cover"]["package_path"]).write_bytes(b"damaged-cover")
+
+        def current_master(**kwargs):
+            return master if kwargs["job_id"] == self.job_id else second_master
+
+        def encode(arguments, **_kwargs):
+            Path(arguments[-1]).write_bytes(b"ID3" + b"x" * 4093)
+            return subprocess.CompletedProcess(arguments, 0, b"", b"")
+
+        with mock.patch("mastering_export.resolve_current_master", side_effect=current_master), \
+             mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             mock.patch.object(self.exporting, "_inspect_mp3", return_value=facts), \
+             mock.patch.object(self.exporting, "_probe_mp3", return_value=facts), \
+             mock.patch("mastering_export.subprocess.run", side_effect=encode):
+            prepared = self.exporting.prepare(master, self.book)
+            self.assertEqual(prepared["decision"], "READY_TO_EXPORT")
+            self.assertEqual(prepared["book_export"]["progress"], "1/2")
+            recovered = self.exporting.export(master, self.book)
+        self.assertEqual(recovered["book_export"]["progress"], "2/2")
+        self.assertTrue(recovered["book_export"]["ready"])
+        self.assertEqual(
+            [item["job_id"] for item in recovered["export_manifest"]["chapters"]],
+            ["chapter-ch001", "chapter-ch002"],
+        )
+
     def test_missing_encoder_blocks_without_installing(self):
         master = self._master_authority()
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \

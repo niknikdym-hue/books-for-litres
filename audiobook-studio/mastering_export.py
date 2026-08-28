@@ -1214,9 +1214,14 @@ class LitresExportService:
                     "Master authority одной из глав устарела перед публикацией export.",
                 )
 
-    def _load_current_candidates(self, book: Mapping[str, Any]) -> list[dict[str, Any]]:
+    def _load_current_candidates(
+        self,
+        book: Mapping[str, Any],
+        *,
+        rebuild_invalid_package_for_job: str | None = None,
+    ) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
-        packages: dict[Path, dict[str, Any] | None] = {}
+        packages: dict[Path, tuple[dict[str, Any] | None, bool]] = {}
         root = self._profile_root(book["slug"])
         for chapter in book["chapters"]:
             pointer = root / f"CURRENT-{chapter['job_id']}.json"
@@ -1229,12 +1234,19 @@ class LitresExportService:
                 )
                 if manifest_path not in packages:
                     raw_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                    packages[manifest_path] = self._read_export(
+                    chapter_manifest = self._read_export(
                         manifest_path.parent,
                         raw_manifest.get("export_identity"),
+                        validate_package_cover=False,
                     )
-                manifest = packages[manifest_path]
+                    packages[manifest_path] = (
+                        chapter_manifest,
+                        chapter_manifest is not None and self._package_cover_is_valid(chapter_manifest),
+                    )
+                manifest, package_cover_valid = packages[manifest_path]
                 if manifest is None:
+                    continue
+                if not package_cover_valid and chapter["job_id"] == rebuild_invalid_package_for_job:
                     continue
                 candidate = next(
                     item for item in manifest.get("chapters", [])
@@ -1288,7 +1300,10 @@ class LitresExportService:
         elif encoder is None:
             blockers.append("missing_mp3_encoder")
         candidate_identity = self._candidate_identity(master, book, chapter, ffmpeg, encoder or "unavailable")
-        current_candidates = self._load_current_candidates(book)
+        current_candidates = self._load_current_candidates(
+            book,
+            rebuild_invalid_package_for_job=master["job_id"],
+        )
         existing = next(
             (
                 item for item in current_candidates
@@ -1660,7 +1675,32 @@ class LitresExportService:
             raise MasteringExportError("export_identity_mismatch", "MP3 export identity изменилась.")
         return prepared
 
-    def _read_export(self, output_dir: Path, identity: str) -> dict[str, Any] | None:
+    def _package_cover_is_valid(self, payload: Mapping[str, Any]) -> bool:
+        try:
+            cover = payload.get("cover")
+            book = payload.get("book")
+            canonical_cover = book.get("cover") if isinstance(book, Mapping) else None
+            if not isinstance(cover, Mapping):
+                return canonical_cover is None
+            package_cover = _require_regular_path(
+                Path(cover["package_path"]), root=self.workspace_root, label="Package cover"
+            )
+            return bool(
+                isinstance(canonical_cover, Mapping)
+                and cover.get("package_sha256") == canonical_cover.get("sha256")
+                and cover.get("package_sha256") == sha256_file(package_cover)
+                and cover.get("package_path_identity") == path_identity(package_cover)
+            )
+        except (OSError, ValueError, KeyError, TypeError, MasteringExportError):
+            return False
+
+    def _read_export(
+        self,
+        output_dir: Path,
+        identity: str,
+        *,
+        validate_package_cover: bool = True,
+    ) -> dict[str, Any] | None:
         try:
             manifest_path = _require_regular_path(output_dir / "MANIFEST.json", root=self.workspace_root, label="Export manifest")
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1688,20 +1728,7 @@ class LitresExportService:
                     or self._probe_mp3(cover_ffmpeg.path, path).get("cover_art_embedded") is not True
                 ):
                     return None
-            if isinstance(cover, Mapping):
-                book = payload.get("book")
-                canonical_cover = book.get("cover") if isinstance(book, Mapping) else None
-                package_cover = _require_regular_path(
-                    Path(cover["package_path"]), root=self.workspace_root, label="Package cover"
-                )
-                if (
-                    not isinstance(canonical_cover, Mapping)
-                    or cover.get("package_sha256") != canonical_cover.get("sha256")
-                    or cover.get("package_sha256") != sha256_file(package_cover)
-                    or cover.get("package_path_identity") != path_identity(package_cover)
-                ):
-                    return None
-            elif isinstance(payload.get("book"), Mapping) and payload["book"].get("cover") is not None:
+            if validate_package_cover and not self._package_cover_is_valid(payload):
                 return None
             return payload
         except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired, MasteringExportError):
