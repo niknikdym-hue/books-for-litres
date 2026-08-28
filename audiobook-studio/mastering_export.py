@@ -565,7 +565,7 @@ class MasteringService:
             job_id=job, profile_id=profile, exclusive=False,
         ):
             with production_authority_lock(
-                self.workspace_root, provider="master", book_slug=book,
+                self.workspace_root, provider="master-book", book_slug=book,
                 job_id="book", profile_id=MASTER_PRESET_ID, exclusive=True,
             ):
                 with production_authority_lock(
@@ -1343,7 +1343,7 @@ class LitresExportService:
         if book["slug"] != book_slug:
             raise MasteringExportError("book_identity_mismatch", "Master относится к другой книге.")
         with production_authority_lock(
-            self.workspace_root, provider="master", book_slug=book_slug,
+            self.workspace_root, provider="master-book", book_slug=book_slug,
             job_id="book", profile_id=MASTER_PRESET_ID, exclusive=False,
         ):
             with production_authority_lock(

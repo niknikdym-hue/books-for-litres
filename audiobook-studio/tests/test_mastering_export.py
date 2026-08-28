@@ -544,11 +544,19 @@ class MasteringExportTests(unittest.TestCase):
 
         with mock.patch("mastering_export.production_authority_lock", side_effect=bounded_lock), \
              mock.patch.object(self.mastering, "_master_locked", return_value={"status": "READY"}):
-            self.mastering.master(self.authority)
+            self.mastering.master({**self.authority, "job_id": "book"})
+        self.assertIn({
+            "provider": "master-book", "book_slug": self.book_slug,
+            "job_id": "book", "profile_id": "spoken_word_master_v1", "exclusive": True,
+        }, calls)
         self.assertIn({
             "provider": "master", "book_slug": self.book_slug,
             "job_id": "book", "profile_id": "spoken_word_master_v1", "exclusive": True,
         }, calls)
+        self.assertEqual(len({
+            (call["provider"], call["job_id"], call["profile_id"])
+            for call in calls
+        }), len(calls))
         self.assertLessEqual(maximum_active, 3)
 
         calls.clear()
@@ -571,7 +579,7 @@ class MasteringExportTests(unittest.TestCase):
         self.assertEqual(maximum_active, 2)
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0], {
-            "provider": "master", "book_slug": self.book_slug,
+            "provider": "master-book", "book_slug": self.book_slug,
             "job_id": "book", "profile_id": "spoken_word_master_v1", "exclusive": False,
         })
         self.assertEqual(calls[1], {
