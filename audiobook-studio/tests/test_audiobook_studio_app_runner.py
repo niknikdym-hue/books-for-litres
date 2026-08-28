@@ -292,6 +292,24 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertFalse(result["remote_request_sent"])
         self.assertFalse(result["billing_changed"])
 
+    def test_all_release_authorities_quarantine_orphaned_release_pointer(self):
+        orphan_slug = "orphaned-release-book"
+        book_root = bridge.WORKSPACE_PATHS.exports_root / orphan_slug
+        profile_root = book_root / "litres_author_v1"
+        profile_root.mkdir(parents=True)
+        pointer = profile_root / "CURRENT.json"
+        pointer.write_text("forensic-orphan-release", encoding="utf-8")
+        try:
+            result = bridge.reconcile_all_litres_release_authorities()
+        finally:
+            shutil.rmtree(book_root, ignore_errors=True)
+        self.assertIn(f"{orphan_slug}.json", result["quarantined_book_ids"])
+        self.assertNotIn(orphan_slug, result["quarantine_failed_book_ids"])
+        self.assertFalse(pointer.exists())
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse(result["billing_changed"])
+
     def test_quarantine_slug_comes_from_enumerated_case_variant_path(self):
         library = mock.Mock()
         library.list_book_profiles.return_value = [Path("Demo-Book.JSON")]

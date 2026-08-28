@@ -301,7 +301,11 @@ def reconcile_all_litres_release_authorities() -> dict[str, Any]:
     failed_book_ids: list[str] = []
     quarantined_book_ids: list[str] = []
     quarantine_failed_book_ids: list[str] = []
-    for profile_path in BOOK_LIBRARY.list_book_profiles():
+    profile_paths = BOOK_LIBRARY.list_book_profiles()
+    known_profile_slugs = {
+        normalize_slug(profile_path.stem) for profile_path in profile_paths
+    }
+    for profile_path in profile_paths:
         try:
             results.append(reconcile_litres_release_authority(book_name=profile_path.name))
         except (BookLibraryError, MasteringExportError, OSError, ValueError):
@@ -323,6 +327,37 @@ def reconcile_all_litres_release_authorities() -> dict[str, Any]:
                     quarantined_book_ids.append(profile_path.name)
             except (BookLibraryError, MasteringExportError, OSError, ValueError):
                 quarantine_failed_book_ids.append(profile_path.name)
+    exports_root = WORKSPACE_PATHS.exports_root
+    if exports_root.is_dir():
+        for book_root in sorted(exports_root.iterdir()):
+            try:
+                if book_root.is_symlink() or not book_root.is_dir():
+                    continue
+                book_slug = normalize_slug(book_root.name)
+                if book_slug != book_root.name or book_slug in known_profile_slugs:
+                    continue
+                profile_root = book_root / "litres_author_v1"
+                pointer = profile_root / "CURRENT.json"
+                if (
+                    profile_root.is_symlink()
+                    or not profile_root.is_dir()
+                    or not (pointer.exists() or pointer.is_symlink())
+                ):
+                    continue
+                missing_profile_name = f"{book_slug}.json"
+                quarantine = _litres_export_service().quarantine_release_authority(
+                    book_slug,
+                    revalidate_quarantine=lambda name=missing_profile_name, slug=book_slug: (
+                        _profile_requires_release_quarantine(name, slug)
+                    ),
+                    revalidate_recovered_book=lambda name=missing_profile_name, slug=book_slug: (
+                        _profile_release_authority(name, slug)
+                    ),
+                )
+                if quarantine["release_authority_revoked"]:
+                    quarantined_book_ids.append(missing_profile_name)
+            except (BookLibraryError, MasteringExportError, OSError, ValueError):
+                quarantine_failed_book_ids.append(book_root.name)
     return {
         "schema_version": 1,
         "processed_books": len(results),

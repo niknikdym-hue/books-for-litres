@@ -821,6 +821,16 @@ class MasteringExportTests(unittest.TestCase):
         stale_manifest = json.loads(
             Path(stale_payload["manifest_path"]).read_text(encoding="utf-8")
         )
+        stale_manifest_path = Path(stale_payload["manifest_path"])
+        stale_manifest_bytes = stale_manifest_path.read_bytes()
+        stale_manifest["cover"] = None
+        stale_manifest_path.write_text(json.dumps(stale_manifest), encoding="utf-8")
+        self.assertFalse(
+            self.exporting._release_pointer_payload_matches_book_authority(
+                stale_payload, self.book,
+            )
+        )
+        stale_manifest_path.write_bytes(stale_manifest_bytes)
         stale_mp3 = Path(stale_manifest["chapters"][0]["path"])
         stale_mp3.write_bytes(b"corrupted-after-publication")
         self.assertFalse(

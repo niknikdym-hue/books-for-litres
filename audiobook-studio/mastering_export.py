@@ -1292,18 +1292,28 @@ class LitresExportService:
                     or chapter.get("path_identity") != path_identity(output)
                 ):
                     return False
+            canonical_cover = book.get("cover")
             cover = manifest.get("cover")
-            if isinstance(cover, Mapping):
+            if isinstance(canonical_cover, Mapping):
+                if not isinstance(cover, Mapping):
+                    return False
                 package_cover = _require_regular_path(
                     Path(cover["package_path"]),
                     root=self.workspace_root,
                     label="Package cover",
                 )
                 if (
-                    cover.get("package_sha256") != sha256_file(package_cover)
+                    any(
+                        cover.get(key) != value
+                        for key, value in canonical_cover.items()
+                    )
+                    or cover.get("package_sha256") != canonical_cover.get("sha256")
+                    or cover.get("package_sha256") != sha256_file(package_cover)
                     or cover.get("package_path_identity") != path_identity(package_cover)
                 ):
                     return False
+            elif cover is not None:
+                return False
             return bool(
                 identity == manifest.get("export_identity")
                 and identity == manifest_path.parent.name
