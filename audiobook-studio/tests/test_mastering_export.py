@@ -86,6 +86,14 @@ class MasteringExportTests(unittest.TestCase):
         self.ffmpeg.write_text("fake", encoding="utf-8")
         self.ffmpeg.chmod(self.ffmpeg.stat().st_mode | stat.S_IXUSR)
         self.resolution = FFmpegResolution(True, self.ffmpeg, "ffmpeg version test-1", "environment")
+        self.resolution_patcher = mock.patch.object(
+            MasteringService, "_resolution", return_value=self.resolution,
+        )
+        self.measure_patcher = mock.patch.object(
+            MasteringService, "_measure_loudness", return_value=self._measured(),
+        )
+        self.resolution_patcher.start()
+        self.measure_patcher.start()
         self.mastering = MasteringService(self.root, self.root / "masters")
         self.exporting = LitresExportService(self.root, self.root / "exports")
         self.book = {
@@ -102,6 +110,8 @@ class MasteringExportTests(unittest.TestCase):
         }
 
     def tearDown(self):
+        self.measure_patcher.stop()
+        self.resolution_patcher.stop()
         self.temporary.cleanup()
 
     @staticmethod
@@ -151,8 +161,11 @@ class MasteringExportTests(unittest.TestCase):
         return subprocess.CompletedProcess(arguments, 0, b"", b"")
 
     def _create_master(self):
+        def measure(_ffmpeg, source):
+            return self._measured(-24 if Path(source).name == "boundary-padded.wav" else -19)
+
         with mock.patch.object(self.mastering, "_resolution", return_value=self.resolution), \
-             mock.patch.object(self.mastering, "_measure_loudness", side_effect=[self._measured(-24), self._measured()]), \
+             mock.patch.object(self.mastering, "_measure_loudness", side_effect=measure), \
              mock.patch.object(self.mastering, "_run", side_effect=self._copy_run):
             return self.mastering.master(self.authority, revalidate=self._resolve_assembly)
 
@@ -363,6 +376,28 @@ class MasteringExportTests(unittest.TestCase):
                 expected_master_identity="0" * 64,
             )
 
+    def test_master_resolver_remeasures_coordinated_wav_and_manifest_tamper(self):
+        master = self._master_authority()
+        wav_path = Path(master["audio_path"])
+        manifest_path = Path(master["master_manifest_path"])
+        self._write_wav(wav_path, seconds=0.5, lead=0.1, tail=0.2, amplitude=500)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["output"].update({
+            "sha256": sha256_file(wav_path),
+            "path_identity": path_identity(wav_path),
+            "wav": inspect_pcm_wav(wav_path).to_dict(),
+        })
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with mock.patch.object(
+            MasteringService, "_measure_loudness", return_value=self._measured(-10),
+        ), self.assertRaises(MasteringExportError) as raised:
+            resolve_current_master(
+                workspace_root=self.root, masters_root=self.root / "masters",
+                book_slug=self.book_slug, job_id=self.job_id,
+            )
+        self.assertEqual(raised.exception.code, "master_identity_mismatch")
+
     def test_master_nonempty_publish_race_returns_valid_winner(self):
         winner = {"status": "READY", "master_identity": "winner"}
         with mock.patch.object(self.mastering, "_resolution", return_value=self.resolution), \
@@ -506,6 +541,54 @@ class MasteringExportTests(unittest.TestCase):
         self.assertFalse(recovered["book_export"]["ready"])
         self.assertIn("unproven_third_party_assets", recovered["book_export"]["blockers"])
         self.assertFalse(book_pointer.exists())
+
+    def test_verified_rights_change_repackages_without_reencoding(self):
+        master = self._master_authority()
+        cover = self.root / "assets" / "cover.jpg"
+        cover.parent.mkdir()
+        cover.write_bytes(b"canonical-cover")
+        initial_book = copy.deepcopy(self.book)
+        initial_book["jobs"] = {"chapter-ch001": initial_book["jobs"]["chapter-ch001"]}
+        initial_book["cover"] = {"path": str(cover), "sha256": sha256_file(cover)}
+        initial_book["rights_provenance"] = {
+            "third_party_assets": ["music"], "verified": True, "record_id": "rights-v1",
+        }
+        self.book = initial_book
+        facts = {
+            "duration_seconds": master["wav"]["duration_seconds"],
+            "sample_rate_hz": 48_000,
+            "channels": 2,
+            "channel_layout": "stereo",
+            "bitrate_bps": 128_000,
+            "size_bytes": 4096,
+            "decodable": True,
+            "cover_art_embedded": True,
+        }
+        first = self._export(master, facts)
+        old_identity = first["export_manifest"]["export_identity"]
+        old_sha = first["chapter_export"]["sha256"]
+        current_book = copy.deepcopy(initial_book)
+        current_book["rights_provenance"]["record_id"] = "rights-v2"
+
+        with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             mock.patch.object(self.exporting, "_probe_mp3", return_value=facts), \
+             mock.patch("mastering_export.subprocess.run", side_effect=AssertionError("must not encode")):
+            prepared = self.exporting.prepare(master, current_book)
+            self.assertEqual(prepared["decision"], "READY_TO_REPACKAGE")
+            self.assertEqual(
+                self.exporting.status(master, current_book)["decision"],
+                "READY_TO_REPACKAGE",
+            )
+            repackaged = self.exporting.export(master, current_book)
+
+        self.assertNotEqual(repackaged["export_manifest"]["export_identity"], old_identity)
+        self.assertEqual(repackaged["chapter_export"]["sha256"], old_sha)
+        self.assertEqual(
+            repackaged["export_manifest"]["book"]["rights_provenance"]["record_id"],
+            "rights-v2",
+        )
+        self.assertEqual(repackaged["export_manifest"]["provider_requests"], 0)
 
     def test_existing_export_repairs_missing_chapter_and_book_pointers(self):
         master = self._master_authority()

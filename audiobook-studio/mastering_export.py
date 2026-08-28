@@ -815,6 +815,17 @@ class MasteringService:
             wav_path = _require_regular_path(wav_path, root=self.workspace_root, label="Master WAV")
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
             output = payload.get("output")
+            ffmpeg = self._resolution()
+            if (
+                not ffmpeg.available
+                or ffmpeg.path is None
+                or payload.get("ffmpeg") != _resolution_identity(ffmpeg)
+            ):
+                return None
+            measured_loudness, _ = self._measure_loudness(ffmpeg.path, wav_path)
+            measured_signal = _signal_measurements(wav_path)
+            measured_boundary = _boundary_measurements(wav_path)
+            boundary_tolerance = 1.0 / TARGET_SAMPLE_RATE_HZ
             if (
                 payload.get("schema_version") != MASTER_SCHEMA_VERSION
                 or payload.get("status") != "READY"
@@ -828,10 +839,22 @@ class MasteringService:
                 or payload.get("remote_request_sent") is not False
                 or payload.get("billing_changed") is not False
                 or payload.get("mastering_preset_hash") != master_preset_hash()
+                or abs(
+                    measured_loudness["input_i"] - float(MASTER_PRESET["target_integrated_lufs"])
+                ) > float(MASTER_PRESET["integrated_loudness_tolerance_lu"])
+                or measured_loudness["input_tp"] > (
+                    float(MASTER_PRESET["true_peak_ceiling_dbtp"])
+                    + float(MASTER_PRESET["true_peak_tolerance_db"])
+                )
+                or measured_signal["clipped_samples"] != 0
+                or measured_boundary["leading_silence_seconds"] + boundary_tolerance
+                < float(BOUNDARY_POLICY["minimum_leading_silence_seconds"])
+                or measured_boundary["trailing_silence_seconds"] + boundary_tolerance
+                < float(BOUNDARY_POLICY["minimum_trailing_silence_seconds"])
             ):
                 return None
             return payload
-        except (OSError, ValueError, TypeError, MasteringExportError):
+        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired, MasteringExportError):
             return None
 
 
@@ -860,10 +883,10 @@ def resolve_current_master(
     wav_path = _require_regular_path(canonical / "master.wav", root=root, label="Master WAV")
     if pointer.get("manifest_path") != str(manifest_path):
         raise MasteringExportError("master_manifest_identity_mismatch", "CURRENT указывает не на canonical master.")
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        raise MasteringExportError("invalid_master_manifest", "Master manifest повреждён.") from error
+    service = MasteringService(root, Path(masters_root))
+    manifest = service._read_ready(canonical, identity)
+    if manifest is None:
+        raise MasteringExportError("master_identity_mismatch", "Точная identity и качество master не подтверждены.")
     output = manifest.get("output") if isinstance(manifest, dict) else None
     if (
         manifest.get("schema_version") != MASTER_SCHEMA_VERSION
@@ -1317,6 +1340,169 @@ class LitresExportService:
                 continue
         return result
 
+    def _candidate_package_matches_book(
+        self,
+        candidate: Mapping[str, Any],
+        book: Mapping[str, Any],
+    ) -> bool:
+        try:
+            mp3 = _require_regular_path(
+                Path(candidate["path"]), root=self.workspace_root, label="Export MP3"
+            )
+            manifest = self._read_export(mp3.parent, mp3.parent.name)
+            return bool(
+                manifest is not None
+                and _canonical_json(manifest.get("book")) == _canonical_json(book)
+            )
+        except (OSError, ValueError, KeyError, TypeError, MasteringExportError):
+            return False
+
+    def _repackage_current_candidates(
+        self,
+        *,
+        prepared: Mapping[str, Any],
+        master_value: Mapping[str, Any],
+        book_value: Mapping[str, Any],
+        revalidate_master: Callable[[], Mapping[str, Any]] | None,
+        revalidate_book: Callable[[], Mapping[str, Any]] | None,
+    ) -> dict[str, Any]:
+        master = prepared["master"]
+        book = prepared["book"]
+        candidates = self._load_current_candidates(book)
+        state = build_book_export_state(book, candidates)
+        if not any(
+            item.get("candidate_identity") == prepared["candidate_identity"]
+            for item in state["ordered_candidates"]
+        ):
+            raise MasteringExportError(
+                "missing_export_candidate",
+                "Текущий MP3-кандидат исчез до metadata-only перепубликации.",
+            )
+        ffmpeg = _prepared_ffmpeg(prepared["ffmpeg"])
+        current_ffmpeg = self._resolution()
+        encoder = self._encoder(current_ffmpeg)
+        if (
+            _resolution_identity(current_ffmpeg) != _resolution_identity(ffmpeg)
+            or encoder != prepared["encoder"]
+            or ffmpeg.path is None
+        ):
+            raise MasteringExportError("ffmpeg_identity_changed", "FFmpeg/encoder identity изменилась.")
+        profile_root = self._profile_root(book["slug"])
+        _prepare_output_parent(self.workspace_root, profile_root)
+        export_identity = _export_identity(book, state["ordered_candidates"])
+        output_dir = profile_root / export_identity
+        package_temp = Path(tempfile.mkdtemp(prefix=".package-", dir=profile_root))
+        try:
+            chapter_records: list[dict[str, Any]] = []
+            for item in state["ordered_candidates"]:
+                source = _require_regular_path(
+                    Path(item["path"]), root=self.workspace_root, label="Existing chapter MP3"
+                )
+                source_snapshot = _file_snapshot(source)
+                final_name = _safe_output_name(int(item["position"]), str(item["chapter_title"]))
+                destination = package_temp / final_name
+                shutil.copyfile(source, destination)
+                copied_sha = sha256_file(destination)
+                if (
+                    copied_sha != item.get("sha256")
+                    or _file_snapshot(source) != source_snapshot
+                    or sha256_file(source) != item.get("sha256")
+                ):
+                    raise MasteringExportError(
+                        "historical_export_changed",
+                        "Historical MP3 изменился во время metadata-only перепубликации.",
+                    )
+                record = json.loads(json.dumps(item, ensure_ascii=False))
+                record.update({
+                    "filename": final_name,
+                    "path": str(output_dir / final_name),
+                    "path_identity": path_identity(output_dir / final_name),
+                    "sha256": copied_sha,
+                })
+                chapter_records.append(record)
+
+            cover = book.get("cover")
+            package_cover: dict[str, Any] | None = None
+            if isinstance(cover, Mapping):
+                cover_source = _require_regular_path(
+                    Path(cover["path"]), root=self.workspace_root, label="Canonical cover"
+                )
+                cover_snapshot = _file_snapshot(cover_source)
+                suffix = cover_source.suffix.lower()
+                if not re.fullmatch(r"\.[a-z0-9]{1,8}", suffix):
+                    suffix = ".img"
+                cover_destination = package_temp / f"cover{suffix}"
+                shutil.copyfile(cover_source, cover_destination)
+                copied_cover_sha = sha256_file(cover_destination)
+                if (
+                    copied_cover_sha != cover.get("sha256")
+                    or _file_snapshot(cover_source) != cover_snapshot
+                    or sha256_file(cover_source) != cover.get("sha256")
+                    or path_identity(cover_source) != cover.get("path_identity")
+                ):
+                    raise MasteringExportError(
+                        "cover_changed_during_export",
+                        "Canonical cover изменилась во время metadata-only перепубликации.",
+                    )
+                package_cover = {
+                    **dict(cover),
+                    "package_path": str(output_dir / cover_destination.name),
+                    "package_path_identity": path_identity(output_dir / cover_destination.name),
+                    "package_sha256": copied_cover_sha,
+                }
+
+            package_state = build_book_export_state(book, chapter_records)
+            manifest = {
+                "schema_version": EXPORT_SCHEMA_VERSION,
+                "status": "RELEASE_READY" if package_state["ready"] else "INCOMPLETE",
+                "chapter_status": "CHAPTER_EXPORT_READY",
+                "export_identity": export_identity,
+                "export_profile": LITRES_PROFILE,
+                "export_profile_hash": litres_profile_hash(),
+                "created_at": utc_now_iso(),
+                "book": book,
+                "chapter_expected_order": book["chapters"],
+                "chapters": chapter_records,
+                "whole_book": package_state,
+                "cover": package_cover,
+                "rights_provenance": book.get("rights_provenance"),
+                "total_file_count": len(chapter_records),
+                "ffmpeg": _resolution_identity(ffmpeg),
+                "provider_requests": 0,
+                "remote_request_sent": False,
+                "billing_changed": False,
+            }
+            atomic_write_json(package_temp / "MANIFEST.json", manifest)
+            if revalidate_master is not None and _canonical_json(revalidate_master()) != _canonical_json(master):
+                raise MasteringExportError("stale_master", "Master authority устарела перед перепубликацией.")
+            if revalidate_book is not None and _canonical_json(self._validated_book(revalidate_book())) != _canonical_json(book):
+                raise MasteringExportError("book_authority_changed", "Book authority изменилась перед перепубликацией.")
+            self._revalidate_candidate_masters(book, state["ordered_candidates"])
+            try:
+                package_temp.rename(output_dir)
+            except OSError as error:
+                if error.errno not in {errno.EEXIST, errno.ENOTEMPTY}:
+                    raise
+                winner = self._read_export(output_dir, export_identity)
+                if winner is None:
+                    if output_dir.is_symlink() or not output_dir.is_dir():
+                        raise MasteringExportError("publish_conflict", "Конфликт metadata-only export package.")
+                    quarantine = profile_root / f".invalid-{export_identity}-{uuid.uuid4().hex}"
+                    output_dir.rename(quarantine)
+                    try:
+                        package_temp.rename(output_dir)
+                    except OSError:
+                        if not output_dir.exists() and quarantine.exists():
+                            quarantine.rename(output_dir)
+                        raise MasteringExportError("publish_conflict", "Не удалось восстановить export package.")
+                else:
+                    manifest = winner
+            self._publish_current_pointers(profile_root, output_dir, manifest)
+            return self.status(master_value, book_value)
+        finally:
+            if package_temp.exists():
+                shutil.rmtree(package_temp)
+
     def prepare(self, master_value: Mapping[str, Any], book_value: Mapping[str, Any]) -> dict[str, Any]:
         master, _, _ = self._validate_master(master_value)
         book = self._validated_book(book_value)
@@ -1345,14 +1531,26 @@ class LitresExportService:
             ),
             None,
         )
+        rights = book.get("rights_provenance")
+        rights_blocked = bool(
+            isinstance(rights, Mapping)
+            and rights.get("third_party_assets")
+            and rights.get("verified") is not True
+        )
+        repackage_required = bool(
+            existing
+            and not rights_blocked
+            and not self._candidate_package_matches_book(existing, book)
+        )
+        needs_repackage = repackage_required and not blockers
         candidates = [item for item in current_candidates if item.get("job_id") != master["job_id"]]
         if existing:
             candidates.append(existing)
         book_state = build_book_export_state(book, candidates)
         return {
             "schema_version": EXPORT_SCHEMA_VERSION,
-            "state": "READY" if existing else ("BLOCKED" if blockers else "PREPARED"),
-            "decision": "ALREADY_EXPORTED" if existing else ("BLOCKED" if blockers else "READY_TO_EXPORT"),
+            "state": "PREPARED" if needs_repackage else ("BLOCKED" if repackage_required else ("READY" if existing else ("BLOCKED" if blockers else "PREPARED"))),
+            "decision": "READY_TO_REPACKAGE" if needs_repackage else ("BLOCKED" if repackage_required else ("ALREADY_EXPORTED" if existing else ("BLOCKED" if blockers else "READY_TO_EXPORT"))),
             "blockers": blockers,
             "blocker_message": (
                 "Для MP3-экспорта требуется FFmpeg." if "missing_ffmpeg" in blockers else
@@ -1453,6 +1651,14 @@ class LitresExportService:
         prepared = self.prepare(master_value, book_value)
         if prepared["decision"] == "BLOCKED":
             raise MasteringExportError(prepared["blockers"][0], prepared["blocker_message"])
+        if prepared["decision"] == "READY_TO_REPACKAGE":
+            return self._repackage_current_candidates(
+                prepared=prepared,
+                master_value=master_value,
+                book_value=book_value,
+                revalidate_master=revalidate_master,
+                revalidate_book=revalidate_book,
+            )
         if prepared["decision"] == "ALREADY_EXPORTED":
             if revalidate_master is not None and _canonical_json(revalidate_master()) != _canonical_json(prepared["master"]):
                 raise MasteringExportError("stale_master", "Master authority устарела до восстановления CURRENT.")
@@ -1679,7 +1885,10 @@ class LitresExportService:
         if prepared["decision"] != "ALREADY_EXPORTED":
             if pointer.is_file():
                 prepared["state"] = "STALE"
-                prepared["decision"] = "READY_TO_EXPORT" if not prepared["blockers"] else "BLOCKED"
+                if prepared["blockers"]:
+                    prepared["decision"] = "BLOCKED"
+                elif prepared["decision"] != "READY_TO_REPACKAGE":
+                    prepared["decision"] = "READY_TO_EXPORT"
             return prepared
         data = json.loads(pointer.read_text(encoding="utf-8"))
         manifest_path = _require_regular_path(
