@@ -184,6 +184,7 @@ class MasteringExportTests(unittest.TestCase):
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
              mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
              mock.patch.object(self.exporting, "_inspect_mp3", return_value=facts), \
+             mock.patch.object(self.exporting, "_probe_mp3", return_value=facts), \
              mock.patch("mastering_export.subprocess.run", side_effect=encode):
             return self.exporting.export(master, self.book)
 
@@ -715,6 +716,27 @@ class MasteringExportTests(unittest.TestCase):
                 self._export(master, facts)
             self.assertEqual(raised.exception.code, code)
 
+    def test_mp3_status_probe_is_bounded_while_publication_fully_decodes(self):
+        mp3 = self.root / "probe.mp3"
+        mp3.write_bytes(b"ID3")
+        stderr = (
+            "Duration: 00:01:02.50\n"
+            "Stream #0:0: Audio: mp3, 48000 Hz, stereo, fltp, 128 kb/s\n"
+            "Stream #0:1: Video: mjpeg, yuvj420p (attached pic)\n"
+        )
+        completed = subprocess.CompletedProcess([], 0, "", stderr)
+        with mock.patch("mastering_export.subprocess.run", return_value=completed) as run:
+            probed = self.exporting._probe_mp3(self.ffmpeg, mp3)
+            probe_arguments = run.call_args.args[0]
+            inspected = self.exporting._inspect_mp3(self.ffmpeg, mp3)
+            inspect_arguments = run.call_args.args[0]
+        self.assertIn("-frames:a", probe_arguments)
+        self.assertIn("1", probe_arguments)
+        self.assertNotIn("-frames:a", inspect_arguments)
+        self.assertEqual(probed["duration_seconds"], 62.5)
+        self.assertTrue(probed["cover_art_embedded"])
+        self.assertTrue(inspected["decodable"])
+
     def test_metadata_and_cover_change_candidate_identity(self):
         master = self._master_authority()
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
@@ -786,7 +808,7 @@ class MasteringExportTests(unittest.TestCase):
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
              mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
-             mock.patch.object(self.exporting, "_inspect_mp3", return_value={"cover_art_embedded": True}):
+             mock.patch.object(self.exporting, "_probe_mp3", return_value={"cover_art_embedded": True}):
             self.assertEqual(self.exporting._load_current_candidates(canonical_book_authority(self.book)), [])
             prepared = self.exporting.prepare(master, self.book)
         self.assertEqual(prepared["decision"], "READY_TO_EXPORT")
@@ -796,11 +818,11 @@ class MasteringExportTests(unittest.TestCase):
 
         package_cover.write_bytes(b"changed")
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
-             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"):
-            changed = self.exporting.status(master, self.book)
-        self.assertEqual(changed["state"], "STALE")
-        self.assertEqual(changed["decision"], "READY_TO_EXPORT")
-        self.assertIsNone(changed["chapter_export"])
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             mock.patch.object(self.exporting, "_probe_mp3", return_value={"cover_art_embedded": True}), \
+             self.assertRaises(MasteringExportError) as changed:
+            self.exporting.status(master, self.book)
+        self.assertEqual(changed.exception.code, "export_identity_mismatch")
 
     def test_missing_encoder_blocks_without_installing(self):
         master = self._master_authority()

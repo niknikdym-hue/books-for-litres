@@ -1233,7 +1233,7 @@ class LitresExportService:
                         or facts.get("cover_art_embedded") is not True
                         or not ffmpeg.available
                         or ffmpeg.path is None
-                        or self._inspect_mp3(ffmpeg.path, mp3).get("cover_art_embedded") is not True
+                        or self._probe_mp3(ffmpeg.path, mp3).get("cover_art_embedded") is not True
                     ):
                         continue
                 current_master = resolve_current_master(
@@ -1320,9 +1320,13 @@ class LitresExportService:
         }
 
     @staticmethod
-    def _inspect_mp3(ffmpeg: Path, mp3: Path) -> dict[str, Any]:
+    def _mp3_facts(ffmpeg: Path, mp3: Path, *, full_decode: bool) -> dict[str, Any]:
+        arguments = [str(ffmpeg), "-nostdin", "-hide_banner", "-i", str(mp3), "-map", "0:a:0"]
+        if not full_decode:
+            arguments.extend(["-frames:a", "1"])
+        arguments.extend(["-f", "null", "-"])
         completed = subprocess.run(
-            [str(ffmpeg), "-nostdin", "-hide_banner", "-i", str(mp3), "-map", "0:a:0", "-f", "null", "-"],
+            arguments,
             capture_output=True, text=True, timeout=900, check=False,
         )
         if completed.returncode != 0:
@@ -1345,6 +1349,14 @@ class LitresExportService:
             "decodable": True,
             "cover_art_embedded": bool(re.search(r"Stream #\d+:\d+.*Video:.*attached pic", text, flags=re.IGNORECASE)),
         }
+
+    @staticmethod
+    def _inspect_mp3(ffmpeg: Path, mp3: Path) -> dict[str, Any]:
+        return LitresExportService._mp3_facts(ffmpeg, mp3, full_decode=True)
+
+    @staticmethod
+    def _probe_mp3(ffmpeg: Path, mp3: Path) -> dict[str, Any]:
+        return LitresExportService._mp3_facts(ffmpeg, mp3, full_decode=False)
 
     def export(
         self,
@@ -1650,7 +1662,7 @@ class LitresExportService:
                     or cover_ffmpeg is None
                     or not cover_ffmpeg.available
                     or cover_ffmpeg.path is None
-                    or self._inspect_mp3(cover_ffmpeg.path, path).get("cover_art_embedded") is not True
+                    or self._probe_mp3(cover_ffmpeg.path, path).get("cover_art_embedded") is not True
                 ):
                     return None
             if isinstance(cover, Mapping):
