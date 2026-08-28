@@ -342,6 +342,31 @@ class UniversalBridgeTests(unittest.TestCase):
             "demo-book.json", allow_disabled=True,
         )
 
+    def test_quarantine_retries_canonical_profile_after_fallback_rename_race(self):
+        library = mock.Mock()
+        recovered = {
+            "enabled": True,
+            "rights_provenance": {
+                "third_party_assets": ["music"],
+                "verified": True,
+            },
+        }
+        library.load_book_profile.side_effect = [
+            bridge.BookLibraryError("canonical name not present yet"),
+            bridge.BookLibraryError("case variant renamed away"),
+            recovered,
+        ]
+        with mock.patch.object(bridge, "BOOK_LIBRARY", library):
+            self.assertFalse(
+                bridge._profile_requires_release_quarantine(
+                    "Demo-Book.JSON", "demo-book",
+                )
+            )
+        self.assertEqual(
+            [call.args[0] for call in library.load_book_profile.call_args_list],
+            ["demo-book.json", "Demo-Book.JSON", "demo-book.json"],
+        )
+
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):

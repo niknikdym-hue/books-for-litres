@@ -266,7 +266,15 @@ def _profile_requires_release_quarantine(
                 profile_name, allow_disabled=True,
             )
         except BookLibraryError:
-            return True
+            # The case-variant path may have disappeared because it was
+            # atomically restored under its canonical name between lookups.
+            # Retry that canonical authority before authorizing quarantine.
+            try:
+                book = BOOK_LIBRARY.load_book_profile(
+                    canonical_name, allow_disabled=True,
+                )
+            except BookLibraryError:
+                return True
     if book.get("enabled", True) is False:
         return True
     rights = book.get("rights_provenance")

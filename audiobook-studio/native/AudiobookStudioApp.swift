@@ -2219,6 +2219,10 @@ private struct LitresExportCard: View {
                     Button("Обновить пакет для ЛитРес") { model.createCurrentLitresExport() }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isRunning)
+                } else if export.decision == "READY_TO_REPAIR" {
+                    Button("Восстановить выпускной пакет") { model.createCurrentLitresExport() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isRunning)
                 } else if export.chapterExport == nil {
                     Button("Создать MP3 для ЛитРес") { model.createCurrentLitresExport() }
                         .buttonStyle(.borderedProminent)

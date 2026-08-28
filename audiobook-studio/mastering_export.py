@@ -2041,6 +2041,23 @@ class LitresExportService:
         if validated_manifest is None:
             raise MasteringExportError("export_identity_mismatch", "Export package identity изменилась.")
         manifest = validated_manifest
+        book_pointer = self._profile_root(prepared["book"]["slug"]) / "CURRENT.json"
+        if book_pointer.is_symlink():
+            raise MasteringExportError("symlink_pointer", "Export CURRENT является ссылкой.")
+        book_pointer_current = False
+        if book_pointer.is_file():
+            try:
+                current_book = json.loads(book_pointer.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                current_book = None
+            book_pointer_current = bool(
+                isinstance(current_book, Mapping)
+                and current_book.get("export_identity") == manifest.get("export_identity")
+                and current_book.get("manifest_path") == str(manifest_path)
+            )
+        if not book_pointer_current:
+            prepared["state"] = "RECOVERY_REQUIRED"
+            prepared["decision"] = "READY_TO_REPAIR"
         prepared["manifest_path"] = str(manifest_path)
         prepared["export_manifest"] = manifest
         prepared["chapter_export"] = next(

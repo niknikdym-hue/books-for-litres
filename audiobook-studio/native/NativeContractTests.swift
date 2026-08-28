@@ -483,6 +483,7 @@ struct NativeContractTests {
         """
         let export = try JSONDecoder().decode(LitresExportEnvelope.self, from: Data(exportJSON.utf8))
         require(export.export.chapterExport?.facts.channels == 2, "LitRes MP3 is stereo")
+        require(litresExportStateLabel("RECOVERY_REQUIRED", decision: "READY_TO_REPAIR") == "Требуется восстановить выпускной пакет", "export recovery label")
         require(export.export.chapterExport?.facts.bitrateBps == 128000, "LitRes bitrate decodes")
         require(export.export.bookExport.progress == "1/16" && !export.export.bookExport.ready, "whole book stays incomplete")
         require(litresExportStateLabel(export.export.state, decision: export.export.decision) == "MP3 главы готов", "export state label")

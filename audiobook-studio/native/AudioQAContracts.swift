@@ -594,6 +594,7 @@ func masteringStateLabel(_ state: String, decision: String) -> String {
 
 func litresExportStateLabel(_ state: String, decision: String) -> String {
     if decision == "ALREADY_EXPORTED" { return "MP3 главы готов" }
+    if decision == "READY_TO_REPAIR" { return "Требуется восстановить выпускной пакет" }
     if decision == "BLOCKED" { return "Экспорт недоступен" }
     if state == "STALE" { return "Устарело — требуется повторный экспорт" }
     return "Готово к экспорту"

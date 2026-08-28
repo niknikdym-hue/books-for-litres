@@ -159,6 +159,8 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('Button("Создать MP3 для ЛитРес")', source)
         self.assertIn('Button("Обновить пакет для ЛитРес")', source)
         self.assertIn('export.decision == "READY_TO_REPACKAGE"', source)
+        self.assertIn('Button("Восстановить выпускной пакет")', source)
+        self.assertIn('export.decision == "READY_TO_REPAIR"', source)
         self.assertIn('Button("Применить блокировку выпуска")', source)
         self.assertIn('export.bookExport.blockers.contains("unproven_third_party_assets")', source)
         self.assertIn('Label("Мастеринг"', source)

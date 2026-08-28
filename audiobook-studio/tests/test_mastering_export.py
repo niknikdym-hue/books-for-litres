@@ -711,6 +711,12 @@ class MasteringExportTests(unittest.TestCase):
         self.assertTrue(book_pointer.is_file())
 
         book_pointer.unlink()
+        with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"):
+            recovery = self.exporting.status(master, self.book)
+        self.assertEqual(recovery["state"], "RECOVERY_REQUIRED")
+        self.assertEqual(recovery["decision"], "READY_TO_REPAIR")
+        self.assertIsNotNone(recovery["chapter_export"])
         recovered_again = self._export(master)
         self.assertEqual(recovered_again["candidate_identity"], first["candidate_identity"])
         self.assertTrue(book_pointer.is_file())
@@ -720,6 +726,11 @@ class MasteringExportTests(unittest.TestCase):
             "export_identity": "0" * 64,
             "manifest_path": "/stale/package/MANIFEST.json",
         }), encoding="utf-8")
+        with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"):
+            stale_recovery = self.exporting.status(master, self.book)
+        self.assertEqual(stale_recovery["state"], "RECOVERY_REQUIRED")
+        self.assertEqual(stale_recovery["decision"], "READY_TO_REPAIR")
         recovered_stale = self._export(master)
         repaired = json.loads(book_pointer.read_text(encoding="utf-8"))
         self.assertEqual(recovered_stale["candidate_identity"], first["candidate_identity"])
