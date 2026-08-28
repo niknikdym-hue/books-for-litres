@@ -337,7 +337,13 @@ class ChapterAssemblyService:
             source_before = self._file_snapshot(source)
             temporary_wav = temporary / "chapter.wav"
             conversion_required = int(payload["wav"]["sample_rate_hz"]) != TARGET_SAMPLE_RATE_HZ
-            ffmpeg = self._resolution()
+            ffmpeg_facts = prepared["ffmpeg"]
+            ffmpeg = FFmpegResolution(
+                available=ffmpeg_facts["available"],
+                path=Path(ffmpeg_facts["path"]) if ffmpeg_facts.get("path") else None,
+                version=ffmpeg_facts.get("version"),
+                source=ffmpeg_facts["source"],
+            )
             arguments: list[str] = []
             if conversion_required:
                 if not ffmpeg.available or ffmpeg.path is None:

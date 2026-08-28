@@ -290,6 +290,15 @@ class ChapterAssemblyTests(unittest.TestCase):
             self.service.assemble(self._input())
         self.assertFalse(any((self.root / "chapters").rglob("MANIFEST.json")))
 
+    def test_conversion_uses_the_resolution_bound_into_assembly_identity(self):
+        other = FFmpegResolution(True, Path("/different/ffmpeg"), "ffmpeg version other", "config")
+        with mock.patch.object(
+            self.service, "_resolution", side_effect=[self._available(), other]
+        ) as resolution:
+            result = self.service.assemble(self._input())
+        self.assertEqual(resolution.call_count, 1)
+        self.assertEqual(result["normalization"]["ffmpeg_version"], "ffmpeg version deterministic-test")
+
 
 if __name__ == "__main__":
     unittest.main()
