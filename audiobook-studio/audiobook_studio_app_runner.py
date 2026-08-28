@@ -214,26 +214,40 @@ def _audio_qa_authority(
     if provider == "yandex":
         backend, _, _ = _load_yandex_offline()
         relative = Path(slug) / job_id / profile_id / "MANIFEST.json"
+        configured_root = Path(backend.config.output_root).expanduser().absolute()
+        workspace_alias = WORKSPACE_PATHS.yandex_output_root.expanduser().absolute()
+        historical_root = (
+            WORKSPACE_PATHS.runtime_root / "renders-yandex"
+        ).expanduser().absolute()
         if selected_manifest is not None:
             # An explicit authority must remain fail-closed, including every
             # symlink/path-component guard applied by resolve_yandex_authority.
             candidates = [selected_manifest]
         else:
-            # Prefer a current real configured output. Older production runs
-            # live in the runtime renders-yandex directory while the configured
-            # workspace output may instead be a Finder-friendly symlink to it.
-            # Automatic discovery may skip such an invalid alias and continue
-            # to the real historical root; an explicit authority never does.
-            candidates = [
-                backend.config.output_root / relative,
-                WORKSPACE_PATHS.yandex_output_root / relative,
-                WORKSPACE_PATHS.runtime_root / "renders-yandex" / relative,
-                STUDIO_DIR / "renders-yandex" / relative,
-            ]
+            known_historical_alias = False
+            if configured_root == workspace_alias and workspace_alias.is_symlink():
+                try:
+                    known_historical_alias = (
+                        workspace_alias.resolve(strict=True)
+                        == historical_root.resolve(strict=True)
+                    )
+                except OSError:
+                    known_historical_alias = False
+            if known_historical_alias:
+                # This exact workspace alias predates the canonical path guard.
+                # Never authorize through it; inspect only its known real root.
+                candidates = [
+                    historical_root / relative,
+                    STUDIO_DIR / "renders-yandex" / relative,
+                ]
+            else:
+                # A real configured root is the sole current authority. Missing
+                # output or any other symlink/path defect must fail closed rather
+                # than silently resurrecting a historical artifact.
+                candidates = [configured_root / relative]
         allowed_output_roots = [
-            (backend.config.output_root, WORKSPACE_PATHS.root),
-            (WORKSPACE_PATHS.yandex_output_root, WORKSPACE_PATHS.root),
-            (WORKSPACE_PATHS.runtime_root / "renders-yandex", WORKSPACE_PATHS.root),
+            (configured_root, WORKSPACE_PATHS.root),
+            (historical_root, WORKSPACE_PATHS.root),
             (STUDIO_DIR / "renders-yandex", STUDIO_DIR),
         ]
         return resolve_yandex_authority(
@@ -245,7 +259,6 @@ def _audio_qa_authority(
             manifest_candidates=candidates,
             allowed_output_roots=allowed_output_roots,
             audio_path=selected_audio,
-            fail_on_invalid_manifest_path=selected_manifest is not None,
         )
     if provider == "openai":
         from backends.openai_tts import OpenAITTSBackend, load_backend_config

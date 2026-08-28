@@ -435,11 +435,55 @@ class NativeUIBridgeTests(unittest.TestCase):
             self.assertEqual(result["authority"]["profile_id"], "yandex_lera")
             self.assertFalse(result["remote_request_sent"])
 
+            # A different symlink target is not the known compatibility alias
+            # and must not fall back to the valid historical artifact.
+            (configured_parent / "yandex").unlink()
+            external_root = workspace / "external-yandex"
+            external_root.mkdir()
+            (configured_parent / "yandex").symlink_to(
+                Path("../external-yandex"),
+                target_is_directory=True,
+            )
+            rejected = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("symlink components", rejected.stderr)
+
             # If a newer real configured output exists as well, it must take
             # precedence over the supported historical fallback.
             (configured_parent / "yandex").unlink()
             current_dir = configured_parent / "yandex/demo-book/short-test/yandex_lera"
             current_dir.mkdir(parents=True)
+            missing_current = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(missing_current.returncode, 2)
+            self.assertIn("manifest was not found", missing_current.stderr)
             current_audio = current_dir / audio_path.name
             shutil.copy2(audio_path, current_audio)
             current_manifest = current_dir / "MANIFEST.json"
