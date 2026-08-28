@@ -1250,6 +1250,7 @@ class LitresExportService:
             "bitrate_bps": int(stream_match.group(3)) * 1000,
             "size_bytes": mp3.stat().st_size,
             "decodable": True,
+            "cover_art_embedded": bool(re.search(r"Stream #\d+:\d+.*Video:.*attached pic", text, flags=re.IGNORECASE)),
         }
 
     def export(
@@ -1314,9 +1315,22 @@ class LitresExportService:
         temporary_root = Path(tempfile.mkdtemp(prefix=".export-", dir=profile_root))
         try:
             temporary_mp3 = temporary_root / "chapter.mp3"
+            cover = book.get("cover")
+            cover_source = Path(cover["path"]) if isinstance(cover, Mapping) else None
+            cover_snapshot = _file_snapshot(cover_source) if cover_source is not None else None
             arguments = [
                 str(ffmpeg.path), "-nostdin", "-hide_banner", "-loglevel", "error",
-                "-i", str(source), "-map_metadata", "-1", "-vn", "-ac", "2",
+                "-i", str(source),
+            ]
+            if cover_source is not None:
+                arguments.extend([
+                    "-i", str(cover_source), "-map", "0:a:0", "-map", "1:v:0",
+                    "-c:v", "copy", "-disposition:v", "attached_pic",
+                ])
+            else:
+                arguments.extend(["-map", "0:a:0", "-vn"])
+            arguments.extend([
+                "-map_metadata", "-1", "-ac", "2",
                 "-ar", str(LITRES_PROFILE["sample_rate_hz"]), "-c:a", encoder,
                 "-b:a", "128k", "-minrate", "128k", "-maxrate", "128k", "-bufsize", "256k",
                 "-write_xing", "0", "-id3v2_version", "3",
@@ -1325,7 +1339,7 @@ class LitresExportService:
                 "-metadata", f"artist={book['author']}",
                 "-metadata", f"track={chapter['position']}",
                 str(temporary_mp3),
-            ]
+            ])
             completed = subprocess.run(arguments, capture_output=True, timeout=900, check=False)
             if completed.returncode != 0:
                 raise MasteringExportError("mp3_encode_failed", "FFmpeg не создал MP3.")
@@ -1340,10 +1354,18 @@ class LitresExportService:
                 raise MasteringExportError("mp3_too_large", "Файл превышает 170 MB.")
             if abs(facts["duration_seconds"] - master["wav"]["duration_seconds"]) > LITRES_PROFILE["duration_tolerance_seconds"]:
                 raise MasteringExportError("mp3_duration_mismatch", "MP3 duration не совпадает с master.")
+            if cover_source is not None and facts.get("cover_art_embedded") is not True:
+                raise MasteringExportError("missing_cover_art", "MP3 не содержит canonical cover art.")
             if _file_snapshot(source) != source_snapshot or sha256_file(source) != master["audio_sha256"]:
                 raise MasteringExportError("master_changed_during_export", "Master изменился во время экспорта.")
             if _file_snapshot(master_manifest) != manifest_snapshot or sha256_file(master_manifest) != master["master_manifest_sha256"]:
                 raise MasteringExportError("master_changed_during_export", "Master manifest изменился.")
+            if cover_source is not None and (
+                _file_snapshot(cover_source) != cover_snapshot
+                or sha256_file(cover_source) != cover["sha256"]
+                or path_identity(cover_source) != cover["path_identity"]
+            ):
+                raise MasteringExportError("cover_changed_during_export", "Canonical cover изменился во время экспорта.")
             if revalidate_master is not None and _canonical_json(revalidate_master()) != _canonical_json(master):
                 raise MasteringExportError("stale_master", "Master authority устарела во время экспорта.")
             if revalidate_book is not None and _canonical_json(self._validated_book(revalidate_book())) != _canonical_json(book):
@@ -1364,6 +1386,7 @@ class LitresExportService:
                 "tool": _resolution_identity(ffmpeg),
                 "arguments": _redact_arguments(arguments, {
                     str(ffmpeg.path): "<ffmpeg>", str(source): "<master>", str(temporary_mp3): "<output>",
+                    **({str(cover_source): "<cover>"} if cover_source is not None else {}),
                 }),
                 "metadata": {
                     "title": book["title"], "author": book["author"],
@@ -1403,6 +1426,19 @@ class LitresExportService:
                     })
                     chapter_records.append(record)
                 package_state = build_book_export_state(book, chapter_records)
+                package_cover: dict[str, Any] | None = None
+                if cover_source is not None:
+                    suffix = cover_source.suffix.lower()
+                    if not re.fullmatch(r"\.[a-z0-9]{1,8}", suffix):
+                        suffix = ".img"
+                    cover_destination = package_temp / f"cover{suffix}"
+                    shutil.copyfile(cover_source, cover_destination)
+                    package_cover = {
+                        **dict(cover),
+                        "package_path": str(output_dir / cover_destination.name),
+                        "package_path_identity": path_identity(output_dir / cover_destination.name),
+                        "package_sha256": sha256_file(cover_destination),
+                    }
                 manifest = {
                     "schema_version": EXPORT_SCHEMA_VERSION,
                     "status": "RELEASE_READY" if package_state["ready"] else "INCOMPLETE",
@@ -1415,7 +1451,7 @@ class LitresExportService:
                     "chapter_expected_order": book["chapters"],
                     "chapters": chapter_records,
                     "whole_book": package_state,
-                    "cover": book.get("cover"),
+                    "cover": package_cover,
                     "rights_provenance": book.get("rights_provenance"),
                     "total_file_count": len(chapter_records),
                     "ffmpeg": _resolution_identity(ffmpeg),
@@ -1461,6 +1497,10 @@ class LitresExportService:
             Path(data["manifest_path"]), root=self.workspace_root, label="Export manifest"
         )
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        validated_manifest = self._read_export(manifest_path.parent, manifest.get("export_identity"))
+        if validated_manifest is None:
+            raise MasteringExportError("export_identity_mismatch", "Export package identity изменилась.")
+        manifest = validated_manifest
         prepared["manifest_path"] = str(manifest_path)
         prepared["export_manifest"] = manifest
         prepared["book_export"] = manifest["whole_book"]
@@ -1490,6 +1530,16 @@ class LitresExportService:
             for item in payload.get("chapters", []):
                 path = _require_regular_path(Path(item["path"]), root=self.workspace_root, label="Export MP3")
                 if item.get("sha256") != sha256_file(path) or item.get("path_identity") != path_identity(path):
+                    return None
+            cover = payload.get("cover")
+            if isinstance(cover, Mapping):
+                package_cover = _require_regular_path(
+                    Path(cover["package_path"]), root=self.workspace_root, label="Package cover"
+                )
+                if (
+                    cover.get("package_sha256") != sha256_file(package_cover)
+                    or cover.get("package_path_identity") != path_identity(package_cover)
+                ):
                     return None
             return payload
         except (OSError, ValueError, KeyError, TypeError, MasteringExportError):

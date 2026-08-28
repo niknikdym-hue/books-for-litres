@@ -536,6 +536,41 @@ class MasteringExportTests(unittest.TestCase):
             with self.subTest(cover=cover), self.assertRaises(MasteringExportError):
                 self.exporting.prepare(master, book)
 
+    def test_canonical_cover_is_embedded_copied_and_validated(self):
+        master = self._master_authority()
+        cover = self.root / "assets" / "cover.jpg"
+        cover.parent.mkdir()
+        cover.write_bytes(b"canonical-cover")
+        self.book["cover"] = {"path": str(cover), "sha256": sha256_file(cover)}
+        facts = {
+            "duration_seconds": master["wav"]["duration_seconds"],
+            "sample_rate_hz": 48_000,
+            "channels": 2,
+            "channel_layout": "stereo",
+            "bitrate_bps": 128_000,
+            "size_bytes": 4096,
+            "decodable": True,
+            "cover_art_embedded": False,
+        }
+        with self.assertRaises(MasteringExportError) as raised:
+            self._export(master, facts)
+        self.assertEqual(raised.exception.code, "missing_cover_art")
+
+        exported = self._export(master, {**facts, "cover_art_embedded": True})
+        candidate = exported["chapter_export"]
+        self.assertIn("<cover>", candidate["arguments"])
+        self.assertIn("attached_pic", candidate["arguments"])
+        package_cover = Path(exported["export_manifest"]["cover"]["package_path"])
+        self.assertTrue(package_cover.is_file())
+        self.assertEqual(sha256_file(package_cover), sha256_file(cover))
+
+        package_cover.write_bytes(b"changed")
+        with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             self.assertRaises(MasteringExportError) as changed:
+            self.exporting.status(master, self.book)
+        self.assertEqual(changed.exception.code, "export_identity_mismatch")
+
     def test_missing_encoder_blocks_without_installing(self):
         master = self._master_authority()
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
