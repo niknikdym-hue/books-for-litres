@@ -345,6 +345,285 @@ class NativeUIBridgeTests(unittest.TestCase):
         finally:
             profile_path.write_bytes(original)
 
+    def test_yandex_current_bridge_discovers_real_historical_root_before_symlink_alias(self):
+        from backends.yandex_speechkit import (
+            YandexSpeechKitBackend,
+            load_backend_config,
+            make_fingerprint,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory) / "workspace"
+            books = workspace / "books"
+            books.mkdir(parents=True)
+            shutil.copy2(ROOT / "books/demo-book.json", books / "demo-book.json")
+            env = dict(
+                os.environ,
+                AUDIOBOOK_STUDIO_HOME=str(workspace),
+                PYTHONDONTWRITEBYTECODE="1",
+            )
+            with mock.patch.dict(os.environ, env, clear=True):
+                backend = YandexSpeechKitBackend(load_backend_config(ROOT / "yandex-config.json"))
+
+            library = BookLibrary(books)
+            book = library.load_book_for_execution("demo-book.json")
+            job = book["jobs"]["short-test"]
+            text = "\n\n".join(segment["text"].strip() for segment in job["segments"])
+            segments = backend.segment(text)
+
+            historical_root = workspace / "runtime/studio-workspace/renders-yandex"
+            run_dir = historical_root / "demo-book/short-test/yandex_lera"
+            audio_path = run_dir / "short-test__lera-neutral-1.04.wav"
+            run_dir.mkdir(parents=True)
+            with wave.open(str(audio_path), "wb") as audio:
+                audio.setnchannels(1)
+                audio.setsampwidth(2)
+                audio.setframerate(22_050)
+                audio.writeframes(b"\x00\x10" * (22_050 * 5))
+
+            manifest_path = run_dir / "MANIFEST.json"
+            manifest_path.write_text(json.dumps({
+                "schema_version": 1,
+                "engine": "yandex_speechkit_v3",
+                "job_id": "short-test",
+                "status": "DONE",
+                "profile": {
+                    "voice": backend.profile.voice,
+                    "role": backend.profile.role,
+                    "speed": str(backend.profile.speed),
+                },
+                "segmentation": backend.manifest_segmentation(),
+                "request_routing": backend.request_routing_identity(),
+                "segments": {
+                    segment.segment_id: {
+                        "status": "DONE",
+                        "fingerprint": make_fingerprint(segment.text, backend.profile),
+                        "text": segment.text,
+                        "result": {"sample_rate_hz": 22_050},
+                    }
+                    for segment in segments
+                },
+                "joined_wav": audio_path.name,
+            }, ensure_ascii=False), encoding="utf-8")
+
+            configured_parent = workspace / "renders"
+            configured_parent.mkdir()
+            (configured_parent / "yandex").symlink_to(
+                Path("../runtime/studio-workspace/renders-yandex"),
+                target_is_directory=True,
+            )
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            result = json.loads(completed.stdout)
+            self.assertEqual(result["authority"]["manifest_path"], str(manifest_path.resolve()))
+            self.assertEqual(result["authority"]["audio_path"], str(audio_path.resolve()))
+            self.assertEqual(result["authority"]["profile_id"], "yandex_lera")
+            self.assertFalse(result["remote_request_sent"])
+
+            # The compatibility decision is valid for the whole authority
+            # operation, not merely at its first path check. Replacing the
+            # alias while the resolver runs must invalidate the result even
+            # when the replacement still reaches the historical directory.
+            paths = load_workspace_paths(env=env)
+            real_resolver = bridge.resolve_yandex_authority
+
+            def mutate_alias_then_resolve(**kwargs):
+                (configured_parent / "yandex").unlink()
+                (configured_parent / "yandex").symlink_to(
+                    Path("../runtime/studio-workspace/./renders-yandex"),
+                    target_is_directory=True,
+                )
+                return real_resolver(**kwargs)
+
+            with (
+                mock.patch.object(bridge, "WORKSPACE_PATHS", paths),
+                mock.patch.object(bridge, "BOOK_LIBRARY", library),
+                mock.patch.object(
+                    bridge,
+                    "_load_yandex_offline",
+                    return_value=(backend, None, None),
+                ),
+                mock.patch.object(
+                    bridge,
+                    "resolve_yandex_authority",
+                    side_effect=mutate_alias_then_resolve,
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    bridge.AudioQAAuthorityError,
+                    "changed during authority resolution",
+                ):
+                    bridge._audio_qa_authority(
+                        provider="yandex",
+                        book_name="demo-book.json",
+                        job_id="short-test",
+                        profile_id="yandex_lera",
+                    )
+
+            # Restore the exact direct compatibility link for the remaining
+            # subprocess scenarios.
+            (configured_parent / "yandex").unlink()
+            (configured_parent / "yandex").symlink_to(
+                Path("../runtime/studio-workspace/renders-yandex"),
+                target_is_directory=True,
+            )
+
+            # Reaching the historical root through another symlink is not the
+            # one supported direct alias identity and must fail closed.
+            (configured_parent / "yandex").unlink()
+            intermediate = workspace / "external-hop"
+            intermediate.symlink_to(historical_root, target_is_directory=True)
+            (configured_parent / "yandex").symlink_to(
+                Path("../external-hop"),
+                target_is_directory=True,
+            )
+            multi_hop = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(multi_hop.returncode, 2)
+            self.assertIn("symlink components", multi_hop.stderr)
+            (configured_parent / "yandex").unlink()
+            intermediate.unlink()
+
+            # A canonical-looking leaf alias reached through a symlinked
+            # parent is not the known workspace entry. Parent components are
+            # part of the compatibility identity and must fail closed.
+            configured_parent.rmdir()
+            external_parent = workspace / "external-renders"
+            external_parent.mkdir()
+            (external_parent / "yandex").symlink_to(
+                Path("../runtime/studio-workspace/renders-yandex"),
+                target_is_directory=True,
+            )
+            configured_parent.symlink_to(external_parent, target_is_directory=True)
+            symlinked_parent = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(symlinked_parent.returncode, 2)
+            self.assertIn("parent cannot contain symlink components", symlinked_parent.stderr)
+            configured_parent.unlink()
+            (external_parent / "yandex").unlink()
+            external_parent.rmdir()
+            configured_parent.mkdir()
+
+            # A different symlink target is not the known compatibility alias
+            # and must not fall back to the valid historical artifact.
+            external_root = workspace / "external-yandex"
+            external_root.mkdir()
+            (configured_parent / "yandex").symlink_to(
+                Path("../external-yandex"),
+                target_is_directory=True,
+            )
+            rejected = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("symlink components", rejected.stderr)
+
+            # If a newer real configured output exists as well, it must take
+            # precedence over the supported historical fallback.
+            (configured_parent / "yandex").unlink()
+            current_dir = configured_parent / "yandex/demo-book/short-test/yandex_lera"
+            current_dir.mkdir(parents=True)
+            missing_current = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(missing_current.returncode, 2)
+            self.assertIn("manifest was not found", missing_current.stderr)
+            current_audio = current_dir / audio_path.name
+            shutil.copy2(audio_path, current_audio)
+            current_manifest = current_dir / "MANIFEST.json"
+            shutil.copy2(manifest_path, current_manifest)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            current_result = json.loads(completed.stdout)
+            self.assertEqual(
+                current_result["authority"]["manifest_path"],
+                str(current_manifest.resolve()),
+            )
+            self.assertEqual(
+                current_result["authority"]["audio_path"],
+                str(current_audio.resolve()),
+            )
+            self.assertFalse(current_result["remote_request_sent"])
+
     def test_native_openai_cache_only_requires_explicit_exact_target_when_ambiguous(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")

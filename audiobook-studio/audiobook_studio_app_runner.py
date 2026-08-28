@@ -10,6 +10,7 @@ from dataclasses import replace
 import importlib.util
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -179,6 +180,73 @@ def _audio_qa_service() -> AudioQAReviewService:
     return AudioQAReviewService(WORKSPACE_PATHS.qa_review_root)
 
 
+def _stable_symlink_identity(path: Path) -> tuple[tuple[int | str, ...], Path]:
+    """Return a race-checked identity and the direct lexical symlink target."""
+    before = path.lstat()
+    raw_target = os.readlink(path)
+    after = path.lstat()
+    identity: tuple[int | str, ...] = (
+        before.st_dev,
+        before.st_ino,
+        before.st_mode,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+        raw_target,
+    )
+    if identity[:-1] != (
+        after.st_dev,
+        after.st_ino,
+        after.st_mode,
+        after.st_size,
+        after.st_mtime_ns,
+        after.st_ctime_ns,
+    ):
+        raise AudioQAAuthorityError(
+            "Yandex compatibility alias changed during identity verification."
+        )
+    raw_path = Path(raw_target)
+    direct_target = raw_path if raw_path.is_absolute() else path.parent / raw_path
+    return identity, Path(os.path.abspath(str(direct_target)))
+
+
+def _nonsymlink_path_identity(
+    path: Path,
+    *,
+    anchor: Path,
+) -> tuple[tuple[int | str, ...], ...]:
+    """Snapshot a lexical path below anchor while rejecting symlink components."""
+    lexical_path = Path(os.path.abspath(str(path)))
+    lexical_anchor = Path(os.path.abspath(str(anchor)))
+    try:
+        relative = lexical_path.relative_to(lexical_anchor)
+    except ValueError as error:
+        raise AudioQAAuthorityError(
+            "Yandex compatibility alias must remain inside the workspace root."
+        ) from error
+
+    identities: list[tuple[int | str, ...]] = []
+    current = lexical_anchor
+    for component in (None, *relative.parts):
+        if component is not None:
+            current /= component
+        metadata = current.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise AudioQAAuthorityError(
+                "Yandex compatibility alias parent cannot contain symlink components."
+            )
+        identities.append((
+            str(current),
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        ))
+    return tuple(identities)
+
+
 def _audio_qa_authority(
     *,
     provider: str,
@@ -214,20 +282,63 @@ def _audio_qa_authority(
     if provider == "yandex":
         backend, _, _ = _load_yandex_offline()
         relative = Path(slug) / job_id / profile_id / "MANIFEST.json"
-        candidates = [path for path in (
-            selected_manifest,
-            backend.config.output_root / relative,
-            WORKSPACE_PATHS.yandex_output_root / relative,
-            WORKSPACE_PATHS.runtime_root / "renders-yandex" / relative,
-            STUDIO_DIR / "renders-yandex" / relative,
-        ) if path is not None]
+        configured_root = Path(backend.config.output_root).expanduser().absolute()
+        workspace_alias = WORKSPACE_PATHS.yandex_output_root.expanduser().absolute()
+        historical_root = (
+            WORKSPACE_PATHS.runtime_root / "renders-yandex"
+        ).expanduser().absolute()
+        expected_alias_targets = {
+            str(historical_root),
+            os.path.relpath(historical_root, workspace_alias.parent),
+        }
+        compatibility_alias_identity: tuple[
+            tuple[tuple[int | str, ...], ...],
+            tuple[int | str, ...],
+        ] | None = None
+        if selected_manifest is not None:
+            # An explicit authority must remain fail-closed, including every
+            # symlink/path-component guard applied by resolve_yandex_authority.
+            candidates = [selected_manifest]
+        else:
+            known_historical_alias = False
+            if configured_root == workspace_alias and workspace_alias.is_symlink():
+                try:
+                    parent_identity = _nonsymlink_path_identity(
+                        workspace_alias.parent,
+                        anchor=WORKSPACE_PATHS.root,
+                    )
+                    alias_identity, direct_target = _stable_symlink_identity(
+                        workspace_alias
+                    )
+                    known_historical_alias = (
+                        alias_identity[-1] in expected_alias_targets
+                        and direct_target == historical_root
+                    )
+                    if known_historical_alias:
+                        compatibility_alias_identity = (
+                            parent_identity,
+                            alias_identity,
+                        )
+                except OSError:
+                    known_historical_alias = False
+            if known_historical_alias:
+                # This exact workspace alias predates the canonical path guard.
+                # Never authorize through it; inspect only its known real root.
+                candidates = [
+                    historical_root / relative,
+                    STUDIO_DIR / "renders-yandex" / relative,
+                ]
+            else:
+                # A real configured root is the sole current authority. Missing
+                # output or any other symlink/path defect must fail closed rather
+                # than silently resurrecting a historical artifact.
+                candidates = [configured_root / relative]
         allowed_output_roots = [
-            (backend.config.output_root, WORKSPACE_PATHS.root),
-            (WORKSPACE_PATHS.yandex_output_root, WORKSPACE_PATHS.root),
-            (WORKSPACE_PATHS.runtime_root / "renders-yandex", WORKSPACE_PATHS.root),
+            (configured_root, WORKSPACE_PATHS.root),
+            (historical_root, WORKSPACE_PATHS.root),
             (STUDIO_DIR / "renders-yandex", STUDIO_DIR),
         ]
-        return resolve_yandex_authority(
+        authority = resolve_yandex_authority(
             library=BOOK_LIBRARY,
             backend=backend,
             book_name=book_name,
@@ -237,6 +348,27 @@ def _audio_qa_authority(
             allowed_output_roots=allowed_output_roots,
             audio_path=selected_audio,
         )
+        if compatibility_alias_identity is not None:
+            try:
+                current_parent_identity = _nonsymlink_path_identity(
+                    workspace_alias.parent,
+                    anchor=WORKSPACE_PATHS.root,
+                )
+                current_identity, direct_target = _stable_symlink_identity(workspace_alias)
+            except OSError as error:
+                raise AudioQAAuthorityError(
+                    "Yandex compatibility alias changed during authority resolution."
+                ) from error
+            if (
+                (current_parent_identity, current_identity)
+                != compatibility_alias_identity
+                or current_identity[-1] not in expected_alias_targets
+                or direct_target != historical_root
+            ):
+                raise AudioQAAuthorityError(
+                    "Yandex compatibility alias changed during authority resolution."
+                )
+        return authority
     if provider == "openai":
         from backends.openai_tts import OpenAITTSBackend, load_backend_config
         from openai_backend_runner import CONFIG_PATH as OPENAI_CONFIG_PATH
