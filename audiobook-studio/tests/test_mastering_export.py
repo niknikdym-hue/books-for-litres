@@ -588,13 +588,17 @@ class MasteringExportTests(unittest.TestCase):
                 {"book_slug": self.book_slug, "job_id": "chapter-001"},
                 large_book,
             )
-        self.assertEqual(maximum_active, 2)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(maximum_active, 3)
+        self.assertEqual(len(calls), 3)
         self.assertEqual(calls[0], {
+            "provider": "book-authority", "book_slug": self.book_slug,
+            "job_id": "profile", "profile_id": "canonical-v1", "exclusive": False,
+        })
+        self.assertEqual(calls[1], {
             "provider": "master-book", "book_slug": self.book_slug,
             "job_id": "book", "profile_id": "spoken_word_master_v1", "exclusive": False,
         })
-        self.assertEqual(calls[1], {
+        self.assertEqual(calls[2], {
             "provider": "export", "book_slug": self.book_slug,
             "job_id": "book", "profile_id": "litres_author_v1", "exclusive": True,
         })
@@ -711,17 +715,22 @@ class MasteringExportTests(unittest.TestCase):
         manifest["chapters"][0]["facts"]["cover_art_embedded"] = False
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
              mock.patch.object(self.exporting, "_inspect_mp3", return_value={"cover_art_embedded": True}):
             self.assertEqual(self.exporting._load_current_candidates(canonical_book_authority(self.book)), [])
+            prepared = self.exporting.prepare(master, self.book)
+        self.assertEqual(prepared["decision"], "READY_TO_EXPORT")
+        self.assertIsNone(prepared["chapter_export"])
         manifest["chapters"][0]["facts"]["cover_art_embedded"] = True
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
         package_cover.write_bytes(b"changed")
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
-             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
-             self.assertRaises(MasteringExportError) as changed:
-            self.exporting.status(master, self.book)
-        self.assertEqual(changed.exception.code, "export_identity_mismatch")
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"):
+            changed = self.exporting.status(master, self.book)
+        self.assertEqual(changed["state"], "STALE")
+        self.assertEqual(changed["decision"], "READY_TO_EXPORT")
+        self.assertIsNone(changed["chapter_export"])
 
     def test_missing_encoder_blocks_without_installing(self):
         master = self._master_authority()

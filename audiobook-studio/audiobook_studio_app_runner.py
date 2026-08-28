@@ -55,7 +55,10 @@ YANDEX_PRICING_CONFIG = STUDIO_DIR / "yandex-pricing.json"
 USER_PRICING_CONFIG = Path.home() / "Library/Application Support/Audiobook Studio/yandex-pricing.local.json"
 WORKSPACE_PATHS = load_workspace_paths()
 BOOK_LIBRARY = BookLibrary(WORKSPACE_PATHS.books_root)
-BOOK_TEXT_PREPARATION = BookTextPreparationService(BOOK_LIBRARY)
+BOOK_TEXT_PREPARATION = BookTextPreparationService(
+    BOOK_LIBRARY,
+    workspace_root=WORKSPACE_PATHS.root,
+)
 
 ENGINES = (
     ("qwen", "Qwen — локально"),

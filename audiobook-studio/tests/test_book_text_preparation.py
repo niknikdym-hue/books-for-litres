@@ -7,6 +7,7 @@ import stat
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -61,6 +62,24 @@ class BookTextPreparationTests(unittest.TestCase):
 
     def prepare(self) -> dict:
         return self.service.prepare("prepared-book")
+
+    def test_prepare_holds_exclusive_canonical_book_authority_lock(self):
+        calls = []
+
+        @contextmanager
+        def authority_lock(workspace_root, **kwargs):
+            calls.append((Path(workspace_root), kwargs))
+            yield
+
+        with mock.patch("book_text_preparation.production_authority_lock", side_effect=authority_lock):
+            self.prepare()
+        self.assertEqual(calls, [(self.root, {
+            "provider": "book-authority",
+            "book_slug": "prepared-book",
+            "job_id": "profile",
+            "profile_id": "canonical-v1",
+            "exclusive": True,
+        })])
 
     def test_source_integrity_is_required(self):
         os.chmod(self.original, stat.S_IRUSR | stat.S_IWUSR)

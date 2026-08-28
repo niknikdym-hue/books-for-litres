@@ -1265,28 +1265,16 @@ class LitresExportService:
         elif encoder is None:
             blockers.append("missing_mp3_encoder")
         candidate_identity = self._candidate_identity(master, book, chapter, ffmpeg, encoder or "unavailable")
-        candidates = [item for item in self._load_current_candidates(book) if item.get("job_id") != master["job_id"]]
-        pointer = self._profile_root(book["slug"]) / f"CURRENT-{master['job_id']}.json"
-        existing: dict[str, Any] | None = None
-        if pointer.is_file() and not pointer.is_symlink():
-            try:
-                data = json.loads(pointer.read_text(encoding="utf-8"))
-                if data.get("candidate_identity") == candidate_identity:
-                    manifest_path = _require_regular_path(
-                        Path(data["manifest_path"]), root=self.workspace_root, label="Export manifest"
-                    )
-                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                    existing = next(item for item in manifest["chapters"] if item["candidate_identity"] == candidate_identity)
-                    existing_mp3 = _require_regular_path(
-                        Path(existing["path"]), root=self.workspace_root, label="Export MP3"
-                    )
-                    if (
-                        existing.get("sha256") != sha256_file(existing_mp3)
-                        or existing.get("path_identity") != path_identity(existing_mp3)
-                    ):
-                        existing = None
-            except (OSError, ValueError, KeyError, StopIteration):
-                existing = None
+        current_candidates = self._load_current_candidates(book)
+        existing = next(
+            (
+                item for item in current_candidates
+                if item.get("job_id") == master["job_id"]
+                and item.get("candidate_identity") == candidate_identity
+            ),
+            None,
+        )
+        candidates = [item for item in current_candidates if item.get("job_id") != master["job_id"]]
         if existing:
             candidates.append(existing)
         book_state = build_book_export_state(book, candidates)
@@ -1355,17 +1343,21 @@ class LitresExportService:
         if book["slug"] != book_slug:
             raise MasteringExportError("book_identity_mismatch", "Master относится к другой книге.")
         with production_authority_lock(
-            self.workspace_root, provider="master-book", book_slug=book_slug,
-            job_id="book", profile_id=MASTER_PRESET_ID, exclusive=False,
+            self.workspace_root, provider="book-authority", book_slug=book_slug,
+            job_id="profile", profile_id="canonical-v1", exclusive=False,
         ):
             with production_authority_lock(
-                self.workspace_root, provider="export", book_slug=book_slug,
-                job_id="book", profile_id=LITRES_PROFILE_ID, exclusive=True,
+                self.workspace_root, provider="master-book", book_slug=book_slug,
+                job_id="book", profile_id=MASTER_PRESET_ID, exclusive=False,
             ):
-                return self._export_locked(
-                    master_value, book_value,
-                    revalidate_master=revalidate_master, revalidate_book=revalidate_book,
-                )
+                with production_authority_lock(
+                    self.workspace_root, provider="export", book_slug=book_slug,
+                    job_id="book", profile_id=LITRES_PROFILE_ID, exclusive=True,
+                ):
+                    return self._export_locked(
+                        master_value, book_value,
+                        revalidate_master=revalidate_master, revalidate_book=revalidate_book,
+                    )
 
     def _export_locked(
         self,
