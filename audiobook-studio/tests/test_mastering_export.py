@@ -115,8 +115,10 @@ class MasteringExportTests(unittest.TestCase):
         self.temporary.cleanup()
 
     @staticmethod
-    def _write_wav(path: Path, *, seconds: float, lead: float = 0, tail: float = 0, amplitude: int = 1200) -> None:
-        rate = 48_000
+    def _write_wav(
+        path: Path, *, seconds: float, lead: float = 0, tail: float = 0,
+        amplitude: int = 1200, rate: int = 48_000,
+    ) -> None:
         total = int(seconds * rate)
         lead_frames, tail_frames = int(lead * rate), int(tail * rate)
         samples = []
@@ -398,6 +400,26 @@ class MasteringExportTests(unittest.TestCase):
             )
         self.assertEqual(raised.exception.code, "master_identity_mismatch")
 
+    def test_master_resolver_rejects_coordinated_non_48khz_tamper(self):
+        master = self._master_authority()
+        wav_path = Path(master["audio_path"])
+        manifest_path = Path(master["master_manifest_path"])
+        self._write_wav(wav_path, seconds=1.6, lead=0.5, tail=1.0, rate=44_100)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["output"].update({
+            "sha256": sha256_file(wav_path),
+            "path_identity": path_identity(wav_path),
+            "wav": inspect_pcm_wav(wav_path).to_dict(),
+        })
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with self.assertRaises(MasteringExportError) as raised:
+            resolve_current_master(
+                workspace_root=self.root, masters_root=self.root / "masters",
+                book_slug=self.book_slug, job_id=self.job_id,
+            )
+        self.assertEqual(raised.exception.code, "master_identity_mismatch")
+
     def test_master_nonempty_publish_race_returns_valid_winner(self):
         winner = {"status": "READY", "master_identity": "winner"}
         with mock.patch.object(self.mastering, "_resolution", return_value=self.resolution), \
@@ -589,6 +611,22 @@ class MasteringExportTests(unittest.TestCase):
             "rights-v2",
         )
         self.assertEqual(repackaged["export_manifest"]["provider_requests"], 0)
+
+        profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
+        book_pointer = profile_root / "CURRENT.json"
+        current_pointer = book_pointer.read_bytes()
+        historical_manifest_path = Path(first["manifest_path"])
+        historical_manifest = json.loads(historical_manifest_path.read_text(encoding="utf-8"))
+        with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_probe_mp3", return_value=facts):
+            self.exporting._repair_current_pointers(
+                profile_root,
+                historical_manifest_path.parent,
+                historical_manifest,
+                self.job_id,
+                self.exporting._validated_book(current_book),
+            )
+        self.assertEqual(book_pointer.read_bytes(), current_pointer)
 
     def test_existing_export_repairs_missing_chapter_and_book_pointers(self):
         master = self._master_authority()

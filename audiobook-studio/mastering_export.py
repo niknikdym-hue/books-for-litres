@@ -825,6 +825,7 @@ class MasteringService:
             measured_loudness, _ = self._measure_loudness(ffmpeg.path, wav_path)
             measured_signal = _signal_measurements(wav_path)
             measured_boundary = _boundary_measurements(wav_path)
+            measured_wav = inspect_pcm_wav(wav_path).to_dict()
             boundary_tolerance = 1.0 / TARGET_SAMPLE_RATE_HZ
             if (
                 payload.get("schema_version") != MASTER_SCHEMA_VERSION
@@ -834,7 +835,11 @@ class MasteringService:
                 or output.get("path") != str(wav_path)
                 or output.get("path_identity") != path_identity(wav_path)
                 or output.get("sha256") != sha256_file(wav_path)
-                or output.get("wav") != inspect_pcm_wav(wav_path).to_dict()
+                or output.get("wav") != measured_wav
+                or measured_wav["sample_rate_hz"] != TARGET_SAMPLE_RATE_HZ
+                or measured_wav["channels"] != TARGET_CHANNELS
+                or measured_wav["sample_width_bytes"] != TARGET_SAMPLE_WIDTH_BYTES
+                or measured_wav["compression_type"] != "NONE"
                 or payload.get("provider_requests") != 0
                 or payload.get("remote_request_sent") is not False
                 or payload.get("billing_changed") is not False
@@ -1173,14 +1178,6 @@ class LitresExportService:
         if record is None:
             raise MasteringExportError("missing_export_chapter", "Export package не содержит выбранную главу.")
         manifest_path = output_dir / "MANIFEST.json"
-        atomic_write_json(profile_root / f"CURRENT-{job_id}.json", {
-            "schema_version": EXPORT_SCHEMA_VERSION,
-            "candidate_identity": record["candidate_identity"],
-            "manifest_path": str(manifest_path),
-            "mp3_path": record["path"],
-            "updated_at": utc_now_iso(),
-        })
-
         # A chapter candidate can remain byte-for-byte current when book-level
         # release authority changes (for example, rights provenance).  Keep the
         # chapter pointer usable, but never restore a whole-book pointer to a
@@ -1191,12 +1188,40 @@ class LitresExportService:
         if _canonical_json(validated.get("book")) != _canonical_json(current_book):
             if book_pointer.is_file():
                 try:
-                    stale = json.loads(book_pointer.read_text(encoding="utf-8"))
-                except (OSError, ValueError, TypeError):
-                    stale = None
-                if isinstance(stale, Mapping) and stale.get("manifest_path") == str(manifest_path):
+                    pointer = json.loads(book_pointer.read_text(encoding="utf-8"))
+                    pointed_manifest_path = _require_regular_path(
+                        Path(pointer["manifest_path"]),
+                        root=self.workspace_root,
+                        label="Export manifest",
+                    )
+                    raw = json.loads(pointed_manifest_path.read_text(encoding="utf-8"))
+                    pointed = self._read_export(
+                        pointed_manifest_path.parent,
+                        raw.get("export_identity"),
+                    )
+                except (OSError, ValueError, KeyError, TypeError, MasteringExportError):
+                    pointed = None
+                if (
+                    pointed is None
+                    or _canonical_json(pointed.get("book")) != _canonical_json(current_book)
+                ):
                     book_pointer.unlink()
+            atomic_write_json(profile_root / f"CURRENT-{job_id}.json", {
+                "schema_version": EXPORT_SCHEMA_VERSION,
+                "candidate_identity": record["candidate_identity"],
+                "manifest_path": str(manifest_path),
+                "mp3_path": record["path"],
+                "updated_at": utc_now_iso(),
+            })
             return
+
+        atomic_write_json(profile_root / f"CURRENT-{job_id}.json", {
+            "schema_version": EXPORT_SCHEMA_VERSION,
+            "candidate_identity": record["candidate_identity"],
+            "manifest_path": str(manifest_path),
+            "mp3_path": record["path"],
+            "updated_at": utc_now_iso(),
+        })
 
         for chapter in validated["chapters"]:
             pointer = profile_root / f"CURRENT-{chapter['job_id']}.json"
