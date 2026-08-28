@@ -1078,10 +1078,36 @@ class OpenAITTSBackend:
             manifest["finished_at"] = utc_now_iso()
         manifest["updated_at"] = utc_now_iso()
         atomic_write_json(manifest_path, manifest)
+        qa_targets: list[dict[str, str]] = []
+        for segment in segments:
+            entry = entries[segment.segment_id]
+            fingerprint = make_fingerprint(segment.text, profile)
+            output_value = entry.get("output_path")
+            output_path = Path(output_value) if isinstance(output_value, str) else None
+            if (
+                entry.get("state") == "SUCCEEDED"
+                and entry.get("fingerprint") == fingerprint
+                and output_path is not None
+                and self._valid_wav(output_path) is not None
+            ):
+                entry["wav_metadata"] = inspect_pcm_wav(output_path).to_dict()
+                qa_targets.append({
+                    "segment_id": segment.segment_id,
+                    "output_path": str(output_path.resolve()),
+                    "manifest_path": str(manifest_path.resolve()),
+                    "synthesis_fingerprint": fingerprint,
+                })
+        atomic_write_json(manifest_path, manifest)
+        exact_target = qa_targets[0] if len(qa_targets) == 1 else None
         return manifest_path, {
             "network_requests": network_requests,
-            "selected_segment_id": selected_segment_id,
-            "output_path": selected_output,
+            "selected_segment_id": selected_segment_id or (
+                exact_target["segment_id"] if exact_target else None
+            ),
+            "output_path": selected_output or (
+                exact_target["output_path"] if exact_target else None
+            ),
+            "qa_targets": qa_targets,
             "manifest_state": manifest["state"],
             "remaining_segments": state_counts.get("PENDING", 0),
             "automatic_retry_count": 0,

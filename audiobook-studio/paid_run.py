@@ -175,8 +175,15 @@ class PaidRunService:
             texts.append(value.strip())
         return path, book, job, "\n\n".join(texts)
 
-    def _job_dir(self, book: Mapping[str, Any], job_id: str, profile_id: str) -> Path:
-        slug = str(book.get("slug") or "book")
+    def _job_dir(
+        self,
+        book: Mapping[str, Any],
+        job_id: str,
+        profile_id: str,
+        *,
+        canonical_book_slug: str | None = None,
+    ) -> Path:
+        slug = canonical_book_slug or str(book.get("slug") or "book")
         return self.backend.config.jobs_root / slug / job_id / "openai" / profile_id
 
     def _manifest_entries(self, job_dir: Path, *, job_id: str, profile_id: str) -> tuple[dict[str, Any], list[str]]:
@@ -203,7 +210,13 @@ class PaidRunService:
         segments = self.backend.segment(text)
         if not segments:
             raise PaidRunError("Prepared job produces no TTS segments.", category="invalid_book_job")
-        job_dir = self._job_dir(book, job_id, profile_id)
+        canonical_book_slug = source_path.stem
+        job_dir = self._job_dir(
+            book,
+            job_id,
+            profile_id,
+            canonical_book_slug=canonical_book_slug,
+        )
         entries, blockers = self._manifest_entries(job_dir, job_id=job_id, profile_id=profile_id)
         counts = {"succeeded": 0, "cached": 0, "pending": 0, "ambiguous": 0, "failed": 0}
         eligible: list[tuple[Any, str]] = []
@@ -287,7 +300,7 @@ class PaidRunService:
         instruction_hash = text_sha256(str(profile["instructions"]))
         critical = {
             "provider": "openai",
-            "book_id": str(book.get("slug") or source_path.stem),
+            "book_id": canonical_book_slug,
             "book_file": source_path.name,
             "book_source_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
             "job_id": job_id,

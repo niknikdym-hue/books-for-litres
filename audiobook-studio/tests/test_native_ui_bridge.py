@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from unittest import mock
 
@@ -214,6 +216,7 @@ class NativeUIBridgeTests(unittest.TestCase):
             observer = source[declaration : declaration + 220]
             self.assertIn("executionSelectionDidChange()", observer)
         self.assertIn("invalidateOpenAIIntent()", invalidation)
+        self.assertIn("executionSelectionGeneration &+= 1", invalidation)
         self.assertIn("paidPlan = nil", invalidation)
         self.assertIn("invalidateOpenAIIntent()", reload_body)
         self.assertIn("invalidateOpenAIIntent()", cancel_body)
@@ -222,6 +225,147 @@ class NativeUIBridgeTests(unittest.TestCase):
         build = (ROOT / "native" / "build_native_app.sh").read_text(encoding="utf-8")
         self.assertIn('"$script_dir/StudioContracts.swift"', build)
         self.assertIn('"$script_dir/AudiobookStudioApp.swift"', build)
+
+    def test_native_audio_qa_is_wired_to_current_authority_and_exact_review_identity(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        decide = swift_function_body(source, "func decideAudioQA(_ decision:")
+        downstream = swift_function_body(source, "private func refreshAudioQADownstream(")
+        open_current = swift_function_body(source, "func openCurrentAudioForQA()")
+        open_target = swift_function_body(source, "func openOpenAIQATarget(")
+        load_targets = swift_function_body(source, "private func loadOpenAIQATargets(")
+        load_audio = swift_function_body(
+            source,
+            "private func loadAudioQA(\n        provider: String,\n        bookID:",
+        )
+        regenerate = decide[decide.index('decision == "REGENERATE_REQUESTED"') :]
+
+        self.assertIn('"--audio-qa-current"', source)
+        self.assertIn('"--audio-qa-decide"', source)
+        self.assertIn('"--audio-qa-downstream"', source)
+        self.assertIn('Button("Открыть готовое аудио для проверки")', source)
+        self.assertIn('Button("Прослушать точный WAV")', source)
+        self.assertIn('Button("Одобрить")', source)
+        self.assertIn('Button("Отклонить", role: .destructive)', source)
+        self.assertIn('Button("Запросить перегенерацию")', source)
+        self.assertIn("audioQAPlaybackIdentity != envelope.record.identity", decide)
+        self.assertIn("audioQASelectionMatches", decide)
+        self.assertNotIn("selectedBookID == envelope.authority.bookSlug", decide)
+        self.assertIn('"--reviewed-audio-sha256", sha', decide)
+        self.assertIn('"--reviewed-path-identity", envelope.record.identity.pathIdentity', decide)
+        self.assertIn('"--reviewed-fingerprint", fingerprint', decide)
+        self.assertIn("guard !result.remoteRequestSent", source)
+        self.assertNotIn("--prepare-paid-run", regenerate)
+        self.assertNotIn("--prepare-yandex-chapter-run", regenerate)
+        self.assertNotIn("--execute-paid-plan", regenerate)
+        self.assertNotIn("--execute-yandex-chapter-plan", regenerate)
+        for operation in (open_current, open_target, decide):
+            self.assertIn(
+                "let expectedSelectionGeneration = executionSelectionGeneration",
+                operation,
+            )
+        self.assertGreaterEqual(
+            load_targets.count(
+                "executionSelectionGeneration == expectedSelectionGeneration"
+            ),
+            3,
+        )
+        self.assertGreaterEqual(
+            load_audio.count(
+                "executionSelectionGeneration == expectedSelectionGeneration"
+            ),
+            4,
+        )
+        self.assertGreaterEqual(
+            decide.count("executionSelectionGeneration == expectedSelectionGeneration"),
+            3,
+        )
+        self.assertGreaterEqual(
+            source.count("expectedSelectionGeneration: expectedSelectionGeneration"),
+            8,
+        )
+        self.assertIn("let expectedEngine = engine", downstream)
+        self.assertIn("let expectedBookSlug = selectedBook?.slug", downstream)
+        self.assertGreaterEqual(downstream.count("engine == expectedEngine"), 2)
+        self.assertGreaterEqual(downstream.count("selectedBook?.slug == expectedBookSlug"), 2)
+        self.assertGreaterEqual(
+            downstream.count(
+                "executionSelectionGeneration == expectedSelectionGeneration"
+            ),
+            2,
+        )
+        self.assertIn("result.authority == authority", downstream)
+
+    def test_qwen_current_authority_discovers_canonical_profile_directory(self):
+        producer = (ROOT / "studio.py").read_text(encoding="utf-8")
+        self.assertIn("canonical_book_slug = book_path.stem", producer)
+        self.assertIn(
+            "create_unique_output(cfg, canonical_book_slug, job_id, speaker)",
+            producer,
+        )
+        profile_path = bridge.WORKSPACE_PATHS.books_root / "demo-book.json"
+        original = profile_path.read_bytes()
+        try:
+            profile = json.loads(original)
+            profile.pop("slug", None)
+            profile_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
+            job = profile["jobs"]["short-test"]
+            config = json.loads((ROOT / "studio-config.json").read_text(encoding="utf-8"))
+            output_dir = bridge.WORKSPACE_PATHS.qwen_output_root / "demo-book/20260827-test"
+            audio_path = output_dir / "demo-book__short-test__Vivian.wav"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            with wave.open(str(audio_path), "wb") as audio:
+                audio.setnchannels(1)
+                audio.setsampwidth(2)
+                audio.setframerate(24_000)
+                audio.writeframes(b"\x00\x10" * 24_000)
+            report_path = output_dir / "RUN-REPORT.json"
+            report_path.write_text(json.dumps({
+                "book_profile_sha256": hashlib.sha256(profile_path.read_bytes()).hexdigest(),
+                "job": "short-test",
+                "job_label": job["label"],
+                "speaker": "Vivian",
+                "model": config["model"],
+                "generation": config["default_generation"],
+                "audiobook_instruct": profile["audiobook_instruct"],
+                "segments": [{"id": segment["id"], "seed": 1} for segment in job["segments"]],
+                "segment_count": len(job["segments"]),
+                "sample_rate": 24_000,
+                "joined_wav": audio_path.name,
+            }, ensure_ascii=False), encoding="utf-8")
+
+            authority = bridge._audio_qa_authority(
+                provider="qwen",
+                book_name="demo-book.json",
+                job_id="short-test",
+                profile_id="qwen_vivian",
+            )
+            self.assertEqual(authority.book_slug, "demo-book")
+            self.assertEqual(authority.manifest_path, report_path.resolve())
+            self.assertEqual(authority.audio_path, audio_path.resolve())
+        finally:
+            profile_path.write_bytes(original)
+
+    def test_native_openai_cache_only_requires_explicit_exact_target_when_ambiguous(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
+        execute = swift_function_body(source, "private func executePaidPlan(")
+        select = swift_function_body(source, "func openOpenAIQATarget(")
+        reopen = swift_function_body(source, "private func loadOpenAIQATargets(")
+        self.assertIn("let qaTargets: [OpenAIQATarget]?", contracts)
+        self.assertIn("struct OpenAIQATargetList: Codable", contracts)
+        self.assertIn("targets.count == 1", execute)
+        self.assertIn("targets.count > 1", execute)
+        self.assertIn("openAIQATargets.contains(target)", select)
+        self.assertIn("expectedTarget: target", select)
+        self.assertIn('"--audio-qa-openai-targets"', reopen)
+        self.assertIn("guard !result.remoteRequestSent", reopen)
+        self.assertIn("currentOpenAISelection() == selection", reopen)
+        self.assertIn(
+            "if model.engine == .openai, model.openAIQATargets.count > 1 {",
+            source,
+        )
+        self.assertIn('Button("Обновить список из manifest")', source)
+        self.assertIn("Проверить сегмент", source)
 
     def test_native_add_book_uses_file_importer_and_offline_bridge_only(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")

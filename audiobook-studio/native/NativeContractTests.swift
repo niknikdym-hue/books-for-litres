@@ -194,6 +194,32 @@ struct NativeContractTests {
             from: Data(readyPlanJSON.replacingOccurrences(of: "READY_FOR_CONFIRMATION", with: "CACHE_ONLY").utf8)
         )
         require(cachePlan.decision == "CACHE_ONLY" && cachePlan.canExecute, "cache-only decode")
+        let targetListJSON = """
+        {
+          "schema_version": 1,
+          "qa_targets": [
+            {
+              "segment_id": "s0001",
+              "output_path": "/tmp/s0001.wav",
+              "manifest_path": "/tmp/MANIFEST.json",
+              "synthesis_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            },
+            {
+              "segment_id": "s0002",
+              "output_path": "/tmp/s0002.wav",
+              "manifest_path": "/tmp/MANIFEST.json",
+              "synthesis_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            }
+          ],
+          "remote_request_sent": false
+        }
+        """
+        let targetList = try JSONDecoder().decode(
+            OpenAIQATargetList.self,
+            from: Data(targetListJSON.utf8)
+        )
+        require(targetList.qaTargets.count == 2, "OpenAI QA target list decodes")
+        require(!targetList.remoteRequestSent, "OpenAI QA target list is offline")
         let blockedPlan = try JSONDecoder().decode(
             PaidRunPlan.self,
             from: Data(readyPlanJSON.replacingOccurrences(of: "READY_FOR_CONFIRMATION", with: "BLOCKED").utf8)
@@ -256,6 +282,86 @@ struct NativeContractTests {
             yandexChapterBlockerLabel(["ambiguous_segment_requires_resolution"])
                 == "Результат Yandex-запроса не определён. Автоматический повтор запрещён.",
             "Yandex ambiguous UI has no retry"
+        )
+
+        let audioQAJSON = """
+        {
+          "schema_version": 1,
+          "authority": {
+            "provider": "yandex", "book_slug": "demo-book", "book_title": "Демо",
+            "job_id": "chapter-ch001", "job_label": "Глава 1", "profile_id": "yandex_lera",
+            "segment_id": "chapter-ch001", "segment_text": "Точный текст",
+            "audio_path": "/tmp/chapter.wav", "manifest_path": "/tmp/MANIFEST.json",
+            "synthesis_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "expected_sample_rate_hz": 22050, "text_characters": 12
+          },
+          "record": {
+            "schema_version": 2, "book_slug": "demo-book", "job_id": "chapter-ch001",
+            "segment_id": "chapter-ch001", "audio_path": "/tmp/chapter.wav",
+            "identity": {
+              "audio_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "path_identity": "/tmp/chapter.wav",
+              "synthesis_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            },
+            "production_facts": {
+              "expected_sample_rate_hz": 22050, "text_characters": 12,
+              "minimum_expected_duration_seconds": 0.15
+            },
+            "automatic_status": "PASS", "automatic_reasons": [], "automatic_warnings": [],
+            "wav": {
+              "duration_seconds": 1.0, "sample_rate_hz": 22050, "channels": 1,
+              "sample_width_bytes": 2, "frame_count": 22050, "compression_type": "NONE",
+              "data_bytes": 44100
+            },
+            "signal_metrics": {
+              "available": true, "reason": null, "peak_fraction": 0.5,
+              "clipped_fraction": 0.0, "near_silence_fraction": 0.1,
+              "sample_count": 22050, "stream_chunk_bytes": 65536
+            },
+            "ffmpeg": {"status": "PASS", "available": true, "exit_code": 0},
+            "manual_state": "UNREVIEWED", "downstream_eligible": false,
+            "scanned_at": "2026-08-27T12:00:00+00:00", "manual_decided_at": null,
+            "created_at": "2026-08-27T12:00:00+00:00", "updated_at": "2026-08-27T12:00:00+00:00",
+            "remote_request_sent": false
+          },
+          "eligible": false, "remote_request_sent": false
+        }
+        """
+        let audioQA = try JSONDecoder().decode(AudioQACurrentEnvelope.self, from: Data(audioQAJSON.utf8))
+        require(audioQA.record.schemaVersion == 2, "audio QA schema v2 decodes")
+        require(audioQA.authority.expectedSampleRateHz == 22050, "provider-specific sample rate decodes")
+        require(audioQA.record.signalMetrics.streamChunkBytes == 65536, "streaming metric decodes")
+        require(!audioQA.eligible && !audioQA.remoteRequestSent, "QA gate fails closed offline")
+
+        let selectedBook = try JSONDecoder().decode(
+            Book.self,
+            from: Data("""
+            {"id":"demo-book.json","slug":"demo-book","title":"Демо","author":"Studio","jobs":[]}
+            """.utf8)
+        )
+        require(
+            audioQASelectionMatches(
+                selectedBook: selectedBook,
+                selectedJobID: "chapter-ch001",
+                selectedProfileID: "yandex_lera",
+                authority: audioQA.authority
+            ),
+            "filename ID and canonical slug match for QA decisions"
+        )
+        let changedBook = try JSONDecoder().decode(
+            Book.self,
+            from: Data("""
+            {"id":"other-book.json","slug":"other-book","title":"Другая","author":"Studio","jobs":[]}
+            """.utf8)
+        )
+        require(
+            !audioQASelectionMatches(
+                selectedBook: changedBook,
+                selectedJobID: "chapter-ch001",
+                selectedProfileID: "yandex_lera",
+                authority: audioQA.authority
+            ),
+            "changed book selection fails closed"
         )
 
         print("NATIVE_CONTRACT_TESTS_PASS")
