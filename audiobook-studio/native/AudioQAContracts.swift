@@ -544,6 +544,7 @@ struct LitresExportEnvelope: Codable {
 
 func masteringStateLabel(_ state: String, decision: String) -> String {
     if decision == "ALREADY_MASTERED" { return "Clean master готов" }
+    if decision == "READY_TO_REPAIR" { return "Требуется восстановить текущий master" }
     if decision == "BLOCKED" { return "Мастеринг недоступен" }
     if state == "STALE" { return "Устарело — требуется повторный мастеринг" }
     return "Готово к мастерингу"

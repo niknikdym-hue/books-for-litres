@@ -762,6 +762,22 @@ class MasteringService:
     def status(self, value: Mapping[str, Any]) -> dict[str, Any]:
         prepared = self.prepare(value)
         if prepared["decision"] == "ALREADY_MASTERED":
+            output_dir = self._output_dir(prepared["assembly"], prepared["master_identity"])
+            pointer = output_dir.parent / "CURRENT.json"
+            current_valid = False
+            if pointer.is_file() and not pointer.is_symlink():
+                try:
+                    current = json.loads(pointer.read_text(encoding="utf-8"))
+                    current_valid = (
+                        current.get("schema_version") == MASTER_SCHEMA_VERSION
+                        and current.get("master_identity") == prepared["master_identity"]
+                        and current.get("manifest_path") == str(output_dir / "MANIFEST.json")
+                    )
+                except (OSError, ValueError, TypeError):
+                    current_valid = False
+            if not current_valid:
+                prepared["state"] = "RECOVERY_REQUIRED"
+                prepared["decision"] = "READY_TO_REPAIR"
             return prepared
         pointer = self._output_dir(prepared["assembly"], prepared["master_identity"]).parent / "CURRENT.json"
         if pointer.is_file():

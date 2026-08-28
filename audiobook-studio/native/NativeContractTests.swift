@@ -463,6 +463,7 @@ struct NativeContractTests {
         require(mastering.mastering.master?.verification.loudness.inputI == -19.0, "master loudness decodes")
         require(mastering.mastering.master?.output.wav.channels == 1, "clean master remains mono")
         require(masteringStateLabel(mastering.mastering.state, decision: mastering.mastering.decision) == "Clean master готов", "master state label")
+        require(masteringStateLabel("RECOVERY_REQUIRED", decision: "READY_TO_REPAIR") == "Требуется восстановить текущий master", "master recovery label")
 
         let exportJSON = """
         {

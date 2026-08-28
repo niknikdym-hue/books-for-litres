@@ -278,6 +278,11 @@ class MasteringExportTests(unittest.TestCase):
         manifest = self._create_master()
         pointer = self.root / "masters" / self.book_slug / self.job_id / "CURRENT.json"
         pointer.unlink()
+        with mock.patch.object(self.mastering, "_resolution", return_value=self.resolution):
+            repair = self.mastering.status(self.authority)
+        self.assertEqual(repair["state"], "RECOVERY_REQUIRED")
+        self.assertEqual(repair["decision"], "READY_TO_REPAIR")
+        self.assertIsNotNone(repair["master"])
         recovered = self._create_master()
         self.assertEqual(recovered["master_identity"], manifest["master_identity"])
         self.assertTrue(pointer.is_file())

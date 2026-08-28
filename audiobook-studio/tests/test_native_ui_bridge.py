@@ -139,6 +139,9 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"--litres-export-status"', source)
         self.assertIn('"--create-litres-export"', source)
         self.assertIn('Button("Подготовить мастер")', source)
+        self.assertIn('Button("Восстановить текущий master")', source)
+        self.assertIn('mastering.decision == "READY_TO_REPAIR"', source)
+        self.assertIn('result.mastering.decision == "ALREADY_MASTERED"', source)
         self.assertIn('Button("Создать MP3 для ЛитРес")', source)
         self.assertIn('Label("Мастеринг"', source)
         self.assertIn('Label("Экспорт для ЛитРес"', source)
@@ -146,6 +149,7 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('role: "litres-mp3"', source)
         self.assertEqual(source.count("let audioPlayer = EmbeddedAudioPlayer()"), 1)
         self.assertIn("Устарело — требуется повторный мастеринг", contracts)
+        self.assertIn("Требуется восстановить текущий master", contracts)
         self.assertIn("Устарело — требуется повторный экспорт", contracts)
         self.assertIn("executionSelectionGeneration == expectedSelectionGeneration", source)
 

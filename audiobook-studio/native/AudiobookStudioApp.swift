@@ -1191,7 +1191,8 @@ final class StudioModel: ObservableObject {
             guard executionSelectionGeneration == expectedSelectionGeneration,
                   audioQA?.authority == authority else { return }
             mastering = result.mastering
-            if result.mastering.master != nil {
+            if result.mastering.master != nil,
+               result.mastering.decision == "ALREADY_MASTERED" {
                 await refreshLitresExport(
                     authority: authority,
                     expectedSelectionGeneration: expectedSelectionGeneration
@@ -2100,6 +2101,11 @@ private struct MasteringCard: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isRunning || mastering.decision != "READY_TO_MASTER")
                 } else {
+                    if mastering.decision == "READY_TO_REPAIR" {
+                        Button("Восстановить текущий master") { model.createCurrentMaster() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.isRunning)
+                    }
                     AudioTransportCard(
                         player: model.audioPlayer,
                         role: "clean-master",
