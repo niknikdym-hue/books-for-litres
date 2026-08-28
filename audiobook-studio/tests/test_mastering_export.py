@@ -484,6 +484,12 @@ class MasteringExportTests(unittest.TestCase):
         self.assertIn("Введение", chapter["filename"])
         self.assertEqual(first["book_export"]["progress"], "1/2")
         self.assertFalse(first["book_export"]["ready"])
+        self.assertFalse(
+            (
+                self.root / "exports" / self.book_slug
+                / "litres_author_v1" / "CURRENT.json"
+            ).exists()
+        )
         self.assertEqual(first["export_manifest"]["provider_requests"], 0)
 
     def test_export_manifest_recomputes_identity_and_book_readiness(self):
@@ -570,6 +576,7 @@ class MasteringExportTests(unittest.TestCase):
         book_pointer = profile_root / "CURRENT.json"
         chapter_pointer = profile_root / f"CURRENT-{self.job_id}.json"
         manifest = Path(exported["manifest_path"])
+        book_pointer.write_text("forensic-current", encoding="utf-8")
         before_chapter = chapter_pointer.read_bytes()
         before_manifest = manifest.read_bytes()
 
@@ -632,6 +639,24 @@ class MasteringExportTests(unittest.TestCase):
         self.assertEqual(
             book_pointer.read_text(encoding="utf-8"), "current-authority",
         )
+
+        book_pointer.write_text(json.dumps({
+            "schema_version": 1,
+            "export_identity": "1" * 64,
+            "manifest_path": "/forensic/release/MANIFEST.json",
+        }), encoding="utf-8")
+        recovery_checks = iter((True, False))
+        restored_during_quarantine = self.exporting.quarantine_release_authority(
+            self.book_slug,
+            revalidate_quarantine=lambda: next(recovery_checks),
+        )
+        self.assertEqual(
+            restored_during_quarantine["state"], "AUTHORITY_RECOVERED",
+        )
+        self.assertFalse(
+            restored_during_quarantine["release_authority_revoked"],
+        )
+        self.assertTrue(book_pointer.is_file())
 
     def test_verified_rights_change_repackages_without_reencoding(self):
         master = self._master_authority()
@@ -699,25 +724,43 @@ class MasteringExportTests(unittest.TestCase):
 
     def test_existing_export_repairs_missing_chapter_and_book_pointers(self):
         master = self._master_authority()
-        first = self._export(master)
+        cover = self.root / "assets" / "cover.jpg"
+        cover.parent.mkdir()
+        cover.write_bytes(b"canonical-cover")
+        self.book["jobs"] = {
+            "chapter-ch001": self.book["jobs"]["chapter-ch001"],
+        }
+        self.book["cover"] = {"path": str(cover), "sha256": sha256_file(cover)}
+        facts = {
+            "duration_seconds": master["wav"]["duration_seconds"],
+            "sample_rate_hz": 48_000,
+            "channels": 2,
+            "channel_layout": "stereo",
+            "bitrate_bps": 128_000,
+            "size_bytes": 4096,
+            "decodable": True,
+            "cover_art_embedded": True,
+        }
+        first = self._export(master, facts)
         profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
         chapter_pointer = profile_root / f"CURRENT-{self.job_id}.json"
         book_pointer = profile_root / "CURRENT.json"
         chapter_pointer.unlink()
         book_pointer.unlink()
-        recovered = self._export(master)
+        recovered = self._export(master, facts)
         self.assertEqual(recovered["candidate_identity"], first["candidate_identity"])
         self.assertTrue(chapter_pointer.is_file())
         self.assertTrue(book_pointer.is_file())
 
         book_pointer.unlink()
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
-             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"):
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             mock.patch.object(self.exporting, "_probe_mp3", return_value=facts):
             recovery = self.exporting.status(master, self.book)
         self.assertEqual(recovery["state"], "RECOVERY_REQUIRED")
         self.assertEqual(recovery["decision"], "READY_TO_REPAIR")
         self.assertIsNotNone(recovery["chapter_export"])
-        recovered_again = self._export(master)
+        recovered_again = self._export(master, facts)
         self.assertEqual(recovered_again["candidate_identity"], first["candidate_identity"])
         self.assertTrue(book_pointer.is_file())
 
@@ -727,11 +770,12 @@ class MasteringExportTests(unittest.TestCase):
             "manifest_path": "/stale/package/MANIFEST.json",
         }), encoding="utf-8")
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
-             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"):
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             mock.patch.object(self.exporting, "_probe_mp3", return_value=facts):
             stale_recovery = self.exporting.status(master, self.book)
         self.assertEqual(stale_recovery["state"], "RECOVERY_REQUIRED")
         self.assertEqual(stale_recovery["decision"], "READY_TO_REPAIR")
-        recovered_stale = self._export(master)
+        recovered_stale = self._export(master, facts)
         repaired = json.loads(book_pointer.read_text(encoding="utf-8"))
         self.assertEqual(recovered_stale["candidate_identity"], first["candidate_identity"])
         self.assertEqual(repaired["export_identity"], first["export_manifest"]["export_identity"])
@@ -743,6 +787,7 @@ class MasteringExportTests(unittest.TestCase):
         profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
         chapter_pointer = profile_root / f"CURRENT-{self.job_id}.json"
         book_pointer = profile_root / "CURRENT.json"
+        book_pointer.write_text("forensic-book-pointer", encoding="utf-8")
         before_chapter = chapter_pointer.read_bytes()
         before_book = book_pointer.read_bytes()
         changed = copy.deepcopy(self.book)
@@ -773,6 +818,7 @@ class MasteringExportTests(unittest.TestCase):
         first = self._export(master)
         profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
         book_pointer = profile_root / "CURRENT.json"
+        book_pointer.write_text("forensic-book-pointer", encoding="utf-8")
         book_pointer.unlink()
         with mock.patch.object(
             self.exporting,

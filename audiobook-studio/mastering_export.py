@@ -1165,7 +1165,8 @@ class LitresExportService:
                 self.workspace_root, provider="export", book_slug=book_slug,
                 job_id="book", profile_id=LITRES_PROFILE_ID, exclusive=True,
             ):
-                if revalidate_quarantine() is not True:
+                quarantine_required = revalidate_quarantine() is True
+                if not quarantine_required and revalidate_quarantine() is not True:
                     return {
                         "schema_version": EXPORT_SCHEMA_VERSION,
                         "book_slug": book_slug,
@@ -1176,7 +1177,29 @@ class LitresExportService:
                         "remote_request_sent": False,
                         "billing_changed": False,
                     }
+                pointer = self._profile_root(book_slug) / "CURRENT.json"
+                pointer_backup: Mapping[str, Any] | None = None
+                if pointer.is_file() and not pointer.is_symlink():
+                    try:
+                        loaded_pointer = json.loads(pointer.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        loaded_pointer = None
+                    if isinstance(loaded_pointer, Mapping):
+                        pointer_backup = dict(loaded_pointer)
                 invalidated = self._remove_book_release_pointer(book_slug)
+                if revalidate_quarantine() is not True:
+                    if invalidated and pointer_backup is not None and not pointer.exists():
+                        atomic_write_json(pointer, pointer_backup)
+                    return {
+                        "schema_version": EXPORT_SCHEMA_VERSION,
+                        "book_slug": book_slug,
+                        "release_authority_revoked": False,
+                        "book_pointer_invalidated": False,
+                        "state": "AUTHORITY_RECOVERED",
+                        "provider_requests": 0,
+                        "remote_request_sent": False,
+                        "billing_changed": False,
+                    }
                 return {
                     "schema_version": EXPORT_SCHEMA_VERSION,
                     "book_slug": book_slug,
@@ -1262,12 +1285,21 @@ class LitresExportService:
                 "mp3_path": record["path"],
                 "updated_at": utc_now_iso(),
             })
-        atomic_write_json(profile_root / "CURRENT.json", {
-            "schema_version": EXPORT_SCHEMA_VERSION,
-            "export_identity": identity,
-            "manifest_path": str(manifest_path),
-            "updated_at": utc_now_iso(),
-        })
+        book_pointer = profile_root / "CURRENT.json"
+        if validated["whole_book"]["ready"] is True:
+            atomic_write_json(book_pointer, {
+                "schema_version": EXPORT_SCHEMA_VERSION,
+                "export_identity": identity,
+                "manifest_path": str(manifest_path),
+                "updated_at": utc_now_iso(),
+            })
+        elif book_pointer.exists() or book_pointer.is_symlink():
+            if book_pointer.is_symlink() or not book_pointer.is_file():
+                raise MasteringExportError(
+                    "invalid_export_pointer",
+                    "Export CURRENT должен быть обычным файлом.",
+                )
+            book_pointer.unlink()
 
     def _repair_current_pointers(
         self,
@@ -1361,6 +1393,8 @@ class LitresExportService:
                 return
             if current.get("manifest_path") != str(manifest_path):
                 return
+        if validated["whole_book"]["ready"] is not True:
+            return
         if book_pointer.is_file():
             try:
                 current_book = json.loads(book_pointer.read_text(encoding="utf-8"))
@@ -2055,7 +2089,10 @@ class LitresExportService:
                 and current_book.get("export_identity") == manifest.get("export_identity")
                 and current_book.get("manifest_path") == str(manifest_path)
             )
-        if not book_pointer_current:
+        if (
+            not book_pointer_current
+            and manifest["whole_book"]["ready"] is True
+        ):
             prepared["state"] = "RECOVERY_REQUIRED"
             prepared["decision"] = "READY_TO_REPAIR"
         prepared["manifest_path"] = str(manifest_path)
