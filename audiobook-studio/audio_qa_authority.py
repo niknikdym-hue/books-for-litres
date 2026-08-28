@@ -254,6 +254,7 @@ def resolve_yandex_authority(
     manifest_candidates: list[Path],
     allowed_output_roots: list[tuple[Path, Path]],
     audio_path: Path | None = None,
+    fail_on_invalid_manifest_path: bool = True,
 ) -> AudioQAAuthority:
     from backends.yandex_speechkit import make_fingerprint
 
@@ -265,9 +266,14 @@ def resolve_yandex_authority(
     lexical_manifest_path = None
     for candidate in manifest_candidates:
         lexical_candidate = Path(candidate).expanduser().absolute()
-        canonical_candidate, _ = _require_under_allowed_roots(
-            lexical_candidate, allowed_output_roots, "Yandex production manifest"
-        )
+        try:
+            canonical_candidate, _ = _require_under_allowed_roots(
+                lexical_candidate, allowed_output_roots, "Yandex production manifest"
+            )
+        except AudioQAAuthorityError:
+            if fail_on_invalid_manifest_path:
+                raise
+            continue
         if canonical_candidate.is_file():
             manifest_path = canonical_candidate
             lexical_manifest_path = lexical_candidate

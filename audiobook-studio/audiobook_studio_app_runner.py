@@ -219,16 +219,16 @@ def _audio_qa_authority(
             # symlink/path-component guard applied by resolve_yandex_authority.
             candidates = [selected_manifest]
         else:
-            # Older production runs live in the real runtime renders-yandex
-            # directory while the configured workspace output may be a Finder-
-            # friendly symlink to it.  Discover the real supported roots first;
-            # a symlinked configured root is still rejected if it is the only
-            # available authority.
+            # Prefer a current real configured output. Older production runs
+            # live in the runtime renders-yandex directory while the configured
+            # workspace output may instead be a Finder-friendly symlink to it.
+            # Automatic discovery may skip such an invalid alias and continue
+            # to the real historical root; an explicit authority never does.
             candidates = [
-                WORKSPACE_PATHS.runtime_root / "renders-yandex" / relative,
-                STUDIO_DIR / "renders-yandex" / relative,
                 backend.config.output_root / relative,
                 WORKSPACE_PATHS.yandex_output_root / relative,
+                WORKSPACE_PATHS.runtime_root / "renders-yandex" / relative,
+                STUDIO_DIR / "renders-yandex" / relative,
             ]
         allowed_output_roots = [
             (backend.config.output_root, WORKSPACE_PATHS.root),
@@ -245,6 +245,7 @@ def _audio_qa_authority(
             manifest_candidates=candidates,
             allowed_output_roots=allowed_output_roots,
             audio_path=selected_audio,
+            fail_on_invalid_manifest_path=selected_manifest is not None,
         )
     if provider == "openai":
         from backends.openai_tts import OpenAITTSBackend, load_backend_config

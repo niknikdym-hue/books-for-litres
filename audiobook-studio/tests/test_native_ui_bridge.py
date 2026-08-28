@@ -435,6 +435,42 @@ class NativeUIBridgeTests(unittest.TestCase):
             self.assertEqual(result["authority"]["profile_id"], "yandex_lera")
             self.assertFalse(result["remote_request_sent"])
 
+            # If a newer real configured output exists as well, it must take
+            # precedence over the supported historical fallback.
+            (configured_parent / "yandex").unlink()
+            current_dir = configured_parent / "yandex/demo-book/short-test/yandex_lera"
+            current_dir.mkdir(parents=True)
+            current_audio = current_dir / audio_path.name
+            shutil.copy2(audio_path, current_audio)
+            current_manifest = current_dir / "MANIFEST.json"
+            shutil.copy2(manifest_path, current_manifest)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            current_result = json.loads(completed.stdout)
+            self.assertEqual(
+                current_result["authority"]["manifest_path"],
+                str(current_manifest.resolve()),
+            )
+            self.assertEqual(
+                current_result["authority"]["audio_path"],
+                str(current_audio.resolve()),
+            )
+            self.assertFalse(current_result["remote_request_sent"])
+
     def test_native_openai_cache_only_requires_explicit_exact_target_when_ambiguous(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
