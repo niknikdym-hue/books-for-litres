@@ -209,6 +209,10 @@ class UniversalBridgeTests(unittest.TestCase):
         profiles = [Path("good.json"), Path("broken.json"), Path("also-good.json")]
         library = mock.Mock()
         library.list_book_profiles.return_value = profiles
+        service = mock.Mock()
+        service.quarantine_release_authority.return_value = {
+            "release_authority_revoked": True,
+        }
 
         def reconcile(*, book_name):
             if book_name == "broken.json":
@@ -221,6 +225,7 @@ class UniversalBridgeTests(unittest.TestCase):
             }
 
         with mock.patch.object(bridge, "BOOK_LIBRARY", library), \
+             mock.patch.object(bridge, "_litres_export_service", return_value=service), \
              mock.patch.object(
                  bridge, "reconcile_litres_release_authority", side_effect=reconcile
              ):
@@ -322,9 +327,12 @@ class UniversalBridgeTests(unittest.TestCase):
         library.load_book_profile.return_value = recovered
         service = mock.Mock()
 
-        def quarantine(book_slug, *, revalidate_quarantine):
+        def quarantine(
+            book_slug, *, revalidate_quarantine, revalidate_recovered_book,
+        ):
             self.assertEqual(book_slug, "demo-book")
             revoked = revalidate_quarantine()
+            self.assertEqual(revalidate_recovered_book()["slug"], "demo-book")
             return {"release_authority_revoked": revoked}
 
         service.quarantine_release_authority.side_effect = quarantine
@@ -338,8 +346,12 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertEqual(result["failed_book_ids"], ["Demo-Book.JSON"])
         self.assertEqual(result["quarantined_book_ids"], [])
         self.assertEqual(result["quarantine_failed_book_ids"], [])
-        library.load_book_profile.assert_called_once_with(
-            "demo-book.json", allow_disabled=True,
+        self.assertEqual(
+            library.load_book_profile.call_args_list,
+            [
+                mock.call("demo-book.json", allow_disabled=True),
+                mock.call("demo-book.json", allow_disabled=True),
+            ],
         )
 
     def test_quarantine_retries_canonical_profile_after_fallback_rename_race(self):

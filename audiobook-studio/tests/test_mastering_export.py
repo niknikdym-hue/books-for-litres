@@ -492,6 +492,22 @@ class MasteringExportTests(unittest.TestCase):
         )
         self.assertEqual(first["export_manifest"]["provider_requests"], 0)
 
+    def test_incomplete_publication_revokes_release_pointer_before_chapter_failure(self):
+        first = self._export()
+        manifest_path = Path(first["manifest_path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        profile_root = manifest_path.parent.parent
+        book_pointer = profile_root / "CURRENT.json"
+        chapter_pointer = profile_root / f"CURRENT-{self.job_id}.json"
+        book_pointer.write_text("stale-release-ready", encoding="utf-8")
+        chapter_pointer.unlink()
+        chapter_pointer.mkdir()
+        with self.assertRaises(OSError):
+            self.exporting._publish_current_pointers(
+                profile_root, manifest_path.parent, manifest,
+            )
+        self.assertFalse(book_pointer.exists())
+
     def test_export_manifest_recomputes_identity_and_book_readiness(self):
         exported = self._export()
         manifest_path = Path(exported["manifest_path"])
@@ -780,6 +796,23 @@ class MasteringExportTests(unittest.TestCase):
         self.assertEqual(recovered_stale["candidate_identity"], first["candidate_identity"])
         self.assertEqual(repaired["export_identity"], first["export_manifest"]["export_identity"])
         self.assertEqual(repaired["manifest_path"], first["manifest_path"])
+
+        stale_pointer = book_pointer.read_bytes()
+        changed_book = copy.deepcopy(self.book)
+        changed_book["title"] = "Изменённая книга"
+        quarantine_checks = iter((True, False))
+        recovered_changed = self.exporting.quarantine_release_authority(
+            self.book_slug,
+            revalidate_quarantine=lambda: next(quarantine_checks),
+            revalidate_recovered_book=lambda: changed_book,
+        )
+        self.assertEqual(
+            recovered_changed["state"],
+            "AUTHORITY_RECOVERED_STALE_POINTER_REMOVED",
+        )
+        self.assertTrue(recovered_changed["book_pointer_invalidated"])
+        self.assertFalse(book_pointer.exists())
+        self.assertTrue(stale_pointer)
 
     def test_export_recovery_revalidates_and_never_rewinds_other_chapter_pointers(self):
         master = self._master_authority()

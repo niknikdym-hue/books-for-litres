@@ -250,6 +250,13 @@ def _profile_requires_release_quarantine(
     profile_name: str, book_slug: str,
 ) -> bool:
     """Revalidate whether a profile must not retain book release authority."""
+    return _profile_release_authority(profile_name, book_slug) is None
+
+
+def _profile_release_authority(
+    profile_name: str, book_slug: str,
+) -> dict[str, Any] | None:
+    """Return the current canonical profile only when it authorizes release."""
     canonical_name = f"{normalize_slug(book_slug)}.json"
     try:
         book = BOOK_LIBRARY.load_book_profile(
@@ -260,7 +267,7 @@ def _profile_requires_release_quarantine(
         # enumerated-name check.  This keeps case-variant malformed profiles
         # quarantinable on case-sensitive filesystems.
         if profile_name == canonical_name:
-            return True
+            return None
         try:
             book = BOOK_LIBRARY.load_book_profile(
                 profile_name, allow_disabled=True,
@@ -274,15 +281,18 @@ def _profile_requires_release_quarantine(
                     canonical_name, allow_disabled=True,
                 )
             except BookLibraryError:
-                return True
+                return None
     if book.get("enabled", True) is False:
-        return True
+        return None
     rights = book.get("rights_provenance")
-    return bool(
+    if bool(
         isinstance(rights, Mapping)
         and rights.get("third_party_assets")
         and rights.get("verified") is not True
-    )
+    ):
+        return None
+    book["slug"] = normalize_slug(book_slug)
+    return book
 
 
 def reconcile_all_litres_release_authorities() -> dict[str, Any]:
@@ -304,6 +314,9 @@ def reconcile_all_litres_release_authorities() -> dict[str, Any]:
                     book_slug,
                     revalidate_quarantine=lambda name=profile_path.name, slug=book_slug: (
                         _profile_requires_release_quarantine(name, slug)
+                    ),
+                    revalidate_recovered_book=lambda name=profile_path.name, slug=book_slug: (
+                        _profile_release_authority(name, slug)
                     ),
                 )
                 if quarantine["release_authority_revoked"]:

@@ -1154,6 +1154,7 @@ class LitresExportService:
         book_slug_value: str,
         *,
         revalidate_quarantine: Callable[[], bool],
+        revalidate_recovered_book: Callable[[], Mapping[str, Any] | None] | None = None,
     ) -> dict[str, Any]:
         """Revoke release authority when the canonical profile is unusable."""
         book_slug = _safe_slug(book_slug_value)
@@ -1167,16 +1168,29 @@ class LitresExportService:
             ):
                 quarantine_required = revalidate_quarantine() is True
                 if not quarantine_required and revalidate_quarantine() is not True:
-                    return {
-                        "schema_version": EXPORT_SCHEMA_VERSION,
-                        "book_slug": book_slug,
-                        "release_authority_revoked": False,
-                        "book_pointer_invalidated": False,
-                        "state": "AUTHORITY_RECOVERED",
-                        "provider_requests": 0,
-                        "remote_request_sent": False,
-                        "billing_changed": False,
-                    }
+                    recovered_book = (
+                        revalidate_recovered_book()
+                        if revalidate_recovered_book is not None else None
+                    )
+                    if (
+                        revalidate_recovered_book is None
+                        or (
+                            recovered_book is not None
+                            and self._release_pointer_matches_book_authority(
+                                book_slug, recovered_book,
+                            )
+                        )
+                    ):
+                        return {
+                            "schema_version": EXPORT_SCHEMA_VERSION,
+                            "book_slug": book_slug,
+                            "release_authority_revoked": False,
+                            "book_pointer_invalidated": False,
+                            "state": "AUTHORITY_RECOVERED",
+                            "provider_requests": 0,
+                            "remote_request_sent": False,
+                            "billing_changed": False,
+                        }
                 pointer = self._profile_root(book_slug) / "CURRENT.json"
                 pointer_backup: Mapping[str, Any] | None = None
                 if pointer.is_file() and not pointer.is_symlink():
@@ -1188,14 +1202,33 @@ class LitresExportService:
                         pointer_backup = dict(loaded_pointer)
                 invalidated = self._remove_book_release_pointer(book_slug)
                 if revalidate_quarantine() is not True:
-                    if invalidated and pointer_backup is not None and not pointer.exists():
+                    recovered_book = (
+                        revalidate_recovered_book()
+                        if revalidate_recovered_book is not None else None
+                    )
+                    restore_allowed = bool(
+                        pointer_backup is not None
+                        and (
+                            revalidate_recovered_book is None
+                            or (
+                                recovered_book is not None
+                                and self._release_pointer_payload_matches_book_authority(
+                                    pointer_backup, recovered_book,
+                                )
+                            )
+                        )
+                    )
+                    if invalidated and restore_allowed and not pointer.exists():
                         atomic_write_json(pointer, pointer_backup)
                     return {
                         "schema_version": EXPORT_SCHEMA_VERSION,
                         "book_slug": book_slug,
                         "release_authority_revoked": False,
-                        "book_pointer_invalidated": False,
-                        "state": "AUTHORITY_RECOVERED",
+                        "book_pointer_invalidated": invalidated and not restore_allowed,
+                        "state": (
+                            "AUTHORITY_RECOVERED" if restore_allowed or not invalidated
+                            else "AUTHORITY_RECOVERED_STALE_POINTER_REMOVED"
+                        ),
                         "provider_requests": 0,
                         "remote_request_sent": False,
                         "billing_changed": False,
@@ -1210,6 +1243,54 @@ class LitresExportService:
                     "remote_request_sent": False,
                     "billing_changed": False,
                 }
+
+    def _release_pointer_matches_book_authority(
+        self, book_slug: str, book_value: Mapping[str, Any],
+    ) -> bool:
+        pointer = self._profile_root(book_slug) / "CURRENT.json"
+        if not pointer.is_file() or pointer.is_symlink():
+            return False
+        try:
+            payload = json.loads(pointer.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return bool(
+            isinstance(payload, Mapping)
+            and self._release_pointer_payload_matches_book_authority(
+                payload, book_value,
+            )
+        )
+
+    def _release_pointer_payload_matches_book_authority(
+        self, pointer: Mapping[str, Any], book_value: Mapping[str, Any],
+    ) -> bool:
+        try:
+            identity = _safe_id(pointer.get("export_identity"), "export_identity")
+            manifest_path = _require_regular_path(
+                Path(pointer["manifest_path"]),
+                root=self.workspace_root,
+                label="Export manifest",
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            book = manifest.get("book")
+            chapters = manifest.get("chapters")
+            if (
+                not isinstance(book, Mapping)
+                or not isinstance(chapters, list)
+                or not all(isinstance(item, Mapping) for item in chapters)
+            ):
+                return False
+            derived_state = build_book_export_state(book, chapters)
+            return bool(
+                identity == manifest.get("export_identity")
+                and identity == manifest_path.parent.name
+                and identity == _export_identity(book, chapters)
+                and _canonical_json(manifest.get("whole_book")) == _canonical_json(derived_state)
+                and derived_state["ready"] is True
+                and _canonical_json(book) == _canonical_json(self._validated_book(book_value))
+            )
+        except (OSError, ValueError, KeyError, TypeError, MasteringExportError):
+            return False
 
     def reconcile_release_authority(
         self,
@@ -1277,6 +1358,15 @@ class LitresExportService:
         if validated is None:
             raise MasteringExportError("invalid_export_winner", "Export package не прошёл проверку перед публикацией CURRENT.")
         manifest_path = output_dir / "MANIFEST.json"
+        book_pointer = profile_root / "CURRENT.json"
+        if validated["whole_book"]["ready"] is not True:
+            if book_pointer.exists() or book_pointer.is_symlink():
+                if book_pointer.is_symlink() or not book_pointer.is_file():
+                    raise MasteringExportError(
+                        "invalid_export_pointer",
+                        "Export CURRENT должен быть обычным файлом.",
+                    )
+                book_pointer.unlink()
         for record in validated["chapters"]:
             atomic_write_json(profile_root / f"CURRENT-{record['job_id']}.json", {
                 "schema_version": EXPORT_SCHEMA_VERSION,
@@ -1285,7 +1375,6 @@ class LitresExportService:
                 "mp3_path": record["path"],
                 "updated_at": utc_now_iso(),
             })
-        book_pointer = profile_root / "CURRENT.json"
         if validated["whole_book"]["ready"] is True:
             atomic_write_json(book_pointer, {
                 "schema_version": EXPORT_SCHEMA_VERSION,
@@ -1293,13 +1382,6 @@ class LitresExportService:
                 "manifest_path": str(manifest_path),
                 "updated_at": utc_now_iso(),
             })
-        elif book_pointer.exists() or book_pointer.is_symlink():
-            if book_pointer.is_symlink() or not book_pointer.is_file():
-                raise MasteringExportError(
-                    "invalid_export_pointer",
-                    "Export CURRENT должен быть обычным файлом.",
-                )
-            book_pointer.unlink()
 
     def _repair_current_pointers(
         self,
