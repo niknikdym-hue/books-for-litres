@@ -1185,12 +1185,19 @@ class LitresExportService:
         # release authority changes (for example, rights provenance).  Keep the
         # chapter pointer usable, but never restore a whole-book pointer to a
         # package whose immutable authority is no longer canonical.
-        if _canonical_json(validated.get("book")) != _canonical_json(current_book):
-            return
-
         book_pointer = profile_root / "CURRENT.json"
         if book_pointer.is_symlink():
             raise MasteringExportError("symlink_pointer", "Export CURRENT является ссылкой.")
+        if _canonical_json(validated.get("book")) != _canonical_json(current_book):
+            if book_pointer.is_file():
+                try:
+                    stale = json.loads(book_pointer.read_text(encoding="utf-8"))
+                except (OSError, ValueError, TypeError):
+                    stale = None
+                if isinstance(stale, Mapping) and stale.get("manifest_path") == str(manifest_path):
+                    book_pointer.unlink()
+            return
+
         for chapter in validated["chapters"]:
             pointer = profile_root / f"CURRENT-{chapter['job_id']}.json"
             if pointer.is_symlink():

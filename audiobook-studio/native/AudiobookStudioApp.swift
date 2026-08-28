@@ -2183,6 +2183,10 @@ private struct LitresExportCard: View {
                 if let blocker = export.blockerMessage {
                     Label(blocker, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
+                } else if export.decision == "READY_TO_REPACKAGE" {
+                    Button("Обновить пакет для ЛитРес") { model.createCurrentLitresExport() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isRunning)
                 } else if export.chapterExport == nil {
                     Button("Создать MP3 для ЛитРес") { model.createCurrentLitresExport() }
                         .buttonStyle(.borderedProminent)

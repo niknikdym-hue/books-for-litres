@@ -143,6 +143,8 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('mastering.decision == "READY_TO_REPAIR"', source)
         self.assertIn('result.mastering.decision == "ALREADY_MASTERED"', source)
         self.assertIn('Button("Создать MP3 для ЛитРес")', source)
+        self.assertIn('Button("Обновить пакет для ЛитРес")', source)
+        self.assertIn('export.decision == "READY_TO_REPACKAGE"', source)
         self.assertIn('Label("Мастеринг"', source)
         self.assertIn('Label("Экспорт для ЛитРес"', source)
         self.assertIn('role: "clean-master"', source)

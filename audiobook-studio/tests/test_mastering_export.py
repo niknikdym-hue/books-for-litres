@@ -535,8 +535,8 @@ class MasteringExportTests(unittest.TestCase):
             self.assertEqual(current["decision"], "ALREADY_EXPORTED")
             self.assertFalse(current["book_export"]["ready"])
             self.assertIn("unproven_third_party_assets", current["book_export"]["blockers"])
+            self.assertTrue(book_pointer.is_file())
 
-            book_pointer.unlink()
             recovered = self.exporting.export(master, blocked_book)
         self.assertFalse(recovered["book_export"]["ready"])
         self.assertIn("unproven_third_party_assets", recovered["book_export"]["blockers"])
