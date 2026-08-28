@@ -276,6 +276,20 @@ class ChapterAssemblyTests(unittest.TestCase):
         with self.assertRaisesRegex(ChapterAssemblyError, "символическую ссылку"):
             ChapterAssemblyService(self.root, output_alias / "chapters")
 
+    def test_source_change_during_ffmpeg_never_publishes_ready(self):
+        original_run = __import__("subprocess").run
+
+        def mutate_after_conversion(*args, **kwargs):
+            completed = original_run(*args, **kwargs)
+            self.source.touch()
+            return completed
+
+        with mock.patch.object(self.service, "_resolution", return_value=self._available()), mock.patch(
+            "chapter_assembly.subprocess.run", side_effect=mutate_after_conversion
+        ), self.assertRaisesRegex(ChapterAssemblyError, "измени.*во время сборки"):
+            self.service.assemble(self._input())
+        self.assertFalse(any((self.root / "chapters").rglob("MANIFEST.json")))
+
 
 if __name__ == "__main__":
     unittest.main()

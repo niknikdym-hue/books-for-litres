@@ -244,9 +244,15 @@ class ChapterAssemblyService:
                 for field in ("audio_sha256", "path_identity", "synthesis_fingerprint")
             ):
                 raise ChapterAssemblyError("ordered_identity_mismatch", "Ordered input identity не совпадает.")
+        manifest_sha = sha256_file(manifest)
+        expected_manifest_sha = source.get("manifest_sha256")
+        if expected_manifest_sha is not None and expected_manifest_sha != manifest_sha:
+            raise ChapterAssemblyError(
+                "manifest_sha_mismatch", "Production manifest изменился после подготовки сборки."
+            )
         payload["source"]["audio_path"] = str(audio)
         payload["source"]["manifest_path"] = str(manifest)
-        payload["source"]["manifest_sha256"] = sha256_file(manifest)
+        payload["source"]["manifest_sha256"] = manifest_sha
         payload["wav"] = {
             "sample_rate_hz": metadata.sample_rate_hz,
             "channels": metadata.channels,
@@ -321,14 +327,14 @@ class ChapterAssemblyService:
                 prepared["assembly_identity"],
             ) or prepared
 
-        payload = prepared["input"]
-        source = Path(payload["source"]["audio_path"])
+        payload, source, _ = self._validate_input(prepared["input"])
         assembly_identity = prepared["assembly_identity"]
         output_dir = self._output_dir(payload, assembly_identity)
         parent = output_dir.parent
         self._prepare_output_parent(parent)
         temporary = Path(tempfile.mkdtemp(prefix=".assembly-", dir=parent))
         try:
+            source_before = self._file_snapshot(source)
             temporary_wav = temporary / "chapter.wav"
             conversion_required = int(payload["wav"]["sample_rate_hz"]) != TARGET_SAMPLE_RATE_HZ
             ffmpeg = self._resolution()
@@ -350,6 +356,15 @@ class ChapterAssemblyService:
                     raise ChapterAssemblyError("ffmpeg_failed", "FFmpeg не смог подготовить WAV главы.")
             else:
                 shutil.copyfile(source, temporary_wav)
+
+            if (
+                self._file_snapshot(source) != source_before
+                or sha256_file(source) != payload["source"]["audio_sha256"]
+            ):
+                raise ChapterAssemblyError(
+                    "source_changed_during_assembly",
+                    "Исходный WAV изменился во время сборки главы.",
+                )
 
             metadata = inspect_pcm_wav(temporary_wav)
             if (
@@ -459,6 +474,17 @@ class ChapterAssemblyService:
             "channels": TARGET_CHANNELS,
             "sample_width_bytes": TARGET_SAMPLE_WIDTH_BYTES,
         }
+
+    @staticmethod
+    def _file_snapshot(path: Path) -> tuple[int, int, int, int, int]:
+        metadata = path.stat()
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
 
     def _read_ready(self, output_dir: Path, assembly_identity: str) -> dict[str, Any] | None:
         manifest_path = output_dir / "MANIFEST.json"

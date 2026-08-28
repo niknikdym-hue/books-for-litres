@@ -671,6 +671,8 @@ final class StudioModel: ObservableObject {
             errorMessage = "Выберите готовую задачу и профиль для проверки аудио."
             return
         }
+        audioPlayer.clear()
+        audioQAPlaybackIdentity = nil
         let expectedSelectionGeneration = executionSelectionGeneration
         let expectedEngine = engine
         let expectedBookID = selectedBookID
@@ -878,6 +880,8 @@ final class StudioModel: ObservableObject {
             errorMessage = "Выбор изменился. Получите текущий список готовых сегментов заново."
             return
         }
+        audioPlayer.clear()
+        audioQAPlaybackIdentity = nil
         let expectedSelectionGeneration = executionSelectionGeneration
         Task {
             isRunning = true
@@ -1664,8 +1668,8 @@ private struct AudioQAReviewSection: View {
                     }
                     Label(
                         model.downstreamApprovedOutput == nil
-                            ? "Downstream заблокирован до точного одобрения"
-                            : "Точный WAV допущен в downstream",
+                            ? "Следующий этап недоступен до точного одобрения"
+                            : "Готово к следующему этапу",
                         systemImage: model.downstreamApprovedOutput == nil ? "lock.fill" : "checkmark.shield.fill"
                     )
                     .foregroundStyle(model.downstreamApprovedOutput == nil ? Color.secondary : Color.green)
@@ -1767,8 +1771,12 @@ private struct ChapterAssemblyCard: View {
     let qa: AudioQACurrentEnvelope
 
     var body: some View {
-        if qa.eligible, let assembly = model.chapterAssembly {
-            VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+            if !qa.eligible {
+                Label("Сборка главы недоступна — требуется одобрение", systemImage: "lock.fill")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            } else if let assembly = model.chapterAssembly {
                 HStack {
                     Label(
                         "Мастер-файл главы",
@@ -1786,7 +1794,7 @@ private struct ChapterAssemblyCard: View {
                     Label(blockerMessage, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                 } else if assembly.assembly == nil {
-                    Button("Собрать мастер-файл главы") { model.assembleCurrentChapter() }
+                    Button("Собрать главу") { model.assembleCurrentChapter() }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isRunning || assembly.decision != "READY_TO_ASSEMBLE")
                 } else {
@@ -1812,9 +1820,13 @@ private struct ChapterAssemblyCard: View {
                         Text("Blockers: \(assembly.blockers.joined(separator: ", "))")
                     }
                 }
+            } else {
+                Label("Проверяется готовность сборки главы", systemImage: "clock")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 6)
         }
+        .padding(.vertical, 6)
     }
 }
 

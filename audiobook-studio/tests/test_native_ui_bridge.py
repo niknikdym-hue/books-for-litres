@@ -272,6 +272,8 @@ class NativeUIBridgeTests(unittest.TestCase):
                 "let expectedSelectionGeneration = executionSelectionGeneration",
                 operation,
             )
+        self.assertIn("audioPlayer.clear()", open_current)
+        self.assertIn("audioPlayer.clear()", open_target)
         self.assertGreaterEqual(
             load_targets.count(
                 "executionSelectionGeneration == expectedSelectionGeneration"
