@@ -863,10 +863,56 @@ class MasteringExportTests(unittest.TestCase):
         package_cover.write_bytes(b"changed")
         with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
              mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
-             mock.patch.object(self.exporting, "_probe_mp3", return_value={"cover_art_embedded": True}), \
-             self.assertRaises(MasteringExportError) as changed:
-            self.exporting.status(master, self.book)
-        self.assertEqual(changed.exception.code, "export_identity_mismatch")
+             mock.patch.object(self.exporting, "_probe_mp3", return_value={"cover_art_embedded": True}):
+            changed = self.exporting.status(master, self.book)
+        self.assertEqual(changed["decision"], "READY_TO_EXPORT")
+        self.assertIsNone(changed["chapter_export"])
+
+        recovered = self._export(master, {**facts, "cover_art_embedded": True})
+        recovered_cover = Path(recovered["export_manifest"]["cover"]["package_path"])
+        self.assertEqual(sha256_file(recovered_cover), sha256_file(cover))
+        quarantined = list(recovered_cover.parent.parent.glob(f".invalid-{recovered['export_manifest']['export_identity']}-*"))
+        self.assertEqual(len(quarantined), 1)
+        self.assertTrue((quarantined[0] / package_cover.name).is_file())
+
+    def test_cover_copy_race_is_blocked_before_package_publication(self):
+        master = self._master_authority()
+        cover = self.root / "assets" / "cover.jpg"
+        cover.parent.mkdir()
+        cover.write_bytes(b"canonical-cover")
+        self.book["cover"] = {"path": str(cover), "sha256": sha256_file(cover)}
+        facts = {
+            "duration_seconds": master["wav"]["duration_seconds"],
+            "sample_rate_hz": 48_000,
+            "channels": 2,
+            "channel_layout": "stereo",
+            "bitrate_bps": 128_000,
+            "size_bytes": 4096,
+            "decodable": True,
+            "cover_art_embedded": True,
+        }
+        real_copy = shutil.copyfile
+
+        def copy_then_corrupt(source, destination, **kwargs):
+            result = real_copy(source, destination, **kwargs)
+            if Path(source) == cover:
+                Path(destination).write_bytes(b"raced-cover")
+            return result
+
+        def encode(arguments, **_kwargs):
+            Path(arguments[-1]).write_bytes(b"ID3" + b"x" * 4093)
+            return subprocess.CompletedProcess(arguments, 0, b"", b"")
+
+        profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
+        with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             mock.patch.object(self.exporting, "_inspect_mp3", return_value=facts), \
+             mock.patch("mastering_export.subprocess.run", side_effect=encode), \
+             mock.patch("mastering_export.shutil.copyfile", side_effect=copy_then_corrupt), \
+             self.assertRaises(MasteringExportError) as raised:
+            self.exporting.export(master, self.book)
+        self.assertEqual(raised.exception.code, "cover_changed_during_export")
+        self.assertFalse((profile_root / "CURRENT.json").exists())
 
     def test_missing_encoder_blocks_without_installing(self):
         master = self._master_authority()

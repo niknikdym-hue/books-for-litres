@@ -19,6 +19,7 @@ import struct
 import subprocess
 import tempfile
 import unicodedata
+import uuid
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -1215,6 +1216,7 @@ class LitresExportService:
 
     def _load_current_candidates(self, book: Mapping[str, Any]) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
+        packages: dict[Path, dict[str, Any] | None] = {}
         root = self._profile_root(book["slug"])
         for chapter in book["chapters"]:
             pointer = root / f"CURRENT-{chapter['job_id']}.json"
@@ -1225,7 +1227,15 @@ class LitresExportService:
                 manifest_path = _require_regular_path(
                     Path(data["manifest_path"]), root=self.workspace_root, label="Export manifest"
                 )
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if manifest_path not in packages:
+                    raw_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    packages[manifest_path] = self._read_export(
+                        manifest_path.parent,
+                        raw_manifest.get("export_identity"),
+                    )
+                manifest = packages[manifest_path]
+                if manifest is None:
+                    continue
                 candidate = next(
                     item for item in manifest.get("chapters", [])
                     if item.get("job_id") == chapter["job_id"] and item.get("candidate_identity") == data.get("candidate_identity")
@@ -1233,17 +1243,6 @@ class LitresExportService:
                 mp3 = _require_regular_path(Path(candidate["path"]), root=self.workspace_root, label="Export MP3")
                 if candidate.get("sha256") != sha256_file(mp3) or candidate.get("path_identity") != path_identity(mp3):
                     continue
-                if book.get("cover") is not None:
-                    facts = candidate.get("facts")
-                    ffmpeg = self._resolution()
-                    if (
-                        not isinstance(facts, Mapping)
-                        or facts.get("cover_art_embedded") is not True
-                        or not ffmpeg.available
-                        or ffmpeg.path is None
-                        or self._probe_mp3(ffmpeg.path, mp3).get("cover_art_embedded") is not True
-                    ):
-                        continue
                 current_master = resolve_current_master(
                     workspace_root=self.workspace_root,
                     masters_root=self.workspace_root / "masters",
@@ -1564,11 +1563,17 @@ class LitresExportService:
                         suffix = ".img"
                     cover_destination = package_temp / f"cover{suffix}"
                     shutil.copyfile(cover_source, cover_destination)
+                    copied_cover_sha = sha256_file(cover_destination)
+                    if copied_cover_sha != cover["sha256"]:
+                        raise MasteringExportError(
+                            "cover_changed_during_export",
+                            "Скопированная обложка не совпадает с canonical SHA-256.",
+                        )
                     package_cover = {
                         **dict(cover),
                         "package_path": str(output_dir / cover_destination.name),
                         "package_path_identity": path_identity(output_dir / cover_destination.name),
-                        "package_sha256": sha256_file(cover_destination),
+                        "package_sha256": copied_cover_sha,
                     }
                 manifest = {
                     "schema_version": EXPORT_SCHEMA_VERSION,
@@ -1603,8 +1608,18 @@ class LitresExportService:
                         raise
                     winner = self._read_export(output_dir, export_identity)
                     if winner is None:
-                        raise MasteringExportError("publish_conflict", "Конфликт публикации export.")
-                    manifest = winner
+                        if output_dir.is_symlink() or not output_dir.is_dir():
+                            raise MasteringExportError("publish_conflict", "Конфликт публикации export.")
+                        quarantine = profile_root / f".invalid-{export_identity}-{uuid.uuid4().hex}"
+                        output_dir.rename(quarantine)
+                        try:
+                            package_temp.rename(output_dir)
+                        except OSError:
+                            if not output_dir.exists() and quarantine.exists():
+                                quarantine.rename(output_dir)
+                            raise MasteringExportError("publish_conflict", "Не удалось восстановить export package.")
+                    else:
+                        manifest = winner
                 self._publish_current_pointers(profile_root, output_dir, manifest)
                 return self.status(master_value, book_value)
             finally:
@@ -1674,14 +1689,20 @@ class LitresExportService:
                 ):
                     return None
             if isinstance(cover, Mapping):
+                book = payload.get("book")
+                canonical_cover = book.get("cover") if isinstance(book, Mapping) else None
                 package_cover = _require_regular_path(
                     Path(cover["package_path"]), root=self.workspace_root, label="Package cover"
                 )
                 if (
-                    cover.get("package_sha256") != sha256_file(package_cover)
+                    not isinstance(canonical_cover, Mapping)
+                    or cover.get("package_sha256") != canonical_cover.get("sha256")
+                    or cover.get("package_sha256") != sha256_file(package_cover)
                     or cover.get("package_path_identity") != path_identity(package_cover)
                 ):
                     return None
+            elif isinstance(payload.get("book"), Mapping) and payload["book"].get("cover") is not None:
+                return None
             return payload
         except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired, MasteringExportError):
             return None
