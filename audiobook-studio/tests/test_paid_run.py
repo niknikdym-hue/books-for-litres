@@ -335,6 +335,7 @@ class PaidRunTests(unittest.TestCase):
                 book_name=self.book_path.name,
                 job_id="job-1",
                 profile_id="openai_onyx",
+                jobs_root_anchor=self.root,
                 manifest_path=Path(result["manifest"]),
                 audio_path=Path(target["output_path"]),
             )
@@ -347,6 +348,7 @@ class PaidRunTests(unittest.TestCase):
                 book_name=self.book_path.name,
                 job_id="job-1",
                 profile_id="openai_onyx",
+                jobs_root_anchor=self.root,
                 manifest_path=Path(result["manifest"]),
             )
         stored = service.store.load(plan["plan_id"])
@@ -395,6 +397,7 @@ class PaidRunTests(unittest.TestCase):
                 book_name=self.book_path.name,
                 job_id="job-1",
                 profile_id="openai_onyx",
+                jobs_root_anchor=self.root,
                 manifest_path=manifest,
                 audio_path=Path(result["qa_targets"][0]["output_path"]),
             )
@@ -424,9 +427,42 @@ class PaidRunTests(unittest.TestCase):
                 book_name=self.book_path.name,
                 job_id="job-1",
                 profile_id="openai_onyx",
+                jobs_root_anchor=self.root,
                 manifest_path=manifest,
                 audio_path=Path(result["qa_targets"][0]["output_path"]),
             )
+
+    def test_openai_authority_rejects_symlinked_jobs_root(self):
+        service = self.service()
+        profile = __import__(
+            "backends.openai_client", fromlist=["load_approved_profile"]
+        ).load_approved_profile("openai_onyx")
+        _, _, _, text = service._load_source(self.book_path.name, "job-1")
+        for segment in service.backend.segment(text):
+            fingerprint = make_fingerprint(normalize_input_text(segment.text), profile)
+            cache = service.backend.config.cache_root / f"{fingerprint}.wav"
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_bytes(wav_bytes())
+        plan = self.prepare(service)
+        result = service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
+        jobs_root = service.backend.config.jobs_root
+        with tempfile.TemporaryDirectory() as external_directory:
+            external_jobs_root = Path(external_directory) / "external-jobs"
+            jobs_root.rename(external_jobs_root)
+            jobs_root.symlink_to(external_jobs_root, target_is_directory=True)
+            with self.assertRaisesRegex(
+                AudioQAAuthorityError, "root cannot contain symlink"
+            ):
+                resolve_openai_authority(
+                    library=service.book_library,
+                    backend=service.backend,
+                    book_name=self.book_path.name,
+                    job_id="job-1",
+                    profile_id="openai_onyx",
+                    jobs_root_anchor=self.root,
+                    manifest_path=Path(result["manifest"]),
+                    audio_path=Path(result["qa_targets"][0]["output_path"]),
+                )
 
     def test_paid_run_writes_and_resolves_canonical_book_directory(self):
         texts = [
@@ -465,6 +501,7 @@ class PaidRunTests(unittest.TestCase):
                     book_name=self.book_path.name,
                     job_id="job-1",
                     profile_id="openai_onyx",
+                    jobs_root_anchor=self.root,
                     manifest_path=manifest,
                 )
                 self.assertEqual(len(targets), 2)
@@ -478,6 +515,7 @@ class PaidRunTests(unittest.TestCase):
                     book_name=self.book_path.name,
                     job_id="job-1",
                     profile_id="openai_onyx",
+                    jobs_root_anchor=self.root,
                     manifest_path=manifest,
                     audio_path=Path(result["qa_targets"][0]["output_path"]),
                 )

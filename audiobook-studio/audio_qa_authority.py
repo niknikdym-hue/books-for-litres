@@ -368,6 +368,7 @@ def _openai_candidates(
     book_name: str,
     job_id: str,
     profile_id: str,
+    jobs_root_anchor: Path,
     manifest_path: Path,
 ) -> tuple[
     dict[str, Any],
@@ -382,9 +383,10 @@ def _openai_candidates(
     book, job, text = _job(library, book_name, job_id)
     profile = load_approved_profile(profile_id)
     canonical_book_slug = _canonical_book_slug(library, book_name)
+    jobs_root = Path(backend.config.jobs_root).expanduser().absolute()
     supplied_manifest = Path(manifest_path).expanduser().absolute()
     expected_manifest = (
-        Path(backend.config.jobs_root)
+        jobs_root
         / canonical_book_slug
         / job_id
         / "openai"
@@ -394,11 +396,10 @@ def _openai_candidates(
     if supplied_manifest != expected_manifest:
         raise AudioQAAuthorityError("Selected OpenAI manifest is not the canonical job authority.")
     lexical_manifest_parent = supplied_manifest.parent
-    _require_no_symlink_components(
-        supplied_manifest, Path(backend.config.jobs_root), "Canonical OpenAI manifest"
-    )
-    manifest_path = _require_below(
-        supplied_manifest, Path(backend.config.jobs_root), "OpenAI manifest"
+    manifest_path, _ = _require_under_allowed_roots(
+        supplied_manifest,
+        [(jobs_root, Path(jobs_root_anchor))],
+        "Canonical OpenAI manifest",
     )
     manifest = _load_json(manifest_path)
     entries = manifest.get("segments")
@@ -478,6 +479,7 @@ def list_openai_qa_targets(
     book_name: str,
     job_id: str,
     profile_id: str,
+    jobs_root_anchor: Path,
     manifest_path: Path,
 ) -> list[dict[str, str]]:
     """List exact current successful OpenAI outputs without provider access."""
@@ -487,6 +489,7 @@ def list_openai_qa_targets(
         book_name=book_name,
         job_id=job_id,
         profile_id=profile_id,
+        jobs_root_anchor=jobs_root_anchor,
         manifest_path=manifest_path,
     )
     targets: list[dict[str, str]] = []
@@ -517,6 +520,7 @@ def resolve_openai_authority(
     book_name: str,
     job_id: str,
     profile_id: str,
+    jobs_root_anchor: Path,
     manifest_path: Path,
     audio_path: Path | None = None,
 ) -> AudioQAAuthority:
@@ -526,6 +530,7 @@ def resolve_openai_authority(
         book_name=book_name,
         job_id=job_id,
         profile_id=profile_id,
+        jobs_root_anchor=jobs_root_anchor,
         manifest_path=manifest_path,
     )
     if audio_path is not None:

@@ -251,6 +251,7 @@ def _audio_qa_authority(
             book_name=book_name,
             job_id=job_id,
             profile_id=profile_id,
+            jobs_root_anchor=WORKSPACE_PATHS.root,
             manifest_path=current_manifest,
             audio_path=selected_audio,
         )
@@ -333,6 +334,7 @@ def openai_qa_targets(*, book_name: str, job_id: str, profile_id: str) -> dict[s
             book_name=book_name,
             job_id=job_id,
             profile_id=profile_id,
+            jobs_root_anchor=WORKSPACE_PATHS.root,
             manifest_path=manifest_path,
         ),
         "remote_request_sent": False,
