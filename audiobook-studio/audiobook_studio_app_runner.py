@@ -19,7 +19,7 @@ from typing import Any, Mapping, Sequence
 from voice_library import load_voice_library, normalize_qwen_profiles
 from workspace_paths import load_workspace_paths
 from cloud_billing import CloudBillingService, decimal_text, decimal_value, save_settings
-from book_library import BookLibrary, BookLibraryError
+from book_library import BookLibrary, BookLibraryError, normalize_slug
 from book_text_preparation import BookTextPreparationService
 from chapter_production import YandexChapterProductionService
 from chapter_assembly import (
@@ -278,10 +278,10 @@ def reconcile_all_litres_release_authorities() -> dict[str, Any]:
             # for every other canonical book.  No exception text is exposed.
             failed_book_ids.append(profile_path.name)
             try:
-                canonical_path = BOOK_LIBRARY.resolve_book_profile(profile_path.name)
+                book_slug = normalize_slug(profile_path.stem)
                 quarantine = _litres_export_service().quarantine_release_authority(
-                    canonical_path.stem,
-                    revalidate_quarantine=lambda name=canonical_path.name: (
+                    book_slug,
+                    revalidate_quarantine=lambda name=profile_path.name: (
                         _profile_requires_release_quarantine(name)
                     ),
                 )

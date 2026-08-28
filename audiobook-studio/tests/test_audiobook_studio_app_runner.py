@@ -287,6 +287,28 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertFalse(result["remote_request_sent"])
         self.assertFalse(result["billing_changed"])
 
+    def test_quarantine_slug_comes_from_enumerated_case_variant_path(self):
+        library = mock.Mock()
+        library.list_book_profiles.return_value = [Path("Demo-Book.json")]
+        service = mock.Mock()
+        service.quarantine_release_authority.return_value = {
+            "release_authority_revoked": True,
+        }
+        with mock.patch.object(bridge, "BOOK_LIBRARY", library), \
+             mock.patch.object(
+                 bridge, "reconcile_litres_release_authority",
+                 side_effect=bridge.BookLibraryError("malformed"),
+             ), \
+             mock.patch.object(bridge, "_litres_export_service", return_value=service):
+            result = bridge.reconcile_all_litres_release_authorities()
+        self.assertEqual(result["failed_book_ids"], ["Demo-Book.json"])
+        self.assertEqual(result["quarantined_book_ids"], ["Demo-Book.json"])
+        service.quarantine_release_authority.assert_called_once()
+        self.assertEqual(
+            service.quarantine_release_authority.call_args.args[0], "demo-book",
+        )
+        library.resolve_book_profile.assert_not_called()
+
     def test_qwen_error_does_not_touch_yandex_configuration(self):
         before = bridge.YANDEX_CONFIG.read_bytes()
         with mock.patch.object(bridge, "_delegate", return_value=17):
