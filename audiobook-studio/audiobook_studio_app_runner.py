@@ -302,9 +302,14 @@ def reconcile_all_litres_release_authorities() -> dict[str, Any]:
     quarantined_book_ids: list[str] = []
     quarantine_failed_book_ids: list[str] = []
     profile_paths = BOOK_LIBRARY.list_book_profiles()
-    known_profile_slugs = {
-        normalize_slug(profile_path.stem) for profile_path in profile_paths
-    }
+    known_profile_slugs: set[str] = set()
+    for profile_path in profile_paths:
+        try:
+            known_profile_slugs.add(normalize_slug(profile_path.stem))
+        except BookLibraryError:
+            # The per-profile loop below records the malformed registry entry,
+            # while cleanup for every other canonical export root continues.
+            continue
     for profile_path in profile_paths:
         try:
             results.append(reconcile_litres_release_authority(book_name=profile_path.name))

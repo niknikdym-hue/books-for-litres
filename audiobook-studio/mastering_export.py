@@ -1302,11 +1302,16 @@ class LitresExportService:
                     root=self.workspace_root,
                     label="Package cover",
                 )
+                cover_suffix = Path(canonical_cover["path"]).suffix.lower()
+                if not re.fullmatch(r"\.[a-z0-9]{1,8}", cover_suffix):
+                    cover_suffix = ".img"
+                expected_package_cover = manifest_path.parent / f"cover{cover_suffix}"
                 if (
                     any(
                         cover.get(key) != value
                         for key, value in canonical_cover.items()
                     )
+                    or package_cover != expected_package_cover
                     or cover.get("package_sha256") != canonical_cover.get("sha256")
                     or cover.get("package_sha256") != sha256_file(package_cover)
                     or cover.get("package_path_identity") != path_identity(package_cover)

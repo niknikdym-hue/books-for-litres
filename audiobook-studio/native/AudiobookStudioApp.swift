@@ -152,6 +152,7 @@ final class StudioModel: ObservableObject {
                   releaseSweep.providerRequests == 0,
                   !releaseSweep.billingChanged,
                   releaseSweep.failedBookIDs.isEmpty,
+                  releaseSweep.quarantineFailedBookIDs.isEmpty,
                   releaseSweep.results.allSatisfy({
                       !$0.remoteRequestSent && $0.providerRequests == 0 && !$0.billingChanged
                   }) else {

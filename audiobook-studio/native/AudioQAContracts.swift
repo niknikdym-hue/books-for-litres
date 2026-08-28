@@ -568,6 +568,7 @@ struct LitresReleaseAuthoritySweep: Codable {
     let schemaVersion: Int
     let processedBooks: Int
     let failedBookIDs: [String]
+    let quarantineFailedBookIDs: [String]
     let results: [LitresReleaseAuthorityStatus]
     let providerRequests: Int
     let remoteRequestSent: Bool
@@ -578,6 +579,7 @@ struct LitresReleaseAuthoritySweep: Codable {
         case schemaVersion = "schema_version"
         case processedBooks = "processed_books"
         case failedBookIDs = "failed_book_ids"
+        case quarantineFailedBookIDs = "quarantine_failed_book_ids"
         case providerRequests = "provider_requests"
         case remoteRequestSent = "remote_request_sent"
         case billingChanged = "billing_changed"

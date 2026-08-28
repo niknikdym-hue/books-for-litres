@@ -310,6 +310,52 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertFalse(result["remote_request_sent"])
         self.assertFalse(result["billing_changed"])
 
+    def test_invalid_profile_name_does_not_block_orphan_pointer_cleanup(self):
+        invalid_profile = bridge.WORKSPACE_PATHS.books_root / "bad name.json"
+        invalid_profile.write_text("{}", encoding="utf-8")
+        orphan_slug = "second-orphaned-release-book"
+        book_root = bridge.WORKSPACE_PATHS.exports_root / orphan_slug
+        profile_root = book_root / "litres_author_v1"
+        profile_root.mkdir(parents=True)
+        pointer = profile_root / "CURRENT.json"
+        pointer.write_text("forensic-orphan-release", encoding="utf-8")
+        try:
+            result = bridge.reconcile_all_litres_release_authorities()
+        finally:
+            invalid_profile.unlink(missing_ok=True)
+            shutil.rmtree(book_root, ignore_errors=True)
+        self.assertIn("bad name.json", result["failed_book_ids"])
+        self.assertIn("bad name.json", result["quarantine_failed_book_ids"])
+        self.assertIn(f"{orphan_slug}.json", result["quarantined_book_ids"])
+        self.assertFalse(pointer.exists())
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse(result["billing_changed"])
+
+    def test_orphan_pointer_quarantine_failure_is_reported_for_native_guard(self):
+        orphan_slug = "unremovable-orphaned-release-book"
+        book_root = bridge.WORKSPACE_PATHS.exports_root / orphan_slug
+        profile_root = book_root / "litres_author_v1"
+        profile_root.mkdir(parents=True)
+        (profile_root / "CURRENT.json").write_text(
+            "forensic-orphan-release", encoding="utf-8",
+        )
+        service = mock.Mock()
+        service.quarantine_release_authority.side_effect = OSError("read-only")
+        try:
+            with mock.patch.object(
+                bridge.BOOK_LIBRARY, "list_book_profiles", return_value=[],
+            ), mock.patch.object(
+                bridge, "_litres_export_service", return_value=service,
+            ):
+                result = bridge.reconcile_all_litres_release_authorities()
+        finally:
+            shutil.rmtree(book_root, ignore_errors=True)
+        self.assertIn(orphan_slug, result["quarantine_failed_book_ids"])
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse(result["billing_changed"])
+
     def test_quarantine_slug_comes_from_enumerated_case_variant_path(self):
         library = mock.Mock()
         library.list_book_profiles.return_value = [Path("Demo-Book.JSON")]
