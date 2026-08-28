@@ -20,6 +20,7 @@ from backends.common import WavValidationError, atomic_write_json, inspect_pcm_w
 from book_library import BookLibraryError, normalize_slug
 from media_tools import resolve_ffmpeg
 from workspace_paths import load_workspace_paths
+from production_authority_lock import production_authority_lock
 
 
 QA_SCHEMA_VERSION = 3
@@ -496,6 +497,48 @@ class AudioQAReviewService:
             )
 
     def decide(
+        self,
+        *,
+        provider: str,
+        profile_id: str,
+        book_slug: str,
+        job_id: str,
+        segment_id: str,
+        audio_path: Path,
+        decision: str,
+        synthesis_fingerprint: str | None,
+        expected_sample_rate_hz: int,
+        text_characters: int,
+        reviewed_identity: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        workspace_root = (
+            self.state_root.parent.parent
+            if self.state_root.parent.name == "runtime"
+            else self.state_root.parent
+        )
+        with production_authority_lock(
+            workspace_root,
+            provider=provider,
+            book_slug=book_slug,
+            job_id=job_id,
+            profile_id=profile_id,
+            exclusive=True,
+        ):
+            return self._decide_locked(
+                provider=provider,
+                profile_id=profile_id,
+                book_slug=book_slug,
+                job_id=job_id,
+                segment_id=segment_id,
+                audio_path=audio_path,
+                decision=decision,
+                synthesis_fingerprint=synthesis_fingerprint,
+                expected_sample_rate_hz=expected_sample_rate_hz,
+                text_characters=text_characters,
+                reviewed_identity=reviewed_identity,
+            )
+
+    def _decide_locked(
         self,
         *,
         provider: str,

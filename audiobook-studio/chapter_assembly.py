@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import errno
 import json
 import os
 import shutil
@@ -18,6 +19,7 @@ from audio_qa_review import path_identity, sha256_file
 from backends.common import atomic_write_json, inspect_pcm_wav, utc_now_iso
 from book_library import BookLibraryError, normalize_slug
 from media_tools import FFmpegResolution, resolve_ffmpeg
+from production_authority_lock import production_authority_lock
 
 
 ASSEMBLY_SCHEMA_VERSION = 1
@@ -512,6 +514,22 @@ class ChapterAssemblyService:
         *,
         revalidate: Callable[[], Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        with production_authority_lock(
+            self.workspace_root,
+            provider=_safe_id(value.get("provider"), "provider"),
+            book_slug=_safe_slug(str(value.get("book_slug") or "")),
+            job_id=_safe_id(value.get("job_id"), "job_id"),
+            profile_id=_safe_id(value.get("profile_id"), "profile_id"),
+            exclusive=False,
+        ):
+            return self._assemble_locked(value, revalidate=revalidate)
+
+    def _assemble_locked(
+        self,
+        value: Mapping[str, Any],
+        *,
+        revalidate: Callable[[], Mapping[str, Any]] | None,
+    ) -> dict[str, Any]:
         prepared = self.prepare(value)
         if prepared["decision"] == "BLOCKED":
             raise ChapterAssemblyError("missing_ffmpeg", prepared["blocker_message"])
@@ -666,9 +684,18 @@ class ChapterAssemblyService:
                     "manifest_changed_during_assembly",
                     "Production manifest изменился во время сборки главы.",
                 )
+            if revalidate is not None:
+                final_payload, _, _ = self._validate_input(revalidate())
+                if _canonical_json(final_payload) != _canonical_json(payload):
+                    raise ChapterAssemblyError(
+                        "assembly_input_became_stale",
+                        "Набор сегментов или QA-состояние изменились перед публикацией.",
+                    )
             try:
                 temporary.rename(output_dir)
-            except FileExistsError:
+            except OSError as error:
+                if error.errno not in {errno.EEXIST, errno.ENOTEMPTY}:
+                    raise
                 existing = self._read_ready(output_dir, assembly_identity)
                 if existing is None:
                     raise ChapterAssemblyError("publish_conflict", "Конфликт публикации сборки главы.")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import errno
 import json
 import os
 import stat
@@ -468,6 +469,15 @@ class ChapterAssemblyTests(unittest.TestCase):
         ), self.assertRaisesRegex(ChapterAssemblyError, "simulated"):
             self.service.assemble(value)
         self.assertFalse(any((self.root / "chapters").rglob("MANIFEST.json")))
+
+    def test_nonempty_directory_publish_race_returns_winner_idempotently(self):
+        winner = {"status": "READY", "assembly_identity": "winner"}
+        unavailable = FFmpegResolution(False, None, None, "unavailable")
+        with mock.patch.object(self.service, "_resolution", return_value=unavailable), mock.patch.object(
+            self.service, "_read_ready", side_effect=[None, winner]
+        ), mock.patch("pathlib.Path.rename", side_effect=OSError(errno.ENOTEMPTY, "not empty")):
+            result = self.service.assemble(self._segment_input())
+        self.assertIs(result, winner)
 
 
 if __name__ == "__main__":
