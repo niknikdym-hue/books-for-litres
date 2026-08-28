@@ -732,6 +732,16 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn("if engine == .yandex, let plan = yandexChapterPlan", source)
         self.assertIn("return plan.billing", source)
 
+    def test_openai_chapter_assembly_cannot_publish_one_fragment(self):
+        with self.assertRaisesRegex(RuntimeError, "complete ordered approved segment set"):
+            bridge.chapter_assembly_current(
+                action="assemble",
+                provider="openai",
+                book_name="demo-book",
+                job_id="short-test",
+                profile_id="openai_cedar",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

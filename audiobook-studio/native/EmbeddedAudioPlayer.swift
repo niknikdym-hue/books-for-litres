@@ -35,7 +35,11 @@ struct AudioPlaybackStateMachine: Equatable {
 
     mutating func seek(to value: TimeInterval) {
         elapsed = min(max(0, value), duration)
-        if elapsed >= duration, duration > 0 { state = .finished }
+        if elapsed >= duration, duration > 0 {
+            state = .finished
+        } else if state == .finished {
+            state = .paused
+        }
     }
 
     mutating func stop() {
@@ -195,6 +199,7 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
+            guard self.audioPlayer === player else { return }
             stopTimer()
             if flag {
                 machine.finish()

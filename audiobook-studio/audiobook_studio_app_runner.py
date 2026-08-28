@@ -496,6 +496,11 @@ def chapter_assembly_current(
     profile_id: str,
 ) -> dict[str, Any]:
     """Resolve exact current downstream authority, then operate entirely offline."""
+    if provider == "openai":
+        raise RuntimeError(
+            "OpenAI chapter assembly requires the complete ordered approved segment set; "
+            "single-segment publication is blocked."
+        )
     qa = audio_qa_current(
         provider=provider,
         book_name=book_name,

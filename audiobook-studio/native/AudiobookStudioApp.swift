@@ -1125,6 +1125,11 @@ final class StudioModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
+    func revealAssembledChapterInFinder() {
+        guard let path = chapterAssembly?.assembly?.output.path else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
     private func invalidateOpenAIIntent() {
         openAIIntentGate.cancel()
         pendingOpenAIIntentToken = nil
@@ -1803,7 +1808,7 @@ private struct ChapterAssemblyCard: View {
                         role: "assembled-chapter",
                         playTitle: "Прослушать мастер-файл",
                         onLoad: model.playAssembledChapter,
-                        onReveal: model.revealCurrentAudioInFinder
+                        onReveal: model.revealAssembledChapterInFinder
                     )
                 }
                 DisclosureGroup("Технические подробности сборки") {
