@@ -17,6 +17,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import audio_qa_review
 from audio_qa_review import AudioQAError, AudioQAReviewService
 
 
@@ -260,6 +261,29 @@ class AudioQAReviewTests(unittest.TestCase):
             return {"status": "PASS", "available": True, "exit_code": 0}
 
         with mock.patch("audio_qa_review._ffmpeg_check", side_effect=replace_during_ffmpeg):
+            result = self.scan()
+        self.assertIn("audio_changed_during_scan", result["automatic_reasons"])
+        self.assertEqual(result["automatic_status"], "FAIL")
+        self.assertEqual(result["manual_state"], "STALE")
+        self.assertFalse(result["downstream_eligible"])
+        self.assertIsNone(result["identity"]["audio_sha256"])
+
+    def test_path_replacement_after_rehash_cannot_preserve_approval(self):
+        self.decide("APPROVED")
+        replacement = self.root / "replacement-after-rehash.wav"
+        self.write_wav(replacement, frequency=990.0)
+        original_sha256_handle = audio_qa_review._sha256_handle
+
+        def replace_after_rehash(handle) -> str:
+            digest = original_sha256_handle(handle)
+            if Path(handle.name) == self.audio:
+                os.replace(replacement, self.audio)
+            return digest
+
+        with mock.patch(
+            "audio_qa_review._sha256_handle",
+            side_effect=replace_after_rehash,
+        ):
             result = self.scan()
         self.assertIn("audio_changed_during_scan", result["automatic_reasons"])
         self.assertEqual(result["automatic_status"], "FAIL")

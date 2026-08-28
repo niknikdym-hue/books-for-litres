@@ -14,7 +14,7 @@ import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, BinaryIO, Iterator, Mapping
 
 from backends.common import WavValidationError, atomic_write_json, inspect_pcm_wav, utc_now_iso
 from book_library import BookLibraryError, normalize_slug
@@ -31,12 +31,16 @@ class AudioQAError(RuntimeError):
     """Raised when QA/review input is unsafe or inconsistent."""
 
 
-def sha256_file(path: Path) -> str:
+def _sha256_handle(handle: BinaryIO) -> str:
     digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
     return digest.hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    with Path(path).open("rb") as handle:
+        return _sha256_handle(handle)
 
 
 def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
@@ -66,10 +70,17 @@ def _path_still_matches_snapshot(
     snapshot_sha256: str,
 ) -> bool:
     try:
-        current = Path(path).stat()
-        return (
-            _stat_identity(current) == _stat_identity(source_stat)
-            and sha256_file(path) == snapshot_sha256
+        with Path(path).open("rb") as current:
+            opened_stat = os.fstat(current.fileno())
+            if _stat_identity(opened_stat) != _stat_identity(source_stat):
+                return False
+            current_sha256 = _sha256_handle(current)
+            hashed_stat = os.fstat(current.fileno())
+        final_path_stat = Path(path).stat()
+        return bool(
+            current_sha256 == snapshot_sha256
+            and _stat_identity(opened_stat) == _stat_identity(hashed_stat)
+            and _stat_identity(final_path_stat) == _stat_identity(hashed_stat)
         )
     except OSError:
         return False
