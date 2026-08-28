@@ -151,10 +151,11 @@ final class StudioModel: ObservableObject {
             guard !releaseSweep.remoteRequestSent,
                   releaseSweep.providerRequests == 0,
                   !releaseSweep.billingChanged,
+                  releaseSweep.failedBookIDs.isEmpty,
                   releaseSweep.results.allSatisfy({
                       !$0.remoteRequestSent && $0.providerRequests == 0 && !$0.billingChanged
                   }) else {
-                throw BridgeError.message("Проверка прав выпуска нарушила offline contract.")
+                throw BridgeError.message("Проверка прав выпуска не завершена безопасно.")
             }
             let snapshot: StudioSnapshot = try await runBridgeJSON(["--ui-snapshot"])
             books = snapshot.books
