@@ -568,6 +568,16 @@ class PaidRunTests(unittest.TestCase):
         atomic_write_json(manifest_path, manifest)
         self.assertEqual(resolve().produced_segment_ids, expected)
 
+        manifest["segments"]["s9999"] = {
+            "segment_id": "s9999",
+            "state": "FAILED",
+            "output_path": str(manifest_path.parent / "segments/obsolete.wav"),
+        }
+        atomic_write_json(manifest_path, manifest)
+        with_obsolete = resolve()
+        self.assertTrue(with_obsolete.complete)
+        self.assertEqual(with_obsolete.obsolete_segment_ids, ("s9999",))
+
         baseline = json.loads(manifest_path.read_text(encoding="utf-8"))
         for mutation, expected_reason in (
             (lambda value: value["segments"].pop("s0002"), "missing_or_stale_output"),

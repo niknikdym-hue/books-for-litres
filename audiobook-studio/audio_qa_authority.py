@@ -26,6 +26,7 @@ class OpenAISegmentSetAuthority:
     produced_segment_ids: tuple[str, ...]
     authorities: tuple[AudioQAAuthority, ...]
     blockers: tuple[dict[str, str], ...]
+    obsolete_segment_ids: tuple[str, ...]
 
     @property
     def complete(self) -> bool:
@@ -572,9 +573,10 @@ def resolve_openai_segment_set(
     candidate_by_id = {str(item[0].segment_id): item for item in candidates}
     blockers: list[dict[str, str]] = []
     expected_set = set(expected_ids)
-    extra_ids = sorted(set(entries) - expected_set)
-    for segment_id in extra_ids:
-        blockers.append({"segment_id": str(segment_id), "reason": "unexpected_manifest_segment"})
+    # Old segmentation entries are immutable forensic history, not members of
+    # the current prepared authority.  They neither satisfy nor block the exact
+    # current set; every expected ID below is still validated fail-closed.
+    obsolete_ids = tuple(sorted(str(item) for item in set(entries) - expected_set))
 
     produced_ids: list[str] = []
     authorities: list[AudioQAAuthority] = []
@@ -623,6 +625,7 @@ def resolve_openai_segment_set(
         produced_segment_ids=tuple(produced_ids),
         authorities=tuple(authorities),
         blockers=tuple(blockers),
+        obsolete_segment_ids=obsolete_ids,
     )
 
 
