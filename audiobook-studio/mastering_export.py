@@ -579,6 +579,8 @@ class MasteringService:
         if prepared["decision"] == "BLOCKED":
             raise MasteringExportError("missing_ffmpeg", prepared["blocker_message"])
         if prepared["decision"] == "ALREADY_MASTERED":
+            if revalidate is not None and _canonical_json(revalidate()) != _canonical_json(prepared["assembly"]):
+                raise MasteringExportError("stale_assembly", "Assembly authority устарела до восстановления CURRENT.")
             self._publish_current_pointer(prepared["assembly"], prepared["master_identity"])
             return prepared["master"]
         payload, source, assembly_manifest = self._validate_assembly(prepared["assembly"])
@@ -1062,6 +1064,53 @@ class LitresExportService:
             "updated_at": utc_now_iso(),
         })
 
+    def _repair_current_pointers(
+        self,
+        profile_root: Path,
+        output_dir: Path,
+        manifest: Mapping[str, Any],
+        job_id: str,
+    ) -> None:
+        identity = _safe_id(manifest.get("export_identity"), "export_identity")
+        validated = self._read_export(output_dir, identity)
+        if validated is None:
+            raise MasteringExportError("invalid_export_winner", "Export package не прошёл проверку восстановления CURRENT.")
+        record = next(
+            (item for item in validated["chapters"] if item.get("job_id") == job_id),
+            None,
+        )
+        if record is None:
+            raise MasteringExportError("missing_export_chapter", "Export package не содержит выбранную главу.")
+        manifest_path = output_dir / "MANIFEST.json"
+        atomic_write_json(profile_root / f"CURRENT-{job_id}.json", {
+            "schema_version": EXPORT_SCHEMA_VERSION,
+            "candidate_identity": record["candidate_identity"],
+            "manifest_path": str(manifest_path),
+            "mp3_path": record["path"],
+            "updated_at": utc_now_iso(),
+        })
+
+        book_pointer = profile_root / "CURRENT.json"
+        if book_pointer.is_symlink():
+            raise MasteringExportError("symlink_pointer", "Export CURRENT является ссылкой.")
+        if book_pointer.exists():
+            return
+        for pointer in profile_root.glob("CURRENT-*.json"):
+            if pointer.is_symlink():
+                raise MasteringExportError("symlink_pointer", "Chapter export CURRENT является ссылкой.")
+            try:
+                current = json.loads(pointer.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return
+            if current.get("manifest_path") != str(manifest_path):
+                return
+        atomic_write_json(book_pointer, {
+            "schema_version": EXPORT_SCHEMA_VERSION,
+            "export_identity": identity,
+            "manifest_path": str(manifest_path),
+            "updated_at": utc_now_iso(),
+        })
+
     def _load_current_candidates(self, book: Mapping[str, Any]) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         root = self._profile_root(book["slug"])
@@ -1094,7 +1143,9 @@ class LitresExportService:
                     or current_master["audio_sha256"] != candidate.get("master_sha256")
                 ):
                     continue
-                tool = manifest.get("ffmpeg")
+                tool = candidate.get("tool")
+                if not isinstance(tool, Mapping):
+                    tool = manifest.get("ffmpeg")
                 encoder = candidate.get("encoder")
                 if not isinstance(tool, Mapping) or not isinstance(encoder, str):
                     continue
@@ -1102,6 +1153,8 @@ class LitresExportService:
                     current_master, book, chapter, tool, encoder
                 ):
                     continue
+                candidate = dict(candidate)
+                candidate["tool"] = dict(tool)
                 result.append(candidate)
             except (OSError, ValueError, KeyError, StopIteration, MasteringExportError):
                 continue
@@ -1215,7 +1268,7 @@ class LitresExportService:
         ):
             with production_authority_lock(
                 self.workspace_root, provider="export", book_slug=book_slug,
-                job_id=job_id, profile_id=LITRES_PROFILE_ID, exclusive=True,
+                job_id="book", profile_id=LITRES_PROFILE_ID, exclusive=True,
             ):
                 return self._export_locked(
                     master_value, book_value,
@@ -1234,12 +1287,17 @@ class LitresExportService:
         if prepared["decision"] == "BLOCKED":
             raise MasteringExportError(prepared["blockers"][0], prepared["blocker_message"])
         if prepared["decision"] == "ALREADY_EXPORTED":
+            if revalidate_master is not None and _canonical_json(revalidate_master()) != _canonical_json(prepared["master"]):
+                raise MasteringExportError("stale_master", "Master authority устарела до восстановления CURRENT.")
+            if revalidate_book is not None and _canonical_json(self._validated_book(revalidate_book())) != _canonical_json(prepared["book"]):
+                raise MasteringExportError("book_authority_changed", "Book authority изменилась до восстановления CURRENT.")
             current = self.status(master_value, book_value)
             manifest_path = Path(current["manifest_path"])
-            self._publish_current_pointers(
+            self._repair_current_pointers(
                 self._profile_root(prepared["book"]["slug"]),
                 manifest_path.parent,
                 current["export_manifest"],
+                prepared["master"]["job_id"],
             )
             return self.status(master_value, book_value)
         master, source, master_manifest = self._validate_master(prepared["master"])
@@ -1303,6 +1361,7 @@ class LitresExportService:
                 "sha256": sha256_file(temporary_mp3),
                 "facts": facts,
                 "encoder": encoder,
+                "tool": _resolution_identity(ffmpeg),
                 "arguments": _redact_arguments(arguments, {
                     str(ffmpeg.path): "<ffmpeg>", str(source): "<master>", str(temporary_mp3): "<output>",
                 }),

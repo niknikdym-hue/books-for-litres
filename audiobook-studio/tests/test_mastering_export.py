@@ -285,6 +285,18 @@ class MasteringExportTests(unittest.TestCase):
         )
         self.assertEqual(current["master_identity"], manifest["master_identity"])
 
+    def test_stale_master_retry_cannot_roll_back_current_pointer(self):
+        self._create_master()
+        pointer = self.root / "masters" / self.book_slug / self.job_id / "CURRENT.json"
+        before = pointer.read_bytes()
+        changed = copy.deepcopy(self.authority)
+        changed["assembly_identity"] = "b" * 64
+        with mock.patch.object(self.mastering, "_resolution", return_value=self.resolution), \
+             self.assertRaises(MasteringExportError) as raised:
+            self.mastering.master(self.authority, revalidate=lambda: changed)
+        self.assertEqual(raised.exception.code, "stale_assembly")
+        self.assertEqual(pointer.read_bytes(), before)
+
     def test_loudness_true_peak_and_clipping_fail_closed(self):
         cases = ((self._measured(-18.0), "loudness_out_of_tolerance"), (self._measured(-19, -2.0), "true_peak_exceeded"))
         for verification, code in cases:
@@ -413,6 +425,50 @@ class MasteringExportTests(unittest.TestCase):
         recovered_again = self._export(master)
         self.assertEqual(recovered_again["candidate_identity"], first["candidate_identity"])
         self.assertTrue(book_pointer.is_file())
+
+    def test_export_recovery_revalidates_and_never_rewinds_other_chapter_pointers(self):
+        master = self._master_authority()
+        self._export(master)
+        profile_root = self.root / "exports" / self.book_slug / "litres_author_v1"
+        chapter_pointer = profile_root / f"CURRENT-{self.job_id}.json"
+        book_pointer = profile_root / "CURRENT.json"
+        before_chapter = chapter_pointer.read_bytes()
+        before_book = book_pointer.read_bytes()
+        changed = copy.deepcopy(self.book)
+        changed["author"] = "Новый автор"
+        with mock.patch.object(self.exporting, "_resolution", return_value=self.resolution), \
+             mock.patch.object(self.exporting, "_encoder", return_value="libmp3lame"), \
+             self.assertRaises(MasteringExportError) as raised:
+            self.exporting.export(
+                master,
+                self.book,
+                revalidate_master=lambda: master,
+                revalidate_book=lambda: changed,
+            )
+        self.assertEqual(raised.exception.code, "book_authority_changed")
+        self.assertEqual(chapter_pointer.read_bytes(), before_chapter)
+        self.assertEqual(book_pointer.read_bytes(), before_book)
+
+        book_pointer.unlink()
+        other_pointer = profile_root / "CURRENT-chapter-ch002.json"
+        other_pointer.write_text(json.dumps({"manifest_path": "/newer/package/MANIFEST.json"}), encoding="utf-8")
+        other_before = other_pointer.read_bytes()
+        self._export(master)
+        self.assertEqual(other_pointer.read_bytes(), other_before)
+        self.assertFalse(book_pointer.exists())
+
+    def test_candidate_preserves_its_own_tool_identity_across_package_changes(self):
+        master = self._master_authority()
+        exported = self._export(master)
+        manifest_path = Path(exported["manifest_path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        candidate = manifest["chapters"][0]
+        self.assertEqual(candidate["tool"]["version"], self.resolution.version)
+        manifest["ffmpeg"] = {**manifest["ffmpeg"], "version": "ffmpeg version later"}
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        current = self.exporting._load_current_candidates(canonical_book_authority(self.book))
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0]["tool"]["version"], self.resolution.version)
 
     def test_export_stale_master_sha_path_and_manifest_are_blocked(self):
         master = self._master_authority()
