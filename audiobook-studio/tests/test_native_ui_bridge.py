@@ -512,6 +512,39 @@ class NativeUIBridgeTests(unittest.TestCase):
             (configured_parent / "yandex").unlink()
             intermediate.unlink()
 
+            # A canonical-looking leaf alias reached through a symlinked
+            # parent is not the known workspace entry. Parent components are
+            # part of the compatibility identity and must fail closed.
+            configured_parent.rmdir()
+            external_parent = workspace / "external-renders"
+            external_parent.mkdir()
+            (external_parent / "yandex").symlink_to(
+                Path("../runtime/studio-workspace/renders-yandex"),
+                target_is_directory=True,
+            )
+            configured_parent.symlink_to(external_parent, target_is_directory=True)
+            symlinked_parent = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "audiobook_studio_app_runner.py"),
+                    "--audio-qa-current",
+                    "--provider", "yandex",
+                    "--book", "demo-book.json",
+                    "--job", "short-test",
+                    "--profile-id", "yandex_lera",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertEqual(symlinked_parent.returncode, 2)
+            self.assertIn("parent cannot contain symlink components", symlinked_parent.stderr)
+            configured_parent.unlink()
+            (external_parent / "yandex").unlink()
+            external_parent.rmdir()
+            configured_parent.mkdir()
+
             # A different symlink target is not the known compatibility alias
             # and must not fall back to the valid historical artifact.
             external_root = workspace / "external-yandex"

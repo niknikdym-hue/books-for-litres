@@ -10,6 +10,7 @@ from dataclasses import replace
 import importlib.util
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -209,6 +210,43 @@ def _stable_symlink_identity(path: Path) -> tuple[tuple[int | str, ...], Path]:
     return identity, Path(os.path.abspath(str(direct_target)))
 
 
+def _nonsymlink_path_identity(
+    path: Path,
+    *,
+    anchor: Path,
+) -> tuple[tuple[int | str, ...], ...]:
+    """Snapshot a lexical path below anchor while rejecting symlink components."""
+    lexical_path = Path(os.path.abspath(str(path)))
+    lexical_anchor = Path(os.path.abspath(str(anchor)))
+    try:
+        relative = lexical_path.relative_to(lexical_anchor)
+    except ValueError as error:
+        raise AudioQAAuthorityError(
+            "Yandex compatibility alias must remain inside the workspace root."
+        ) from error
+
+    identities: list[tuple[int | str, ...]] = []
+    current = lexical_anchor
+    for component in (None, *relative.parts):
+        if component is not None:
+            current /= component
+        metadata = current.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise AudioQAAuthorityError(
+                "Yandex compatibility alias parent cannot contain symlink components."
+            )
+        identities.append((
+            str(current),
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        ))
+    return tuple(identities)
+
+
 def _audio_qa_authority(
     *,
     provider: str,
@@ -253,7 +291,10 @@ def _audio_qa_authority(
             str(historical_root),
             os.path.relpath(historical_root, workspace_alias.parent),
         }
-        compatibility_alias_identity: tuple[int | str, ...] | None = None
+        compatibility_alias_identity: tuple[
+            tuple[tuple[int | str, ...], ...],
+            tuple[int | str, ...],
+        ] | None = None
         if selected_manifest is not None:
             # An explicit authority must remain fail-closed, including every
             # symlink/path-component guard applied by resolve_yandex_authority.
@@ -262,6 +303,10 @@ def _audio_qa_authority(
             known_historical_alias = False
             if configured_root == workspace_alias and workspace_alias.is_symlink():
                 try:
+                    parent_identity = _nonsymlink_path_identity(
+                        workspace_alias.parent,
+                        anchor=WORKSPACE_PATHS.root,
+                    )
                     alias_identity, direct_target = _stable_symlink_identity(
                         workspace_alias
                     )
@@ -270,7 +315,10 @@ def _audio_qa_authority(
                         and direct_target == historical_root
                     )
                     if known_historical_alias:
-                        compatibility_alias_identity = alias_identity
+                        compatibility_alias_identity = (
+                            parent_identity,
+                            alias_identity,
+                        )
                 except OSError:
                     known_historical_alias = False
             if known_historical_alias:
@@ -302,13 +350,18 @@ def _audio_qa_authority(
         )
         if compatibility_alias_identity is not None:
             try:
+                current_parent_identity = _nonsymlink_path_identity(
+                    workspace_alias.parent,
+                    anchor=WORKSPACE_PATHS.root,
+                )
                 current_identity, direct_target = _stable_symlink_identity(workspace_alias)
             except OSError as error:
                 raise AudioQAAuthorityError(
                     "Yandex compatibility alias changed during authority resolution."
                 ) from error
             if (
-                current_identity != compatibility_alias_identity
+                (current_parent_identity, current_identity)
+                != compatibility_alias_identity
                 or current_identity[-1] not in expected_alias_targets
                 or direct_target != historical_root
             ):
