@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-import json
+import shutil
 import tempfile
 import unittest
 import wave
@@ -31,23 +31,10 @@ class DilonIdentityPreflightTests(unittest.TestCase):
         self._write_wav(self.master_audio, frames=4_800)
         self.master_manifest = self.master_dir / "MANIFEST.json"
         self.master_manifest.write_text('{"status":"READY"}\n', encoding="utf-8")
-        self.master = {
-            "schema_version": 1,
-            "master_identity": "m" * 64,
-            "master_manifest_path": str(self.master_manifest),
-            "master_manifest_sha256": sha256_file(self.master_manifest),
-            "audio_path": str(self.master_audio),
-            "audio_sha256": sha256_file(self.master_audio),
-            "path_identity": path_identity(self.master_audio),
-            "wav": inspect_pcm_wav(self.master_audio).to_dict(),
-            "book_slug": "demo-book",
-            "book_title": "Demo Book",
-            "job_id": "chapter-ch001",
-            "job_label": "Введение",
-            "provider": "yandex",
-            "profile_id": "yandex_lera",
-            "assembly_identity": "a" * 64,
-        }
+        self.master = self._master_authority(
+            identity="m" * 64,
+            directory=self.master_dir,
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -60,6 +47,27 @@ class DilonIdentityPreflightTests(unittest.TestCase):
             output.setsampwidth(2)
             output.setframerate(48_000)
             output.writeframes(b"\x00\x00" * frames)
+
+    def _master_authority(self, *, identity: str, directory: Path) -> dict[str, object]:
+        audio = directory / "master.wav"
+        manifest = directory / "MANIFEST.json"
+        return {
+            "schema_version": 1,
+            "master_identity": identity,
+            "master_manifest_path": str(manifest),
+            "master_manifest_sha256": sha256_file(manifest),
+            "audio_path": str(audio),
+            "audio_sha256": sha256_file(audio),
+            "path_identity": path_identity(audio),
+            "wav": inspect_pcm_wav(audio).to_dict(),
+            "book_slug": "demo-book",
+            "book_title": "Demo Book",
+            "job_id": "chapter-ch001",
+            "job_label": "Введение",
+            "provider": "yandex",
+            "profile_id": "yandex_lera",
+            "assembly_identity": "a" * 64,
+        }
 
     def _credit(self, *, approved: bool = True) -> dict[str, object]:
         audio = self.root / "credits" / "opening-credit.wav"
@@ -159,7 +167,7 @@ class DilonIdentityPreflightTests(unittest.TestCase):
             opening_credit=credit,
         )
         self.assertEqual(result["state"], "BLOCKED")
-        self.assertTrue(any(code.startswith("opening_credit_") or code == "missing_input" for code in result["blockers"]))
+        self.assertIn("opening_credit_invalid_wav", result["blockers"])
         self.assertEqual(result["provider_requests"], 0)
 
     def test_unproven_signature_rights_are_blocked_but_optional_signature_is_not(self) -> None:
@@ -232,8 +240,12 @@ class DilonIdentityPreflightTests(unittest.TestCase):
             opening_credit_text=OPENING_CREDIT,
             opening_credit=credit,
         )
-        changed_master = copy.deepcopy(self.master)
-        changed_master["master_identity"] = "n" * 64
+        next_identity = "n" * 64
+        next_dir = self.root / "masters" / "demo-book" / "chapter-ch001" / next_identity
+        next_dir.mkdir(parents=True)
+        shutil.copyfile(self.master_audio, next_dir / "master.wav")
+        shutil.copyfile(self.master_manifest, next_dir / "MANIFEST.json")
+        changed_master = self._master_authority(identity=next_identity, directory=next_dir)
         second = build_identity_preflight(
             changed_master,
             workspace_root=self.root,
@@ -242,15 +254,31 @@ class DilonIdentityPreflightTests(unittest.TestCase):
         )
         self.assertNotEqual(first["identity_plan_id"], second["identity_plan_id"])
 
+    def test_relocated_master_package_is_rejected(self) -> None:
+        relocated = self.root / "relocated-master" / ("m" * 64)
+        relocated.mkdir(parents=True)
+        shutil.copyfile(self.master_audio, relocated / "master.wav")
+        shutil.copyfile(self.master_manifest, relocated / "MANIFEST.json")
+        forged = self._master_authority(identity="m" * 64, directory=relocated)
+        with self.assertRaises(DilonIdentityError) as caught:
+            build_identity_preflight(
+                forged,
+                workspace_root=self.root,
+                opening_credit_text=OPENING_CREDIT,
+                opening_credit=self._credit(),
+            )
+        self.assertEqual(caught.exception.code, "master_path_identity_mismatch")
+
     def test_invalid_master_bytes_fail_closed(self) -> None:
         Path(str(self.master["audio_path"])).write_bytes(b"not-a-wave")
-        with self.assertRaises((DilonIdentityError, Exception)):
+        with self.assertRaises(DilonIdentityError) as caught:
             build_identity_preflight(
                 self.master,
                 workspace_root=self.root,
                 opening_credit_text=OPENING_CREDIT,
                 opening_credit=self._credit(),
             )
+        self.assertEqual(caught.exception.code, "master_invalid_wav")
 
     def test_prepare_current_identity_only_resolves_master_and_stays_offline(self) -> None:
         credit = self._credit()
