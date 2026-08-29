@@ -16,7 +16,7 @@ import dilon_identity_bridge_cli as cli
 from backends.yandex_speechkit import YandexSpeechKitBackend
 
 
-class DilonIdentityBridgeCLITests(unittest.TestCase):
+class DilonOpeningCreditBridgeCLITests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temp.name) / "workspace"
@@ -69,18 +69,9 @@ class DilonIdentityBridgeCLITests(unittest.TestCase):
         self.assertEqual(payload["opening_credit_plan"]["plan_id"], plan["plan_id"])
         self.assertFalse(payload["opening_credit_plan"]["execution_available"])
         self.assertEqual(payload["provider_requests"], 0)
-
-    def test_missing_identity_returns_blocked_not_provider_action(self) -> None:
-        completed = self._run(
-            "--identity-status", "--book", "demo-book", "--job", "chapter-ch001"
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        payload = json.loads(completed.stdout)
-        self.assertEqual(payload["state"], "BLOCKED")
-        self.assertEqual(payload["decision"], "IDENTITY_NOT_CURRENT")
-        self.assertIsNone(payload["preview"])
-        self.assertEqual(payload["provider_requests"], 0)
         self.assertFalse(payload["remote_request_sent"])
+        self.assertFalse(payload["paid_execution"])
+        self.assertFalse(payload["billing_changed"])
 
     def test_missing_required_argument_fails_closed_with_json(self) -> None:
         completed = self._run("--opening-credit-plan-status")
@@ -91,11 +82,14 @@ class DilonIdentityBridgeCLITests(unittest.TestCase):
         self.assertEqual(payload["provider_requests"], 0)
         self.assertFalse(payload["paid_execution"])
 
-    def test_parser_exposes_no_execute_or_synthesize_mode(self) -> None:
-        help_text = cli.build_parser().format_help()
-        self.assertNotIn("execute", help_text.lower())
-        self.assertNotIn("synthesize", help_text.lower())
-        self.assertNotIn("provider", help_text.lower())
+    def test_parser_exposes_only_prepare_and_plan_status_modes(self) -> None:
+        help_text = cli.build_parser().format_help().lower()
+        self.assertIn("prepare-opening-credit", help_text)
+        self.assertIn("opening-credit-plan-status", help_text)
+        self.assertNotIn("identity-status", help_text)
+        self.assertNotIn("execute", help_text)
+        self.assertNotIn("synthesize", help_text)
+        self.assertNotIn("provider", help_text)
 
 
 if __name__ == "__main__":
