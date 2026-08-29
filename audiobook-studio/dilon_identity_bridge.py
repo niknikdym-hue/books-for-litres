@@ -7,6 +7,7 @@ There is no synthesis/provider execution method.
 
 from __future__ import annotations
 
+import stat
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,62 @@ from voice_library import DEFAULT_REGISTRY_PATH
 BRIDGE_SCHEMA_VERSION = 1
 
 
+class DilonIdentityBridgeError(RuntimeError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _workspace_root(path: Path) -> Path:
+    requested = Path(path).expanduser().absolute()
+    if requested.is_symlink():
+        raise DilonIdentityBridgeError("symlink_workspace_root", "Workspace root является symbolic link.")
+    try:
+        return requested.resolve(strict=True)
+    except OSError as error:
+        raise DilonIdentityBridgeError("missing_workspace", "Workspace root не найден.") from error
+
+
+def _canonical_root(path: Path, *, expected: Path, code: str, label: str) -> Path:
+    requested = Path(path).expanduser().absolute()
+    if requested != expected:
+        raise DilonIdentityBridgeError(code, f"{label} не совпадает с canonical workspace path.")
+    current = expected.parent
+    if current.is_symlink() or requested.is_symlink():
+        raise DilonIdentityBridgeError(code, f"{label} содержит symbolic link.")
+    return requested
+
+
+def _preview_file(path: Path, *, workspace: Path, identities: Path) -> Path:
+    candidate = Path(path).expanduser().absolute()
+    try:
+        relative = candidate.relative_to(identities)
+    except ValueError as error:
+        raise DilonIdentityBridgeError(
+            "identity_preview_path_invalid", "Identity preview находится вне canonical identities root."
+        ) from error
+    current = identities
+    if current.is_symlink():
+        raise DilonIdentityBridgeError("identity_preview_path_invalid", "Identity root является symbolic link.")
+    for part in relative.parts:
+        current /= part
+        try:
+            metadata = current.lstat()
+        except OSError as error:
+            raise DilonIdentityBridgeError("identity_preview_path_invalid", "Identity preview не найден.") from error
+        if stat.S_ISLNK(metadata.st_mode):
+            raise DilonIdentityBridgeError("identity_preview_path_invalid", "Identity preview содержит symbolic link.")
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(workspace)
+    except (OSError, ValueError) as error:
+        raise DilonIdentityBridgeError("identity_preview_path_invalid", "Identity preview path не подтверждён.") from error
+    if not resolved.is_file():
+        raise DilonIdentityBridgeError("identity_preview_path_invalid", "Identity preview должен быть обычным file.")
+    return resolved
+
+
 class DilonIdentityBridgeService:
     def __init__(
         self,
@@ -29,9 +86,21 @@ class DilonIdentityBridgeService:
         identities_root: Path,
         paid_plans_root: Path,
     ) -> None:
-        self.workspace_root = Path(workspace_root)
-        self.identities_root = Path(identities_root)
-        self.plan_store = OpeningCreditPlanStore(Path(paid_plans_root))
+        self.workspace_root = _workspace_root(workspace_root)
+        self.identities_root = _canonical_root(
+            identities_root,
+            expected=self.workspace_root / "identities",
+            code="noncanonical_identity_root",
+            label="Identity root",
+        )
+        canonical_plans = self.workspace_root / "runtime" / "paid-run-plans"
+        plans_root = _canonical_root(
+            paid_plans_root,
+            expected=canonical_plans,
+            code="noncanonical_plan_root",
+            label="Paid plan root",
+        )
+        self.plan_store = OpeningCreditPlanStore(plans_root)
 
     @staticmethod
     def _offline_envelope(payload: dict[str, Any]) -> dict[str, Any]:
@@ -104,16 +173,21 @@ class DilonIdentityBridgeService:
                     "preview": None,
                 }
             )
-        path = Path(str(output.get("path") or ""))
         try:
+            path = _preview_file(
+                Path(str(output.get("path") or "")),
+                workspace=self.workspace_root,
+                identities=self.identities_root,
+            )
             digest = sha256_file(path)
             identity = path_identity(path)
-        except OSError:
+        except (DilonIdentityBridgeError, OSError) as error:
+            code = error.code if isinstance(error, DilonIdentityBridgeError) else "identity_output_missing"
             return self._offline_envelope(
                 {
                     "state": "BLOCKED",
                     "decision": "IDENTITY_NOT_CURRENT",
-                    "blockers": ["identity_output_missing"],
+                    "blockers": [code],
                     "identity": None,
                     "preview": None,
                 }
