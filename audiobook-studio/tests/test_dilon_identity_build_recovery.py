@@ -9,6 +9,7 @@ from unittest import mock
 
 from audio_qa_review import path_identity, sha256_file
 from backends.common import inspect_pcm_wav
+from dilon_identity import DILON_BRAND, DILON_DESCRIPTION, OPENING_CREDIT_TEXT
 import dilon_identity_build as build
 
 
@@ -37,12 +38,17 @@ class DilonIdentityBuildRecoveryTests(unittest.TestCase):
         self.credit = self.root / "credits" / "opening.wav"
         self.credit.parent.mkdir()
         self._wav(self.credit, 2_400, 50)
+        credit_sha = sha256_file(self.credit)
+        credit_identity = path_identity(self.credit)
         self.preflight = {
             "schema_version": 1,
             "identity_plan_id": "p" * 64,
             "state": "READY",
             "decision": "READY_TO_BUILD",
             "blockers": [],
+            "brand": DILON_BRAND,
+            "description": DILON_DESCRIPTION,
+            "opening_credit_text": OPENING_CREDIT_TEXT,
             "book_slug": self.book,
             "book_title": "Demo Book",
             "job_id": self.job,
@@ -53,10 +59,19 @@ class DilonIdentityBuildRecoveryTests(unittest.TestCase):
                 "master_manifest_sha256": sha256_file(manifest),
             },
             "opening_credit": {
+                "text": OPENING_CREDIT_TEXT,
                 "audio_path": str(self.credit),
-                "audio_sha256": sha256_file(self.credit),
-                "path_identity": path_identity(self.credit),
+                "audio_sha256": credit_sha,
+                "path_identity": credit_identity,
                 "wav": inspect_pcm_wav(self.credit).to_dict(),
+                "synthesis_fingerprint": "credit-v1",
+                "automatic_status": "PASS",
+                "manual_state": "APPROVED",
+                "reviewed_identity": {
+                    "audio_sha256": credit_sha,
+                    "path_identity": credit_identity,
+                    "synthesis_fingerprint": "credit-v1",
+                },
             },
             "signature_asset": None,
             "provider_requests": 0,
