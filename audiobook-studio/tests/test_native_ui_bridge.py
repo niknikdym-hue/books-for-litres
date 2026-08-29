@@ -131,6 +131,59 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"--billing-status", "--provider", provider.rawValue, "--refresh"', source)
         self.assertNotIn('runBridgeText(["--run-openai"]', source)
 
+    def test_native_mastering_and_litres_export_reuse_player_and_stay_offline(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (ROOT / "native" / "AudioQAContracts.swift").read_text(encoding="utf-8")
+        self.assertIn('"--mastering-status"', source)
+        self.assertIn('"--create-master"', source)
+        self.assertIn('"--litres-export-status"', source)
+        self.assertIn('"--create-litres-export"', source)
+        self.assertIn('"--reconcile-litres-release-authority"', source)
+        refresh = source.index("private func refreshMastering(")
+        reconcile = source.index(
+            "try await reconcileLitresReleaseAuthority(bookID: authority.bookSlug)",
+            refresh,
+        )
+        mastering = source.index('"--mastering-status"', refresh)
+        self.assertLess(reconcile, mastering)
+        reload = source.index("func reload(preferredBookID:")
+        release_sweep = source.index('"--reconcile-all-litres-release-authorities"', reload)
+        ui_snapshot = source.index('runBridgeJSON(["--ui-snapshot"])', reload)
+        self.assertLess(release_sweep, ui_snapshot)
+        failed_sweep_guard = source.index("releaseSweep.failedBookIDs.isEmpty", release_sweep)
+        self.assertLess(failed_sweep_guard, ui_snapshot)
+        quarantine_failed_guard = source.index(
+            "releaseSweep.quarantineFailedBookIDs.isEmpty", release_sweep,
+        )
+        self.assertLess(quarantine_failed_guard, ui_snapshot)
+        for clearing in (
+            'books = []', 'selectedBookID = ""', 'selectedJobID = ""',
+            'audioQA = nil', 'downstreamApprovedOutput = nil',
+            'chapterAssembly = nil', 'mastering = nil', 'litresExport = nil',
+            'completedOutput = nil', 'audioPlayer.clear()',
+        ):
+            self.assertLess(source.index(clearing, reload), release_sweep)
+        self.assertIn('Button("Подготовить мастер")', source)
+        self.assertIn('Button("Восстановить текущий master")', source)
+        self.assertIn('mastering.decision == "READY_TO_REPAIR"', source)
+        self.assertIn('result.mastering.decision == "ALREADY_MASTERED"', source)
+        self.assertIn('Button("Создать MP3 для ЛитРес")', source)
+        self.assertIn('Button("Обновить пакет для ЛитРес")', source)
+        self.assertIn('export.decision == "READY_TO_REPACKAGE"', source)
+        self.assertIn('Button("Восстановить выпускной пакет")', source)
+        self.assertIn('export.decision == "READY_TO_REPAIR"', source)
+        self.assertIn('Button("Применить блокировку выпуска")', source)
+        self.assertIn('export.bookExport.blockers.contains("unproven_third_party_assets")', source)
+        self.assertIn('Label("Мастеринг"', source)
+        self.assertIn('Label("Экспорт для ЛитРес"', source)
+        self.assertIn('role: "clean-master"', source)
+        self.assertIn('role: "litres-mp3"', source)
+        self.assertEqual(source.count("let audioPlayer = EmbeddedAudioPlayer()"), 1)
+        self.assertIn("Устарело — требуется повторный мастеринг", contracts)
+        self.assertIn("Требуется восстановить текущий master", contracts)
+        self.assertIn("Устарело — требуется повторный экспорт", contracts)
+        self.assertIn("executionSelectionGeneration == expectedSelectionGeneration", source)
+
     def test_native_openai_paid_plan_contract_has_job_picker_and_exact_confirmation(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
@@ -229,6 +282,8 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"$script_dir/EmbeddedAudioPlayer.swift"', build)
         self.assertIn('"$script_dir/AudiobookStudioApp.swift"', build)
         self.assertIn("-framework AVFoundation", build)
+        self.assertIn('xattr -cr "$output_app"', build)
+        self.assertLess(build.index('xattr -cr "$output_app"'), build.rindex('codesign --verify --deep --strict --verbose=2 "$output_app"'))
 
     def test_native_audio_qa_is_wired_to_current_authority_and_exact_review_identity(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")

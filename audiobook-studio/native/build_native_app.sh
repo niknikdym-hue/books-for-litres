@@ -58,6 +58,10 @@ if ! ditto --norsrc --noextattr "$staged_app" "$output_app"; then
   fi
   exit 1
 fi
+# Finder/File Provider may attach FinderInfo immediately after the directory
+# appears at its final path. Clear only generated-bundle metadata before the
+# final strict verification; signed code/resources are not modified.
+xattr -cr "$output_app"
 if ! codesign --verify --deep --strict --verbose=2 "$output_app"; then
   rm -rf "$output_app"
   if [[ -e "$temporary_root/previous.app" ]]; then

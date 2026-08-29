@@ -87,6 +87,8 @@ final class StudioModel: ObservableObject {
     @Published private(set) var audioQAPlaybackIdentity: AudioQAIdentity?
     @Published private(set) var downstreamApprovedOutput: URL?
     @Published private(set) var chapterAssembly: ChapterAssemblyStatus?
+    @Published private(set) var mastering: MasteringStatus?
+    @Published private(set) var litresExport: LitresExportStatus?
     let audioPlayer = EmbeddedAudioPlayer()
     @Published var audioQAStatusText = ""
     @Published private(set) var openAIQATargets: [OpenAIQATarget] = []
@@ -142,7 +144,31 @@ final class StudioModel: ObservableObject {
         invalidateOpenAIIntent()
         isLoading = true
         defer { isLoading = false }
+        books = []
+        selectedBookID = ""
+        selectedJobID = ""
+        audioQA = nil
+        audioQAPlaybackIdentity = nil
+        downstreamApprovedOutput = nil
+        chapterAssembly = nil
+        mastering = nil
+        litresExport = nil
+        completedOutput = nil
+        audioPlayer.clear()
         do {
+            let releaseSweep: LitresReleaseAuthoritySweep = try await runBridgeJSON([
+                "--reconcile-all-litres-release-authorities",
+            ])
+            guard !releaseSweep.remoteRequestSent,
+                  releaseSweep.providerRequests == 0,
+                  !releaseSweep.billingChanged,
+                  releaseSweep.failedBookIDs.isEmpty,
+                  releaseSweep.quarantineFailedBookIDs.isEmpty,
+                  releaseSweep.results.allSatisfy({
+                      !$0.remoteRequestSent && $0.providerRequests == 0 && !$0.billingChanged
+                  }) else {
+                throw BridgeError.message("Проверка прав выпуска не завершена безопасно.")
+            }
             let snapshot: StudioSnapshot = try await runBridgeJSON(["--ui-snapshot"])
             books = snapshot.books
             voiceLibrary = snapshot.voiceLibrary
@@ -163,6 +189,18 @@ final class StudioModel: ObservableObject {
             errorMessage = nil
         } catch {
             showError(error)
+        }
+    }
+
+    private func reconcileLitresReleaseAuthority(bookID: String) async throws {
+        let releaseAuthority: LitresReleaseAuthorityStatus = try await runBridgeJSON([
+            "--reconcile-litres-release-authority",
+            "--book", bookID,
+        ])
+        guard !releaseAuthority.remoteRequestSent,
+              releaseAuthority.providerRequests == 0,
+              !releaseAuthority.billingChanged else {
+            throw BridgeError.message("Проверка прав выпуска нарушила offline contract.")
         }
     }
 
@@ -658,6 +696,8 @@ final class StudioModel: ObservableObject {
         audioQAPlaybackIdentity = nil
         downstreamApprovedOutput = nil
         chapterAssembly = nil
+        mastering = nil
+        litresExport = nil
         audioQAStatusText = ""
         openAIQATargets = []
         openAIQASelection = nil
@@ -955,6 +995,8 @@ final class StudioModel: ObservableObject {
             audioQA = result
             audioQAPlaybackIdentity = nil
             chapterAssembly = nil
+            mastering = nil
+            litresExport = nil
             completedOutput = URL(fileURLWithPath: result.record.audioPath)
             await refreshAudioQADownstream(
                 authority: result.authority,
@@ -1016,6 +1058,8 @@ final class StudioModel: ObservableObject {
                 )
             } else {
                 chapterAssembly = nil
+                mastering = nil
+                litresExport = nil
             }
         } catch {
             guard engine == expectedEngine,
@@ -1052,9 +1096,20 @@ final class StudioModel: ObservableObject {
             guard executionSelectionGeneration == expectedSelectionGeneration,
                   audioQA?.authority == authority else { return }
             chapterAssembly = result.assembly
+            if result.assembly.assembly != nil {
+                await refreshMastering(
+                    authority: authority,
+                    expectedSelectionGeneration: expectedSelectionGeneration
+                )
+            } else {
+                mastering = nil
+                litresExport = nil
+            }
         } catch {
             guard executionSelectionGeneration == expectedSelectionGeneration else { return }
             chapterAssembly = nil
+            mastering = nil
+            litresExport = nil
             technicalDetails = error.localizedDescription
         }
     }
@@ -1090,6 +1145,12 @@ final class StudioModel: ObservableObject {
                 guard executionSelectionGeneration == expectedSelectionGeneration,
                       audioQA?.authority == authority else { return }
                 chapterAssembly = result.assembly
+                if result.assembly.assembly != nil {
+                    await refreshMastering(
+                        authority: authority,
+                        expectedSelectionGeneration: expectedSelectionGeneration
+                    )
+                }
                 errorMessage = nil
             } catch {
                 guard executionSelectionGeneration == expectedSelectionGeneration else { return }
@@ -1131,6 +1192,201 @@ final class StudioModel: ObservableObject {
 
     func revealAssembledChapterInFinder() {
         guard let path = chapterAssembly?.assembly?.output.path else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    private func derivedAudioArguments(mode: String, authority: AudioQAAuthority) -> [String] {
+        [
+            mode,
+            "--provider", authority.provider,
+            "--book", authority.bookSlug,
+            "--job", authority.jobID,
+            "--profile-id", authority.profileID,
+            "--audio-path", authority.audioPath,
+            "--manifest-path", authority.manifestPath,
+        ]
+    }
+
+    private func refreshMastering(
+        authority: AudioQAAuthority,
+        expectedSelectionGeneration: UInt64
+    ) async {
+        guard executionSelectionGeneration == expectedSelectionGeneration else { return }
+        do {
+            try await reconcileLitresReleaseAuthority(bookID: authority.bookSlug)
+            guard executionSelectionGeneration == expectedSelectionGeneration,
+                  audioQA?.authority == authority else { return }
+            let result: MasteringEnvelope = try await runBridgeJSON(
+                derivedAudioArguments(mode: "--mastering-status", authority: authority)
+            )
+            guard !result.remoteRequestSent,
+                  result.providerRequests == 0,
+                  !result.billingChanged,
+                  !result.mastering.remoteRequestSent,
+                  result.mastering.providerRequests == 0,
+                  !result.mastering.billingChanged else {
+                throw BridgeError.message("Мастеринг нарушил offline contract.")
+            }
+            guard executionSelectionGeneration == expectedSelectionGeneration,
+                  audioQA?.authority == authority else { return }
+            mastering = result.mastering
+            if result.mastering.master != nil,
+               result.mastering.decision == "ALREADY_MASTERED" {
+                await refreshLitresExport(
+                    authority: authority,
+                    expectedSelectionGeneration: expectedSelectionGeneration
+                )
+            } else {
+                litresExport = nil
+            }
+        } catch {
+            guard executionSelectionGeneration == expectedSelectionGeneration else { return }
+            mastering = nil
+            litresExport = nil
+            technicalDetails = error.localizedDescription
+        }
+    }
+
+    func createCurrentMaster() {
+        guard let authority = audioQA?.authority,
+              chapterAssembly?.assembly != nil else {
+            errorMessage = "Для мастеринга требуется точная текущая сборка главы."
+            return
+        }
+        let expectedSelectionGeneration = executionSelectionGeneration
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let result: MasteringEnvelope = try await runBridgeJSON(
+                    derivedAudioArguments(mode: "--create-master", authority: authority)
+                )
+                guard !result.remoteRequestSent,
+                      result.providerRequests == 0,
+                      !result.billingChanged,
+                      result.mastering.master != nil else {
+                    throw BridgeError.message("Clean master не был безопасно опубликован.")
+                }
+                guard executionSelectionGeneration == expectedSelectionGeneration,
+                      audioQA?.authority == authority else { return }
+                mastering = result.mastering
+                await refreshLitresExport(
+                    authority: authority,
+                    expectedSelectionGeneration: expectedSelectionGeneration
+                )
+                errorMessage = nil
+            } catch {
+                guard executionSelectionGeneration == expectedSelectionGeneration else { return }
+                showError(error)
+            }
+        }
+    }
+
+    private func refreshLitresExport(
+        authority: AudioQAAuthority,
+        expectedSelectionGeneration: UInt64
+    ) async {
+        guard executionSelectionGeneration == expectedSelectionGeneration else { return }
+        do {
+            let result: LitresExportEnvelope = try await runBridgeJSON(
+                derivedAudioArguments(mode: "--litres-export-status", authority: authority)
+            )
+            guard !result.remoteRequestSent,
+                  result.providerRequests == 0,
+                  !result.billingChanged,
+                  !result.export.remoteRequestSent,
+                  result.export.providerRequests == 0,
+                  !result.export.billingChanged else {
+                throw BridgeError.message("Экспорт нарушил offline contract.")
+            }
+            guard executionSelectionGeneration == expectedSelectionGeneration,
+                  audioQA?.authority == authority else { return }
+            litresExport = result.export
+        } catch {
+            guard executionSelectionGeneration == expectedSelectionGeneration else { return }
+            litresExport = nil
+            technicalDetails = error.localizedDescription
+        }
+    }
+
+    func createCurrentLitresExport() {
+        guard let authority = audioQA?.authority,
+              mastering?.master != nil else {
+            errorMessage = "Для экспорта требуется точный текущий clean master."
+            return
+        }
+        let expectedSelectionGeneration = executionSelectionGeneration
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let result: LitresExportEnvelope = try await runBridgeJSON(
+                    derivedAudioArguments(mode: "--create-litres-export", authority: authority)
+                )
+                guard !result.remoteRequestSent,
+                      result.providerRequests == 0,
+                      !result.billingChanged,
+                      result.export.chapterExport != nil else {
+                    throw BridgeError.message("MP3 главы не был безопасно опубликован.")
+                }
+                guard executionSelectionGeneration == expectedSelectionGeneration,
+                      audioQA?.authority == authority else { return }
+                litresExport = result.export
+                errorMessage = nil
+            } catch {
+                guard executionSelectionGeneration == expectedSelectionGeneration else { return }
+                showError(error)
+            }
+        }
+    }
+
+    func playCleanMaster() {
+        guard let output = mastering?.master?.output,
+              let qa = audioQA else { return }
+        let binding = AudioPlaybackBinding(
+            url: URL(fileURLWithPath: output.path),
+            audioSHA256: output.sha256,
+            pathIdentity: output.pathIdentity,
+            synthesisFingerprint: mastering?.masterIdentity ?? "",
+            provider: qa.authority.provider,
+            profileID: qa.authority.profileID,
+            bookSlug: qa.authority.bookSlug,
+            jobID: qa.authority.jobID,
+            segmentID: qa.authority.segmentID,
+            role: "clean-master"
+        )
+        audioQAPlaybackIdentity = nil
+        audioPlayer.loadAndPlay(binding)
+        if audioPlayer.binding != binding { errorMessage = audioPlayer.errorMessage }
+    }
+
+    func playLitresMP3() {
+        guard let output = litresExport?.chapterExport,
+              let qa = audioQA else { return }
+        let binding = AudioPlaybackBinding(
+            url: URL(fileURLWithPath: output.path),
+            audioSHA256: output.sha256,
+            pathIdentity: output.pathIdentity,
+            synthesisFingerprint: output.candidateIdentity,
+            provider: qa.authority.provider,
+            profileID: qa.authority.profileID,
+            bookSlug: qa.authority.bookSlug,
+            jobID: qa.authority.jobID,
+            segmentID: qa.authority.segmentID,
+            role: "litres-mp3"
+        )
+        audioQAPlaybackIdentity = nil
+        audioPlayer.loadAndPlay(binding)
+        if audioPlayer.binding != binding { errorMessage = audioPlayer.errorMessage }
+    }
+
+    func revealCleanMasterInFinder() {
+        guard let path = mastering?.master?.output.path else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    func revealLitresMP3InFinder() {
+        guard let path = litresExport?.chapterExport?.path else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
@@ -1684,6 +1940,12 @@ private struct AudioQAReviewSection: View {
                     .foregroundStyle(model.downstreamApprovedOutput == nil ? Color.secondary : Color.green)
 
                     ChapterAssemblyCard(model: model, qa: qa)
+                    if model.chapterAssembly?.assembly != nil {
+                        MasteringCard(model: model)
+                    }
+                    if model.mastering?.master != nil {
+                        LitresExportCard(model: model)
+                    }
 
                     DisclosureGroup("Технические подробности") {
                         LabeledContent("Сегмент", value: qa.authority.segmentID)
@@ -1843,6 +2105,179 @@ private struct ChapterAssemblyCard: View {
             } else {
                 Label("Проверяется готовность сборки главы", systemImage: "clock")
                     .font(.headline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct MasteringCard: View {
+    @ObservedObject var model: StudioModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Мастеринг", systemImage: model.mastering?.master == nil ? "dial.medium" : "checkmark.seal")
+                    .font(.headline)
+                Spacer()
+                if let mastering = model.mastering {
+                    Text(masteringStateLabel(mastering.state, decision: mastering.decision))
+                        .foregroundStyle(mastering.decision == "BLOCKED" ? Color.orange : Color.secondary)
+                }
+            }
+            if let mastering = model.mastering {
+                Text("Clean WAV · моно · 48 000 Гц · PCM 16-bit")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Целевая громкость: \(mastering.masterPreset.targetIntegratedLufs.formatted()) LUFS-I · true peak ≤ \(mastering.masterPreset.truePeakCeilingDbtp.formatted()) dBTP")
+                    .font(.callout)
+                if let blocker = mastering.blockerMessage {
+                    Label(blocker, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                } else if mastering.master == nil {
+                    Button("Подготовить мастер") { model.createCurrentMaster() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isRunning || mastering.decision != "READY_TO_MASTER")
+                } else {
+                    if mastering.decision == "READY_TO_REPAIR" {
+                        Button("Восстановить текущий master") { model.createCurrentMaster() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.isRunning)
+                    }
+                    AudioTransportCard(
+                        player: model.audioPlayer,
+                        role: "clean-master",
+                        playTitle: "Прослушать clean master",
+                        onLoad: model.playCleanMaster,
+                        onReveal: model.revealCleanMasterInFinder
+                    )
+                }
+                ForEach(mastering.master?.warnings ?? [], id: \.self) { warning in
+                    Label(
+                        warning == "excessive_leading_boundary_silence"
+                            ? "В начале главы необычно длинная тишина"
+                            : "В конце главы необычно длинная тишина",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
+                DisclosureGroup("Технические подробности мастеринга") {
+                    LabeledContent("Preset", value: mastering.masterPreset.id)
+                    LabeledContent("Preset hash", value: mastering.masterPresetHash)
+                    LabeledContent("Master identity", value: mastering.masterIdentity)
+                    LabeledContent("FFmpeg", value: mastering.ffmpeg.version ?? "Недоступно")
+                    if let manifest = mastering.manifestPath {
+                        LabeledContent("Manifest", value: manifest)
+                    }
+                    if let master = mastering.master {
+                        LabeledContent("SHA-256", value: master.output.sha256)
+                        LabeledContent("LUFS-I", value: master.verification.loudness.inputI.formatted())
+                        LabeledContent("True peak", value: "\(master.verification.loudness.inputTp.formatted()) dBTP")
+                        LabeledContent("RMS", value: "\(master.verification.signal.rmsDbfs.formatted()) dBFS")
+                        LabeledContent("Начальная тишина", value: "\(master.verification.boundarySilence.leadingSilenceSeconds.formatted()) с")
+                        LabeledContent("Конечная тишина", value: "\(master.verification.boundarySilence.trailingSilenceSeconds.formatted()) с")
+                    }
+                }
+            } else {
+                Text("Проверяется exact-current assembly…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct LitresExportCard: View {
+    @ObservedObject var model: StudioModel
+
+    private func blockerLabel(_ code: String) -> String {
+        switch code {
+        case "missing_chapters": return "Подготовлены не все главы"
+        case "missing_cover": return "Обложка не выбрана"
+        case "duplicate_chapters": return "Обнаружены дубли глав"
+        case "unknown_extra_chapters": return "Есть главы вне текущей структуры книги"
+        case "unproven_third_party_assets": return "Не подтверждены права на сторонние материалы"
+        default: return "Пакет книги пока не готов"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Экспорт для ЛитРес", systemImage: model.litresExport?.chapterExport == nil ? "square.and.arrow.up" : "checkmark.circle")
+                    .font(.headline)
+                Spacer()
+                if let export = model.litresExport {
+                    Text(litresExportStateLabel(export.state, decision: export.decision))
+                        .foregroundStyle(export.decision == "BLOCKED" ? Color.orange : Color.secondary)
+                }
+            }
+            if let export = model.litresExport {
+                Text("MP3 · Stereo (dual mono) · 128 kbps")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let blocker = export.blockerMessage {
+                    Label(blocker, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                } else if export.chapterExport != nil,
+                          export.bookExport.blockers.contains("unproven_third_party_assets") {
+                    Button("Применить блокировку выпуска") { model.createCurrentLitresExport() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isRunning)
+                } else if export.decision == "READY_TO_REPACKAGE" {
+                    Button("Обновить пакет для ЛитРес") { model.createCurrentLitresExport() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isRunning)
+                } else if export.decision == "READY_TO_REPAIR" {
+                    Button("Восстановить выпускной пакет") { model.createCurrentLitresExport() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isRunning)
+                } else if export.chapterExport == nil {
+                    Button("Создать MP3 для ЛитРес") { model.createCurrentLitresExport() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isRunning || export.decision != "READY_TO_EXPORT")
+                } else if let chapter = export.chapterExport {
+                    Text("Глава готова · \(audioTimeLabel(chapter.facts.durationSeconds)) · \(ByteCountFormatter.string(fromByteCount: Int64(chapter.facts.sizeBytes), countStyle: .file))")
+                        .font(.callout)
+                    AudioTransportCard(
+                        player: model.audioPlayer,
+                        role: "litres-mp3",
+                        playTitle: "Прослушать MP3",
+                        onLoad: model.playLitresMP3,
+                        onReveal: model.revealLitresMP3InFinder
+                    )
+                }
+                Text("Готово \(export.bookExport.readyChapters) из \(export.bookExport.expectedChapters) глав")
+                    .font(.callout.weight(.medium))
+                if !export.bookExport.ready {
+                    ForEach(export.bookExport.blockers, id: \.self) { blocker in
+                        Label(blockerLabel(blocker), systemImage: "lock.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                DisclosureGroup("Технические подробности экспорта") {
+                    LabeledContent("Profile", value: export.profile.id)
+                    LabeledContent("Profile hash", value: export.profileHash)
+                    LabeledContent("Candidate identity", value: export.candidateIdentity)
+                    LabeledContent("Encoder", value: export.encoder ?? "Недоступно")
+                    if let manifest = export.manifestPath {
+                        LabeledContent("Manifest", value: manifest)
+                    }
+                    if let chapter = export.chapterExport {
+                        LabeledContent("SHA-256", value: chapter.sha256)
+                        LabeledContent("MP3", value: chapter.path)
+                    }
+                    if !export.blockers.isEmpty {
+                        Text("Blockers: \(export.blockers.joined(separator: ", "))")
+                    }
+                }
+            } else {
+                Text("Проверяется готовность MP3-экспорта…")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }

@@ -305,6 +305,303 @@ struct ChapterAssemblyEnvelope: Codable {
     }
 }
 
+struct MasteringPreset: Codable, Equatable {
+    let id: String
+    let version: Int
+    let targetIntegratedLufs: Double
+    let truePeakCeilingDbtp: Double
+
+    enum CodingKeys: String, CodingKey {
+        case id, version
+        case targetIntegratedLufs = "target_integrated_lufs"
+        case truePeakCeilingDbtp = "true_peak_ceiling_dbtp"
+    }
+}
+
+struct MasteringLoudnessFacts: Codable, Equatable {
+    let inputI: Double
+    let inputTp: Double
+
+    enum CodingKeys: String, CodingKey {
+        case inputI = "input_i"
+        case inputTp = "input_tp"
+    }
+}
+
+struct MasteringSignalFacts: Codable, Equatable {
+    let rmsDbfs: Double
+    let estimatedNoiseFloorDbfs: Double
+    let clippedSamples: Int
+
+    enum CodingKeys: String, CodingKey {
+        case rmsDbfs = "rms_dbfs"
+        case estimatedNoiseFloorDbfs = "estimated_noise_floor_dbfs"
+        case clippedSamples = "clipped_samples"
+    }
+}
+
+struct MasteringBoundaryFacts: Codable, Equatable {
+    let leadingSilenceSeconds: Double
+    let trailingSilenceSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case leadingSilenceSeconds = "leading_silence_seconds"
+        case trailingSilenceSeconds = "trailing_silence_seconds"
+    }
+}
+
+struct MasteringVerification: Codable, Equatable {
+    let loudness: MasteringLoudnessFacts
+    let signal: MasteringSignalFacts
+    let boundarySilence: MasteringBoundaryFacts
+
+    enum CodingKeys: String, CodingKey {
+        case loudness, signal
+        case boundarySilence = "boundary_silence"
+    }
+}
+
+struct MasterManifest: Codable, Equatable {
+    let schemaVersion: Int
+    let status: String
+    let masterIdentity: String
+    let output: ChapterAssemblyOutput
+    let verification: MasteringVerification
+    let warnings: [String]?
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case status, output, verification, warnings
+        case schemaVersion = "schema_version"
+        case masterIdentity = "master_identity"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case billingChanged = "billing_changed"
+    }
+}
+
+struct MasteringStatus: Codable {
+    let schemaVersion: Int
+    let state: String
+    let decision: String
+    let blockers: [String]
+    let blockerMessage: String?
+    let masterPreset: MasteringPreset
+    let masterPresetHash: String
+    let masterIdentity: String
+    let ffmpeg: ChapterAssemblyFFmpeg
+    let manifestPath: String?
+    let master: MasterManifest?
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case state, decision, blockers, ffmpeg, master
+        case schemaVersion = "schema_version"
+        case blockerMessage = "blocker_message"
+        case masterPreset = "master_preset"
+        case masterPresetHash = "master_preset_hash"
+        case masterIdentity = "master_identity"
+        case manifestPath = "manifest_path"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case billingChanged = "billing_changed"
+    }
+}
+
+struct MasteringEnvelope: Codable {
+    let schemaVersion: Int
+    let assembly: ChapterAssemblyStatus
+    let mastering: MasteringStatus
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case assembly, mastering
+        case schemaVersion = "schema_version"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case billingChanged = "billing_changed"
+    }
+}
+
+struct LitresExportProfile: Codable, Equatable {
+    let id: String
+    let version: Int
+    let channels: Int
+    let bitrateBps: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, version, channels
+        case bitrateBps = "bitrate_bps"
+    }
+}
+
+struct LitresMP3Facts: Codable, Equatable {
+    let durationSeconds: Double
+    let sampleRateHz: Int
+    let channels: Int
+    let channelLayout: String
+    let bitrateBps: Int
+    let sizeBytes: Int
+    let decodable: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case channels, decodable
+        case durationSeconds = "duration_seconds"
+        case sampleRateHz = "sample_rate_hz"
+        case channelLayout = "channel_layout"
+        case bitrateBps = "bitrate_bps"
+        case sizeBytes = "size_bytes"
+    }
+}
+
+struct LitresChapterExport: Codable, Equatable {
+    let candidateIdentity: String
+    let jobID: String
+    let chapterTitle: String
+    let position: Int
+    let path: String
+    let pathIdentity: String
+    let sha256: String
+    let facts: LitresMP3Facts
+
+    enum CodingKeys: String, CodingKey {
+        case position, path, sha256, facts
+        case candidateIdentity = "candidate_identity"
+        case jobID = "job_id"
+        case chapterTitle = "chapter_title"
+        case pathIdentity = "path_identity"
+    }
+}
+
+struct WholeBookExportState: Codable {
+    let expectedChapters: Int
+    let readyChapters: Int
+    let progress: String
+    let ready: Bool
+    let blockers: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case progress, ready, blockers
+        case expectedChapters = "expected_chapters"
+        case readyChapters = "ready_chapters"
+    }
+}
+
+struct LitresExportStatus: Codable {
+    let schemaVersion: Int
+    let state: String
+    let decision: String
+    let blockers: [String]
+    let blockerMessage: String?
+    let profile: LitresExportProfile
+    let profileHash: String
+    let candidateIdentity: String
+    let encoder: String?
+    let chapterExport: LitresChapterExport?
+    let bookExport: WholeBookExportState
+    let manifestPath: String?
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case state, decision, blockers, profile, encoder
+        case schemaVersion = "schema_version"
+        case blockerMessage = "blocker_message"
+        case profileHash = "profile_hash"
+        case candidateIdentity = "candidate_identity"
+        case chapterExport = "chapter_export"
+        case bookExport = "book_export"
+        case manifestPath = "manifest_path"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case billingChanged = "billing_changed"
+    }
+}
+
+struct LitresExportEnvelope: Codable {
+    let schemaVersion: Int
+    let mastering: MasteringStatus
+    let export: LitresExportStatus
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case mastering, export
+        case schemaVersion = "schema_version"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case billingChanged = "billing_changed"
+    }
+}
+
+struct LitresReleaseAuthorityStatus: Codable {
+    let schemaVersion: Int
+    let bookSlug: String
+    let rightsBlocked: Bool
+    let bookPointerInvalidated: Bool
+    let state: String
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case state
+        case schemaVersion = "schema_version"
+        case bookSlug = "book_slug"
+        case rightsBlocked = "rights_blocked"
+        case bookPointerInvalidated = "book_pointer_invalidated"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case billingChanged = "billing_changed"
+    }
+}
+
+struct LitresReleaseAuthoritySweep: Codable {
+    let schemaVersion: Int
+    let processedBooks: Int
+    let failedBookIDs: [String]
+    let quarantineFailedBookIDs: [String]
+    let results: [LitresReleaseAuthorityStatus]
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case results
+        case schemaVersion = "schema_version"
+        case processedBooks = "processed_books"
+        case failedBookIDs = "failed_book_ids"
+        case quarantineFailedBookIDs = "quarantine_failed_book_ids"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case billingChanged = "billing_changed"
+    }
+}
+
+func masteringStateLabel(_ state: String, decision: String) -> String {
+    if decision == "ALREADY_MASTERED" { return "Clean master готов" }
+    if decision == "READY_TO_REPAIR" { return "Требуется восстановить текущий master" }
+    if decision == "BLOCKED" { return "Мастеринг недоступен" }
+    if state == "STALE" { return "Устарело — требуется повторный мастеринг" }
+    return "Готово к мастерингу"
+}
+
+func litresExportStateLabel(_ state: String, decision: String) -> String {
+    if decision == "ALREADY_EXPORTED" { return "MP3 главы готов" }
+    if decision == "READY_TO_REPAIR" { return "Требуется восстановить выпускной пакет" }
+    if decision == "BLOCKED" { return "Экспорт недоступен" }
+    if state == "STALE" { return "Устарело — требуется повторный экспорт" }
+    return "Готово к экспорту"
+}
+
 func audioQAStatusLabel(_ status: String) -> String {
     switch status {
     case "PASS": return "Техническая проверка пройдена"

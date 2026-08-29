@@ -20,6 +20,7 @@ from preparation_contract import (
     PREPARATION_SCHEMA_VERSION,
     SEGMENTATION_RULES_VERSION,
 )
+from production_authority_lock import production_authority_lock
 
 
 NORMALIZED_RELATIVE_PATH = Path("prepared/normalized.txt")
@@ -287,9 +288,11 @@ class BookTextPreparationService:
         library: BookLibrary,
         *,
         now: Callable[[], str] | None = None,
+        workspace_root: Path | None = None,
     ) -> None:
         self.library = library
         self._now = now or _utc_now
+        self._workspace_root = Path(workspace_root or library.books_root.parent)
 
     def status(self, book_id: str | Path) -> dict[str, Any]:
         details = self.library.book_details(book_id)
@@ -323,7 +326,15 @@ class BookTextPreparationService:
         lock_path = asset_root / ".prepare-text.lock"
         with lock_path.open("a+", encoding="utf-8") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            return self._prepare_locked(profile_path.name, asset_root)
+            with production_authority_lock(
+                self._workspace_root,
+                provider="book-authority",
+                book_slug=profile_path.stem,
+                job_id="profile",
+                profile_id="canonical-v1",
+                exclusive=True,
+            ):
+                return self._prepare_locked(profile_path.name, asset_root)
 
     def _prepare_locked(self, book_id: str, asset_root: Path) -> dict[str, Any]:
         book = self.library.load_book_profile(book_id)

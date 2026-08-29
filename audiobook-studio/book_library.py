@@ -97,8 +97,11 @@ class BookLibrary:
             return []
         return sorted(
             path
-            for path in self.books_root.glob("*.json")
-            if path.is_file() and path.name != "BOOK-TEMPLATE.json" and not path.name.startswith(".")
+            for path in self.books_root.iterdir()
+            if path.is_file()
+            and path.suffix.lower() == ".json"
+            and path.name.casefold() != "book-template.json"
+            and not path.name.startswith(".")
         )
 
     def resolve_book_profile(self, book_id: str | Path) -> Path:
@@ -112,7 +115,9 @@ class BookLibrary:
             raise BookLibraryError(f"Book profile not found: {raw}")
         return path
 
-    def load_book_profile(self, book_id: str | Path) -> dict[str, Any]:
+    def load_book_profile(
+        self, book_id: str | Path, *, allow_disabled: bool = False,
+    ) -> dict[str, Any]:
         path = self.resolve_book_profile(book_id)
         try:
             book = json.loads(path.read_text(encoding="utf-8"))
@@ -120,7 +125,8 @@ class BookLibrary:
             raise BookLibraryError(f"Book profile is unreadable: {path.name}") from error
         if not isinstance(book, dict):
             raise BookLibraryError(f"Book profile must be an object: {path.name}")
-        if book.get("enabled", True) is not True:
+        enabled = book.get("enabled", True)
+        if enabled is not True and not (allow_disabled and enabled is False):
             raise BookLibraryError(f"Book profile disabled: {path.name}")
         for key in ("title", "author", "language", "default_speaker", "audiobook_instruct", "jobs"):
             if key not in book:

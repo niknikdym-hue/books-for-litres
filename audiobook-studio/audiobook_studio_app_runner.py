@@ -19,13 +19,21 @@ from typing import Any, Mapping, Sequence
 from voice_library import load_voice_library, normalize_qwen_profiles
 from workspace_paths import load_workspace_paths
 from cloud_billing import CloudBillingService, decimal_text, decimal_value, save_settings
-from book_library import BookLibrary
+from book_library import BookLibrary, BookLibraryError, normalize_slug
 from book_text_preparation import BookTextPreparationService
 from chapter_production import YandexChapterProductionService
 from chapter_assembly import (
     ChapterAssemblyService,
     assembly_input_from_qa,
     assembly_input_from_qa_segments,
+)
+from mastering_export import (
+    LitresExportService,
+    MasteringExportError,
+    MasteringService,
+    canonical_book_authority,
+    resolve_current_assembly,
+    resolve_current_master,
 )
 from paid_run import PaidRunService
 from audio_qa_authority import (
@@ -48,7 +56,10 @@ YANDEX_PRICING_CONFIG = STUDIO_DIR / "yandex-pricing.json"
 USER_PRICING_CONFIG = Path.home() / "Library/Application Support/Audiobook Studio/yandex-pricing.local.json"
 WORKSPACE_PATHS = load_workspace_paths()
 BOOK_LIBRARY = BookLibrary(WORKSPACE_PATHS.books_root)
-BOOK_TEXT_PREPARATION = BookTextPreparationService(BOOK_LIBRARY)
+BOOK_TEXT_PREPARATION = BookTextPreparationService(
+    BOOK_LIBRARY,
+    workspace_root=WORKSPACE_PATHS.root,
+)
 
 ENGINES = (
     ("qwen", "Qwen — локально"),
@@ -95,6 +106,13 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--chapter-assembly-status", action="store_true")
     mode.add_argument("--prepare-chapter-assembly", action="store_true")
     mode.add_argument("--assemble-chapter", action="store_true")
+    mode.add_argument("--mastering-status", action="store_true")
+    mode.add_argument("--prepare-master", action="store_true")
+    mode.add_argument("--create-master", action="store_true")
+    mode.add_argument("--litres-export-status", action="store_true")
+    mode.add_argument("--create-litres-export", action="store_true")
+    mode.add_argument("--reconcile-litres-release-authority", action="store_true")
+    mode.add_argument("--reconcile-all-litres-release-authorities", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--source-file", default="")
@@ -194,6 +212,182 @@ def _chapter_assembly_service() -> ChapterAssemblyService:
         workspace_root=WORKSPACE_PATHS.root,
         chapters_root=WORKSPACE_PATHS.chapters_root,
     )
+
+
+def _mastering_service() -> MasteringService:
+    return MasteringService(
+        workspace_root=WORKSPACE_PATHS.root,
+        masters_root=WORKSPACE_PATHS.masters_root,
+    )
+
+
+def _litres_export_service() -> LitresExportService:
+    return LitresExportService(
+        workspace_root=WORKSPACE_PATHS.root,
+        exports_root=WORKSPACE_PATHS.exports_root,
+    )
+
+
+def reconcile_litres_release_authority(*, book_name: str) -> dict[str, Any]:
+    """Apply current book rights to the release pointer without media tools."""
+    profile_path = BOOK_LIBRARY.resolve_book_profile(book_name)
+
+    def load_profile_authority() -> dict[str, Any]:
+        book = BOOK_LIBRARY.load_book_profile(
+            profile_path.name, allow_disabled=True,
+        )
+        book["slug"] = profile_path.stem
+        return book
+
+    book = load_profile_authority()
+    return _litres_export_service().reconcile_release_authority(
+        book,
+        revalidate_book=load_profile_authority,
+    )
+
+
+def _profile_requires_release_quarantine(
+    profile_name: str, book_slug: str,
+) -> bool:
+    """Revalidate whether a profile must not retain book release authority."""
+    return _profile_release_authority(profile_name, book_slug) is None
+
+
+def _profile_release_authority(
+    profile_name: str, book_slug: str,
+) -> dict[str, Any] | None:
+    """Return the current canonical profile only when it authorizes release."""
+    canonical_name = f"{normalize_slug(book_slug)}.json"
+    try:
+        book = BOOK_LIBRARY.load_book_profile(
+            canonical_name, allow_disabled=True,
+        )
+    except BookLibraryError:
+        # If no recovered canonical profile exists, preserve the original
+        # enumerated-name check.  This keeps case-variant malformed profiles
+        # quarantinable on case-sensitive filesystems.
+        if profile_name == canonical_name:
+            return None
+        try:
+            book = BOOK_LIBRARY.load_book_profile(
+                profile_name, allow_disabled=True,
+            )
+        except BookLibraryError:
+            # The case-variant path may have disappeared because it was
+            # atomically restored under its canonical name between lookups.
+            # Retry that canonical authority before authorizing quarantine.
+            try:
+                book = BOOK_LIBRARY.load_book_profile(
+                    canonical_name, allow_disabled=True,
+                )
+            except BookLibraryError:
+                return None
+    if book.get("enabled", True) is False:
+        return None
+    rights = book.get("rights_provenance")
+    if bool(
+        isinstance(rights, Mapping)
+        and rights.get("third_party_assets")
+        and rights.get("verified") is not True
+    ):
+        return None
+    book["slug"] = normalize_slug(book_slug)
+    return book
+
+
+def reconcile_all_litres_release_authorities() -> dict[str, Any]:
+    """Reconcile every readable profile before fallible UI snapshot services."""
+    results: list[dict[str, Any]] = []
+    failed_book_ids: list[str] = []
+    quarantined_book_ids: list[str] = []
+    quarantine_failed_book_ids: list[str] = []
+    profile_paths = BOOK_LIBRARY.list_book_profiles()
+    known_profile_slugs: set[str] = set()
+    for profile_path in profile_paths:
+        try:
+            known_profile_slugs.add(normalize_slug(profile_path.stem))
+        except BookLibraryError:
+            # The per-profile loop below records the malformed registry entry,
+            # while cleanup for every other canonical export root continues.
+            continue
+    for profile_path in profile_paths:
+        try:
+            results.append(reconcile_litres_release_authority(book_name=profile_path.name))
+        except (BookLibraryError, MasteringExportError, OSError, ValueError):
+            # Continue so one malformed profile cannot prevent release cleanup
+            # for every other canonical book.  No exception text is exposed.
+            failed_book_ids.append(profile_path.name)
+            try:
+                book_slug = normalize_slug(profile_path.stem)
+                quarantine = _litres_export_service().quarantine_release_authority(
+                    book_slug,
+                    revalidate_quarantine=lambda name=profile_path.name, slug=book_slug: (
+                        _profile_requires_release_quarantine(name, slug)
+                    ),
+                    revalidate_recovered_book=lambda name=profile_path.name, slug=book_slug: (
+                        _profile_release_authority(name, slug)
+                    ),
+                )
+                if quarantine["release_authority_revoked"]:
+                    quarantined_book_ids.append(profile_path.name)
+            except (BookLibraryError, MasteringExportError, OSError, ValueError):
+                quarantine_failed_book_ids.append(profile_path.name)
+    exports_root = WORKSPACE_PATHS.exports_root
+    if exports_root.is_symlink():
+        # Never traverse a configured release root through a symlink.  The
+        # native guard treats any quarantine failure as fatal before snapshot.
+        quarantine_failed_book_ids.append("__exports_root__")
+    elif exports_root.is_dir():
+        for book_root in sorted(exports_root.iterdir()):
+            try:
+                if book_root.is_symlink():
+                    book_slug = normalize_slug(book_root.name)
+                    if book_slug != book_root.name or book_slug in known_profile_slugs:
+                        continue
+                    book_root.unlink()
+                    quarantined_book_ids.append(f"{book_slug}.json")
+                    continue
+                if not book_root.is_dir():
+                    continue
+                book_slug = normalize_slug(book_root.name)
+                if book_slug != book_root.name or book_slug in known_profile_slugs:
+                    continue
+                profile_root = book_root / "litres_author_v1"
+                pointer = profile_root / "CURRENT.json"
+                if profile_root.is_symlink():
+                    profile_root.unlink()
+                    quarantined_book_ids.append(f"{book_slug}.json")
+                    continue
+                if (
+                    not profile_root.is_dir()
+                    or not (pointer.exists() or pointer.is_symlink())
+                ):
+                    continue
+                missing_profile_name = f"{book_slug}.json"
+                quarantine = _litres_export_service().quarantine_release_authority(
+                    book_slug,
+                    revalidate_quarantine=lambda name=missing_profile_name, slug=book_slug: (
+                        _profile_requires_release_quarantine(name, slug)
+                    ),
+                    revalidate_recovered_book=lambda name=missing_profile_name, slug=book_slug: (
+                        _profile_release_authority(name, slug)
+                    ),
+                )
+                if quarantine["release_authority_revoked"]:
+                    quarantined_book_ids.append(missing_profile_name)
+            except (BookLibraryError, MasteringExportError, OSError, ValueError):
+                quarantine_failed_book_ids.append(book_root.name)
+    return {
+        "schema_version": 1,
+        "processed_books": len(results),
+        "failed_book_ids": failed_book_ids,
+        "quarantined_book_ids": quarantined_book_ids,
+        "quarantine_failed_book_ids": quarantine_failed_book_ids,
+        "results": results,
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "billing_changed": False,
+    }
 
 
 def _stable_symlink_identity(path: Path) -> tuple[tuple[int | str, ...], Path]:
@@ -643,6 +837,128 @@ def chapter_assembly_current(
         "assembly": assembly,
         "provider_requests": 0,
         "remote_request_sent": False,
+    }
+
+
+def _current_assembly_authority(
+    *, provider: str, book_name: str, job_id: str, profile_id: str,
+    audio_path: str = "", manifest_path: str = "",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    envelope = chapter_assembly_current(
+        action="status", provider=provider, book_name=book_name,
+        job_id=job_id, profile_id=profile_id,
+        audio_path=audio_path, manifest_path=manifest_path,
+    )
+    status = envelope["assembly"]
+    if status.get("decision") != "ALREADY_ASSEMBLED" or not isinstance(status.get("assembly"), Mapping):
+        raise RuntimeError("Для мастеринга требуется точная текущая сборка главы.")
+    authority = resolve_current_assembly(
+        workspace_root=WORKSPACE_PATHS.root,
+        chapters_root=WORKSPACE_PATHS.chapters_root,
+        book_slug=BOOK_LIBRARY.resolve_book_profile(book_name).stem,
+        job_id=job_id,
+        expected_assembly_identity=status["assembly_identity"],
+    )
+    return envelope, authority
+
+
+def mastering_current(
+    *, action: str, provider: str, book_name: str, job_id: str,
+    profile_id: str, audio_path: str = "", manifest_path: str = "",
+) -> dict[str, Any]:
+    """Prepare or create one clean master from exact-current assembly, offline."""
+    assembly_envelope, authority = _current_assembly_authority(
+        provider=provider, book_name=book_name, job_id=job_id,
+        profile_id=profile_id, audio_path=audio_path, manifest_path=manifest_path,
+    )
+
+    def revalidate() -> Mapping[str, Any]:
+        _, current = _current_assembly_authority(
+            provider=provider, book_name=book_name, job_id=job_id,
+            profile_id=profile_id, audio_path=audio_path, manifest_path=manifest_path,
+        )
+        return current
+
+    service = _mastering_service()
+    if action == "status":
+        mastering = service.status(authority)
+    elif action == "prepare":
+        mastering = service.prepare(authority)
+    elif action == "master":
+        service.master(authority, revalidate=revalidate)
+        mastering = service.status(revalidate())
+    else:
+        raise RuntimeError("Unsupported mastering action.")
+    return {
+        "schema_version": 1,
+        "assembly": assembly_envelope["assembly"],
+        "mastering": mastering,
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "billing_changed": False,
+    }
+
+
+def litres_export_current(
+    *, action: str, provider: str, book_name: str, job_id: str,
+    profile_id: str, audio_path: str = "", manifest_path: str = "",
+) -> dict[str, Any]:
+    """Prepare or create one LitRes MP3 candidate from exact-current master."""
+    mastering_envelope = mastering_current(
+        action="status", provider=provider, book_name=book_name,
+        job_id=job_id, profile_id=profile_id,
+        audio_path=audio_path, manifest_path=manifest_path,
+    )
+    mastering = mastering_envelope["mastering"]
+    if mastering.get("decision") != "ALREADY_MASTERED" or not isinstance(mastering.get("master"), Mapping):
+        raise RuntimeError("Для экспорта требуется точный текущий clean master.")
+    slug = BOOK_LIBRARY.resolve_book_profile(book_name).stem
+    master = resolve_current_master(
+        workspace_root=WORKSPACE_PATHS.root,
+        masters_root=WORKSPACE_PATHS.masters_root,
+        book_slug=slug,
+        job_id=job_id,
+        expected_master_identity=mastering["master_identity"],
+    )
+    book = BOOK_LIBRARY.load_book_for_execution(book_name)
+
+    def revalidate_master() -> Mapping[str, Any]:
+        current_mastering = mastering_current(
+            action="status", provider=provider, book_name=book_name,
+            job_id=job_id, profile_id=profile_id,
+            audio_path=audio_path, manifest_path=manifest_path,
+        )["mastering"]
+        if current_mastering.get("decision") != "ALREADY_MASTERED":
+            raise RuntimeError("Clean master больше не является текущим.")
+        return resolve_current_master(
+            workspace_root=WORKSPACE_PATHS.root,
+            masters_root=WORKSPACE_PATHS.masters_root,
+            book_slug=slug, job_id=job_id,
+            expected_master_identity=current_mastering["master_identity"],
+        )
+
+    def revalidate_book() -> Mapping[str, Any]:
+        return BOOK_LIBRARY.load_book_for_execution(book_name)
+
+    service = _litres_export_service()
+    if action == "status":
+        export = service.status(master, book)
+    elif action == "export":
+        service.export(
+            master, book,
+            revalidate_master=revalidate_master,
+            revalidate_book=revalidate_book,
+        )
+        export = service.status(revalidate_master(), revalidate_book())
+    else:
+        raise RuntimeError("Unsupported LitRes export action.")
+    return {
+        "schema_version": 1,
+        "mastering": mastering,
+        "export": export,
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "billing_changed": False,
     }
 
 
@@ -1099,6 +1415,45 @@ def main(argv: Sequence[str] | None = None) -> int:
             audio_path=args.audio_path,
             manifest_path=args.manifest_path,
         ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.mastering_status or args.prepare_master or args.create_master:
+        action = (
+            "status" if args.mastering_status else
+            "prepare" if args.prepare_master else
+            "master"
+        )
+        print(json.dumps(mastering_current(
+            action=action,
+            provider=_require(args.provider, "--provider"),
+            book_name=_require(args.book, "--book"),
+            job_id=_require(args.job, "--job"),
+            profile_id=_require(args.profile_id, "--profile-id"),
+            audio_path=args.audio_path,
+            manifest_path=args.manifest_path,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.litres_export_status or args.create_litres_export:
+        print(json.dumps(litres_export_current(
+            action="status" if args.litres_export_status else "export",
+            provider=_require(args.provider, "--provider"),
+            book_name=_require(args.book, "--book"),
+            job_id=_require(args.job, "--job"),
+            profile_id=_require(args.profile_id, "--profile-id"),
+            audio_path=args.audio_path,
+            manifest_path=args.manifest_path,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.reconcile_litres_release_authority:
+        print(json.dumps(reconcile_litres_release_authority(
+            book_name=_require(args.book, "--book"),
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.reconcile_all_litres_release_authorities:
+        print(json.dumps(reconcile_all_litres_release_authorities(), ensure_ascii=False, indent=2))
         return 0
 
     if args.openai_status:

@@ -146,11 +146,34 @@ class BookLibraryTests(unittest.TestCase):
         self.assertEqual(book["jobs"], {})
         self.assertEqual(self.library.book_details("my-book")["status"], "NO_PREPARED_JOBS")
 
+    def test_disabled_profile_requires_explicit_authority_only_load(self):
+        self.import_book()
+        path = self.books / "my-book.json"
+        profile = json.loads(path.read_text(encoding="utf-8"))
+        profile["enabled"] = False
+        path.write_text(json.dumps(profile), encoding="utf-8")
+        with self.assertRaises(BookLibraryError):
+            self.library.load_book_profile("my-book.json")
+        loaded = self.library.load_book_profile(
+            "my-book.json", allow_disabled=True,
+        )
+        self.assertIs(loaded["enabled"], False)
+
     def test_registry_discovery_survives_new_instance(self):
         self.import_book()
         restarted = BookLibrary(self.books)
         self.assertEqual([path.name for path in restarted.list_book_profiles()], ["my-book.json"])
         self.assertEqual(restarted.book_details("my-book")["title"], "Моя книга")
+
+    def test_registry_enumerates_json_extension_case_insensitively(self):
+        self.books.mkdir(parents=True)
+        (self.books / "Demo-Book.JSON").write_text("{malformed", encoding="utf-8")
+        (self.books / "BOOK-TEMPLATE.JSON").write_text("{}", encoding="utf-8")
+        (self.books / ".hidden.JSON").write_text("{}", encoding="utf-8")
+        self.assertEqual(
+            [path.name for path in self.library.list_book_profiles()],
+            ["Demo-Book.JSON"],
+        )
 
     def test_import_reports_no_remote_request(self):
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network attempted")) as request:
