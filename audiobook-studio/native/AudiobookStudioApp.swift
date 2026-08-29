@@ -1463,8 +1463,10 @@ struct AudiobookStudioApp: App {
     }
 }
 
+@MainActor
 struct StudioView: View {
     @ObservedObject var model: StudioModel
+    @StateObject private var dilonFlow = DilonNativeFlowController()
     @Environment(\.openSettings) private var openSettings
     @State private var openedDiagnosticSettings = false
     @State private var showBookImporter = false
@@ -1473,6 +1475,23 @@ struct StudioView: View {
     @State private var newBookTitle = ""
     @State private var newBookAuthor = ""
     @State private var newBookSlug = ""
+
+    private var dilonSelectionKey: String {
+        "\(model.selectedBookID)\u{1f}\(model.selectedJobID)"
+    }
+
+    private func syncDilonSelection() {
+        guard let book = model.selectedBook, book.kind == "production",
+              let job = model.selectedJob, job.kind == "chapter" else {
+            dilonFlow.selectionDidChange(
+                bookName: "", jobID: "", player: model.audioPlayer
+            )
+            return
+        }
+        dilonFlow.selectionDidChange(
+            bookName: book.id, jobID: job.id, player: model.audioPlayer
+        )
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -1679,6 +1698,41 @@ struct StudioView: View {
 
                     AudioQAReviewSection(model: model)
 
+                    if let snapshot = dilonFlow.snapshot {
+                        DilonNativeCard(
+                            snapshot: snapshot,
+                            player: model.audioPlayer,
+                            selectedCandidateID: $dilonFlow.selectedCandidateID,
+                            onApproveListenedCandidate: { candidate in
+                                dilonFlow.approveListenedCandidate(
+                                    candidate, player: model.audioPlayer
+                                )
+                            }
+                        )
+                        if !dilonFlow.statusText.isEmpty {
+                            Section("Dilon Voices status") {
+                                Label(dilonFlow.statusText, systemImage: "checkmark.shield.fill")
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                    } else if model.selectedBook?.kind == "production",
+                              model.selectedJob?.kind == "chapter" {
+                        Section("Dilon Voices") {
+                            if dilonFlow.isLoading {
+                                ProgressView("Проверяется Dilon identity…")
+                            } else if let error = dilonFlow.errorMessage {
+                                Label(error, systemImage: "lock.shield")
+                                    .foregroundStyle(.secondary)
+                                Button("Обновить Dilon status") {
+                                    dilonFlow.refresh(player: model.audioPlayer)
+                                }
+                            } else {
+                                Label("Dilon identity пока недоступен", systemImage: "lock.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
                     if model.engine == .qwen {
                         Section("Расходы и лимиты") {
                             Label("Локальный движок · расходы API отсутствуют", systemImage: "laptopcomputer")
@@ -1778,6 +1832,9 @@ struct StudioView: View {
                 if model.isLoading { ProgressView("Загрузка Studio…") }
             }
             .navigationTitle(model.selectedBook?.title ?? "Audiobook Studio")
+            .task(id: dilonSelectionKey) {
+                syncDilonSelection()
+            }
             .onChange(of: model.selectedBookID) { _, _ in
                 model.cancelBookTextPreparation()
                 model.selectDefaultJob()
