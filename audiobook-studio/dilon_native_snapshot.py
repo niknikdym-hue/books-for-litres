@@ -259,9 +259,18 @@ def _identity_preview(
     if not isinstance(identity, Mapping) or identity.get("current") is not True:
         return None
     expected_build_identity = identity.get("build_identity")
-    if not isinstance(expected_build_identity, str) or not expected_build_identity:
+    status_audio_path = identity.get("output_path")
+    status_audio_sha256 = identity.get("output_sha256")
+    if (
+        not isinstance(expected_build_identity, str)
+        or not expected_build_identity
+        or not isinstance(status_audio_path, str)
+        or not status_audio_path
+        or not isinstance(status_audio_sha256, str)
+        or not status_audio_sha256
+    ):
         raise DilonNativeSnapshotError(
-            "identity_preview_not_current", "Current Dilon identity не имеет exact build identity."
+            "identity_preview_not_current", "Current Dilon identity не имеет exact output authority."
         )
     service = DilonIdentityBridgeService(
         workspace_root=workspace_root,
@@ -293,9 +302,10 @@ def _identity_preview(
         or bridge_identity.get("book_slug") != book_slug
         or bridge_identity.get("job_id") != job_id
         or preview.get("read_only") is not True
-        or not isinstance(preview.get("audio_path"), str)
-        or not isinstance(preview.get("audio_sha256"), str)
+        or preview.get("audio_path") != status_audio_path
+        or preview.get("audio_sha256") != status_audio_sha256
         or not isinstance(preview.get("path_identity"), str)
+        or not preview.get("path_identity")
     ):
         raise DilonNativeSnapshotError(
             "identity_preview_not_current",
