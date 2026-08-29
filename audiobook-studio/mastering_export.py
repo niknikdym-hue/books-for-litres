@@ -1319,9 +1319,15 @@ class LitresExportService:
                     return False
             elif cover is not None:
                 return False
+            canonical_manifest_path = (
+                self._profile_root(_safe_slug(book.get("slug")))
+                / identity
+                / "MANIFEST.json"
+            )
             return bool(
                 identity == manifest.get("export_identity")
                 and identity == manifest_path.parent.name
+                and manifest_path == canonical_manifest_path
                 and identity == _export_identity(book, chapters)
                 and _canonical_json(manifest.get("whole_book")) == _canonical_json(derived_state)
                 and derived_state["ready"] is True
@@ -1369,6 +1375,15 @@ class LitresExportService:
                 invalidated = False
                 if release_blocked:
                     invalidated = self._remove_book_release_pointer(book_slug)
+                else:
+                    pointer = self._profile_root(book_slug) / "CURRENT.json"
+                    if (
+                        (pointer.exists() or pointer.is_symlink())
+                        and not self._release_pointer_matches_book_authority(
+                            book_slug, current,
+                        )
+                    ):
+                        invalidated = self._remove_book_release_pointer(book_slug)
                 return {
                     "schema_version": EXPORT_SCHEMA_VERSION,
                     "book_slug": book_slug,
@@ -2272,7 +2287,10 @@ class LitresExportService:
             canonical_path = _require_regular_path(
                 Path(canonical_cover["path"]), root=self.workspace_root, label="Canonical cover"
             )
-            expected_cover = output_dir / f"cover{canonical_path.suffix.lower()}"
+            cover_suffix = canonical_path.suffix.lower()
+            if not re.fullmatch(r"\.[a-z0-9]{1,8}", cover_suffix):
+                cover_suffix = ".img"
+            expected_cover = output_dir / f"cover{cover_suffix}"
             return bool(
                 isinstance(canonical_cover, Mapping)
                 and package_cover == expected_cover

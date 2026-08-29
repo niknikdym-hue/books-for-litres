@@ -333,7 +333,11 @@ def reconcile_all_litres_release_authorities() -> dict[str, Any]:
             except (BookLibraryError, MasteringExportError, OSError, ValueError):
                 quarantine_failed_book_ids.append(profile_path.name)
     exports_root = WORKSPACE_PATHS.exports_root
-    if exports_root.is_dir():
+    if exports_root.is_symlink():
+        # Never traverse a configured release root through a symlink.  The
+        # native guard treats any quarantine failure as fatal before snapshot.
+        quarantine_failed_book_ids.append("__exports_root__")
+    elif exports_root.is_dir():
         for book_root in sorted(exports_root.iterdir()):
             try:
                 if book_root.is_symlink():

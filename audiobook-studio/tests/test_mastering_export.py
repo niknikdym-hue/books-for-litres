@@ -644,9 +644,25 @@ class MasteringExportTests(unittest.TestCase):
         verified_book = copy.deepcopy(blocked_book)
         verified_book["rights_provenance"]["verified"] = True
         unchanged = self.exporting.reconcile_release_authority(verified_book)
-        self.assertEqual(unchanged["state"], "UNCHANGED")
-        self.assertFalse(unchanged["book_pointer_invalidated"])
-        self.assertEqual(book_pointer.read_text(encoding="utf-8"), "forensic-current")
+        self.assertEqual(unchanged["state"], "INVALIDATED")
+        self.assertTrue(unchanged["book_pointer_invalidated"])
+        self.assertFalse(book_pointer.exists())
+
+        book_pointer.symlink_to(self.root / "unsafe-release-pointer")
+        invalid_symlink = self.exporting.reconcile_release_authority(verified_book)
+        self.assertEqual(invalid_symlink["state"], "INVALIDATED")
+        self.assertTrue(invalid_symlink["book_pointer_invalidated"])
+        self.assertFalse(book_pointer.exists())
+
+        book_pointer.write_text("valid-current", encoding="utf-8")
+        with mock.patch.object(
+            self.exporting, "_release_pointer_matches_book_authority",
+            return_value=True,
+        ):
+            valid = self.exporting.reconcile_release_authority(verified_book)
+        self.assertEqual(valid["state"], "UNCHANGED")
+        self.assertFalse(valid["book_pointer_invalidated"])
+        self.assertEqual(book_pointer.read_text(encoding="utf-8"), "valid-current")
 
         profile_only = copy.deepcopy(blocked_book)
         profile_only["jobs"] = {}
@@ -867,6 +883,29 @@ class MasteringExportTests(unittest.TestCase):
             )
         )
         stale_manifest_path.write_bytes(stale_manifest_bytes)
+        stale_manifest = json.loads(stale_manifest_bytes)
+        relocated_root = self.root / "relocated-recovery" / stale_payload["export_identity"]
+        relocated_root.mkdir(parents=True)
+        relocated_cover = relocated_root / Path(
+            stale_manifest["cover"]["package_path"]
+        ).name
+        shutil.copyfile(stale_manifest["cover"]["package_path"], relocated_cover)
+        stale_manifest["cover"].update({
+            "package_path": str(relocated_cover),
+            "package_path_identity": path_identity(relocated_cover),
+            "package_sha256": sha256_file(relocated_cover),
+        })
+        relocated_manifest = relocated_root / "MANIFEST.json"
+        relocated_manifest.write_text(json.dumps(stale_manifest), encoding="utf-8")
+        relocated_payload = {
+            **stale_payload,
+            "manifest_path": str(relocated_manifest),
+        }
+        self.assertFalse(
+            self.exporting._release_pointer_payload_matches_book_authority(
+                relocated_payload, self.book,
+            )
+        )
         stale_mp3 = Path(stale_manifest["chapters"][0]["path"])
         stale_mp3.write_bytes(b"corrupted-after-publication")
         self.assertFalse(
@@ -1278,6 +1317,36 @@ class MasteringExportTests(unittest.TestCase):
         self.assertIsNone(self.exporting._read_export(
             relocated, recovered_manifest["export_identity"],
         ))
+
+    def test_package_cover_validator_uses_exporter_suffix_fallback(self):
+        output_dir = self.root / "exports" / self.book_slug / "litres_author_v1" / ("f" * 64)
+        output_dir.mkdir(parents=True)
+        for filename in ("cover", "cover.INVALID-SUFFIX"):
+            with self.subTest(filename=filename):
+                canonical = self.root / "assets" / filename
+                canonical.parent.mkdir(exist_ok=True)
+                canonical.write_bytes(b"canonical-cover")
+                package_cover = output_dir / "cover.img"
+                package_cover.write_bytes(canonical.read_bytes())
+                canonical_record = {
+                    "path": str(canonical),
+                    "path_identity": path_identity(canonical),
+                    "sha256": sha256_file(canonical),
+                }
+                payload = {
+                    "book": {"cover": canonical_record},
+                    "cover": {
+                        **canonical_record,
+                        "package_path": str(package_cover),
+                        "package_path_identity": path_identity(package_cover),
+                        "package_sha256": sha256_file(package_cover),
+                    },
+                }
+                self.assertTrue(
+                    self.exporting._package_cover_is_valid(
+                        payload, output_dir=output_dir,
+                    )
+                )
 
     def test_cover_copy_race_is_blocked_before_package_publication(self):
         master = self._master_authority()

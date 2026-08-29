@@ -332,6 +332,31 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertEqual(outside_pointer.read_text(encoding="utf-8"), "must-survive")
         self.assertIn("orphan-profile-link.json", result["quarantined_book_ids"])
 
+    def test_symlinked_exports_root_fails_closed_without_target_traversal(self):
+        isolated_root = self.workspace / "symlinked-exports-workspace"
+        isolated_root.mkdir()
+        outside = self.workspace / "outside-entire-exports-root"
+        pointer = outside / "orphan" / "litres_author_v1" / "CURRENT.json"
+        pointer.parent.mkdir(parents=True)
+        pointer.write_text("must-survive", encoding="utf-8")
+        (isolated_root / "exports").symlink_to(outside, target_is_directory=True)
+        isolated_paths = load_workspace_paths(
+            env={"AUDIOBOOK_STUDIO_HOME": str(isolated_root)},
+        )
+        library = mock.Mock()
+        library.list_book_profiles.return_value = []
+        with mock.patch.object(bridge, "WORKSPACE_PATHS", isolated_paths), \
+             mock.patch.object(bridge, "BOOK_LIBRARY", library):
+            result = bridge.reconcile_all_litres_release_authorities()
+        self.assertEqual(
+            result["quarantine_failed_book_ids"], ["__exports_root__"],
+        )
+        self.assertEqual(pointer.read_text(encoding="utf-8"), "must-survive")
+        self.assertTrue((isolated_root / "exports").is_symlink())
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse(result["billing_changed"])
+
     def test_invalid_profile_name_does_not_block_orphan_pointer_cleanup(self):
         invalid_profile = bridge.WORKSPACE_PATHS.books_root / "bad name.json"
         invalid_profile.write_text("{}", encoding="utf-8")
