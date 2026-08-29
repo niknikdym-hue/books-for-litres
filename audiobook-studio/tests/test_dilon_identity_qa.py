@@ -127,6 +127,22 @@ class DilonIdentityQATests(unittest.TestCase):
         self.assertFalse(result["paid_execution"])
         self.assertFalse(result["billing_changed"])
 
+    def test_symlinked_workspace_is_rejected_before_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as parent:
+            alias = Path(parent) / "workspace-alias"
+            alias.symlink_to(self.root, target_is_directory=True)
+            with self.assertRaises(DilonIdentityQAError) as caught:
+                run_identity_technical_qa(
+                    workspace_root=alias,
+                    identities_root=alias / "identities",
+                    book_slug=self.book,
+                    job_id=self.job,
+                    opening_credit_authority=self.credit_authority,
+                    clean_master_authority=self.master_authority,
+                    expected_build_identity=self.built["build_identity"],
+                )
+        self.assertEqual(caught.exception.code, "symlink_workspace_root")
+
     def test_unapproved_credit_is_rejected(self) -> None:
         self.credit_authority["manual_state"] = "UNREVIEWED"
         with self.assertRaises(DilonIdentityQAError) as caught:
