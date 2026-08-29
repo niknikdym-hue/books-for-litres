@@ -4,12 +4,14 @@ import json
 import tempfile
 import unittest
 import wave
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
 from backends.yandex_pricing import YandexPricingConfig
 from backends.yandex_speechkit import (
     DEFAULT_ENDPOINT,
+    ENGINE_ID,
     YandexBackendConfig,
     YandexSpeechKitBackend,
     YandexSpeechKitError,
@@ -28,22 +30,30 @@ TODAY = date(2026, 8, 29)
 
 
 def pricing(unit_price: str = "0.21146666") -> YandexPricingConfig:
-    return YandexPricingConfig.from_mapping({
-        "engine": "yandex_speechkit_v3",
-        "currency": "RUB",
-        "unit": "billing_unit",
-        "unit_price": unit_price,
-        "pricing_model": "per_250_chars_or_request_unit",
-        "source_region": "test",
-        "verified_at": TODAY.isoformat(),
-        "source_url": "https://example.invalid/pricing",
-        "max_age_days": 30,
-        "hard_limit_rub": "10.00",
-        "demo_hard_limit_rub": "1.00",
-    })
+    return YandexPricingConfig.from_mapping(
+        {
+            "engine": "yandex_speechkit_v3",
+            "currency": "RUB",
+            "unit": "billing_unit",
+            "unit_price": unit_price,
+            "pricing_model": "per_250_chars_or_request_unit",
+            "source_region": "test",
+            "verified_at": TODAY.isoformat(),
+            "source_url": "https://example.invalid/pricing",
+            "max_age_days": 30,
+            "hard_limit_rub": "10.00",
+            "demo_hard_limit_rub": "1.00",
+        }
+    )
 
 
-def write_wav(path: Path, *, sample_rate: int = 48_000, sample: int = 200, seconds: float = 2.0) -> None:
+def write_wav(
+    path: Path,
+    *,
+    sample_rate: int = 48_000,
+    sample: int = 200,
+    seconds: float = 2.0,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     frames = max(1, int(sample_rate * seconds))
     payload = int(sample).to_bytes(2, "little", signed=True) * frames
@@ -55,30 +65,40 @@ def write_wav(path: Path, *, sample_rate: int = 48_000, sample: int = 200, secon
 
 
 class FakeBackend:
-    def __init__(self, root: Path, *, mode: str = "done", endpoint: str = DEFAULT_ENDPOINT, sample: int = 200) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        mode: str = "done",
+        endpoint: str = DEFAULT_ENDPOINT,
+        sample: int = 200,
+    ) -> None:
         self.mode = mode
         self.calls = 0
         self.endpoint = endpoint
         self.sample = sample
-        config = YandexBackendConfig.from_mapping({
-            "endpoint": endpoint,
-            "keychain_service": "AudiobookStudio-YandexSpeechKit",
-            "keychain_account": "test",
-            "output_root": str(root / "renders-yandex"),
-            "default_profile": {
-                "voice": "lera",
-                "role": "neutral",
-                "speed": "1.04",
-                "output_container": "WAV",
-                "loudness_normalization": "LUFS",
-            },
-            "segmentation": {
-                "max_chars": 220,
-                "max_words": 34,
-                "sentence_pause_ms": 380,
-                "paragraph_pause_ms": 700,
-            },
-        })
+        self.transactions: list[dict[str, object]] = []
+        config = YandexBackendConfig.from_mapping(
+            {
+                "endpoint": endpoint,
+                "keychain_service": "AudiobookStudio-YandexSpeechKit",
+                "keychain_account": "test",
+                "output_root": str(root / "renders-yandex"),
+                "default_profile": {
+                    "voice": "lera",
+                    "role": "neutral",
+                    "speed": "1.04",
+                    "output_container": "WAV",
+                    "loudness_normalization": "LUFS",
+                },
+                "segmentation": {
+                    "max_chars": 220,
+                    "max_words": 34,
+                    "sentence_pause_ms": 380,
+                    "paragraph_pause_ms": 700,
+                },
+            }
+        )
         self.delegate = YandexSpeechKitBackend(config, api_key="x" * 24)
         self.profile = self.delegate.profile
 
@@ -94,6 +114,9 @@ class FakeBackend:
     def segment(self, text: str):
         return self.delegate.segment(text)
 
+    def manifest_segmentation(self) -> dict[str, int]:
+        return self.delegate.manifest_segmentation()
+
     def request_routing_identity(self) -> dict[str, str]:
         return {
             "endpoint": self.endpoint,
@@ -101,10 +124,33 @@ class FakeBackend:
             "keychain_account": "test",
         }
 
-    def _manifest(self, text: str, job_dir: Path, status: str, *, category: str | None = None) -> Path:
+    def recoverable_inflight_source(
+        self,
+        job_dir: Path,
+        *,
+        segment_id: str,
+        fingerprint: str,
+    ) -> str | None:
+        return None
+
+    def billing_transactions(self) -> list[dict[str, object]]:
+        return [dict(item) for item in self.transactions]
+
+    def _manifest(
+        self,
+        text: str,
+        job_dir: Path,
+        status: str,
+        *,
+        job_id: str,
+        pricing_config: YandexPricingConfig,
+        category: str | None = None,
+    ) -> Path:
         segment = self.segment(text)[0]
         fingerprint = make_fingerprint(segment.text, self.profile)
-        joined = job_dir / "joined.wav"
+        joined = job_dir / (
+            f"{job_id}__{self.profile.voice}-{self.profile.role}-{self.profile.speed}.wav"
+        )
         entry: dict[str, object] = {
             "status": status,
             "text": segment.text,
@@ -112,22 +158,48 @@ class FakeBackend:
             "paragraph_index": segment.paragraph_index,
             "fingerprint": fingerprint,
             "request_id": "request-1",
-            "wav": "joined.wav",
+            "wav": f"{segment.segment_id}__{fingerprint[:12]}.wav",
         }
         if status == "DONE":
             entry["billing_transaction_id"] = "billing-1"
+            self.transactions = [
+                {
+                    "transaction_id": "billing-1",
+                    "provider": "yandex",
+                    "job_id": job_id,
+                    "segment_id": segment.segment_id,
+                    "request_id": "request-1",
+                    "profile_id": "yandex_lera",
+                    "timestamp": "2026-08-29T17:00:00+00:00",
+                    "currency": "RUB",
+                    "actual_cost": "0.21146666",
+                    "cost_source": "local_actual",
+                    "fingerprint": fingerprint,
+                }
+            ]
         if category:
             entry["error"] = {"category": category}
         manifest: dict[str, object] = {
             "schema_version": 1,
-            "job_id": "fake",
+            "engine": ENGINE_ID,
+            "job_id": job_id,
+            "created_at": "2026-08-29T17:00:00+00:00",
+            "profile": asdict(self.profile),
+            "segmentation": self.manifest_segmentation(),
+            "request_routing": self.request_routing_identity(),
+            "estimated_billing_units": 1,
             "segments": {segment.segment_id: entry},
         }
         job_dir.mkdir(parents=True, exist_ok=True)
         if status in {"DONE", "CACHED"}:
             write_wav(joined, sample=self.sample)
             manifest["joined_wav"] = joined.name
-        (job_dir / "MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+            manifest["finished_at"] = "2026-08-29T17:00:01+00:00"
+            manifest["status"] = "DONE"
+        (job_dir / "MANIFEST.json").write_text(
+            json.dumps(manifest),
+            encoding="utf-8",
+        )
         return joined
 
     def run_text_job(
@@ -142,15 +214,46 @@ class FakeBackend:
         self.calls += 1
         job_dir.mkdir(parents=True, exist_ok=True)
         if self.mode == "ambiguous":
-            self._manifest(text, job_dir, "AMBIGUOUS", category="network_ambiguous")
+            self._manifest(
+                text,
+                job_dir,
+                "AMBIGUOUS",
+                job_id=job_id,
+                pricing_config=pricing,
+                category="network_ambiguous",
+            )
             raise YandexSpeechKitError("ambiguous", category="network_ambiguous")
         if self.mode == "credentials":
-            self._manifest(text, job_dir, "FAILED", category="credentials")
+            self._manifest(
+                text,
+                job_dir,
+                "FAILED",
+                job_id=job_id,
+                pricing_config=pricing,
+                category="credentials",
+            )
             raise YandexSpeechKitError("missing credential", category="credentials")
         if self.mode == "http-failed":
-            self._manifest(text, job_dir, "FAILED", category="permission")
-            raise YandexSpeechKitError("permission", category="permission", http_status=403)
-        return self._manifest(text, job_dir, "CACHED" if self.mode == "cached" else "DONE")
+            self._manifest(
+                text,
+                job_dir,
+                "FAILED",
+                job_id=job_id,
+                pricing_config=pricing,
+                category="permission",
+            )
+            raise YandexSpeechKitError(
+                "permission",
+                category="permission",
+                http_status=403,
+            )
+        return self._manifest(
+            text,
+            job_dir,
+            "CACHED" if self.mode == "cached" else "DONE",
+            job_id=job_id,
+            pricing_config=pricing,
+        )
 
 
 class OpeningCreditExternalExecutionTests(unittest.TestCase):
@@ -159,7 +262,10 @@ class OpeningCreditExternalExecutionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.plans = self.root / "paid-plans"
         self.pricing = pricing()
-        self.plan = OpeningCreditPlanStore(self.plans).prepare(pricing=self.pricing, today=TODAY)
+        self.plan = OpeningCreditPlanStore(self.plans).prepare(
+            pricing=self.pricing,
+            today=TODAY,
+        )
         self.assertTrue(self.plan["stored"])
         self.book = "hvatit-sebya-obestsenivat"
         self.job = "chapter-ch001"
@@ -167,15 +273,26 @@ class OpeningCreditExternalExecutionTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def service(self, backend: FakeBackend, *, current_pricing: YandexPricingConfig | None = None):
+    def service(
+        self,
+        backend: FakeBackend,
+        *,
+        current_pricing: YandexPricingConfig | None = None,
+    ) -> OpeningCreditExternalExecutionService:
         return OpeningCreditExternalExecutionService(
             workspace_root=self.root,
             plans_root=self.plans,
             pricing=current_pricing or self.pricing,
             backend=backend,
+            billing_transactions=backend.billing_transactions,
         )
 
-    def execute(self, service: OpeningCreditExternalExecutionService, *, authorized: bool = True):
+    def execute(
+        self,
+        service: OpeningCreditExternalExecutionService,
+        *,
+        authorized: bool = True,
+    ) -> dict[str, object]:
         return service.execute_authorized(
             book_slug=self.book,
             job_id=self.job,
@@ -184,6 +301,20 @@ class OpeningCreditExternalExecutionTests(unittest.TestCase):
             owner_authorized=authorized,
             today=TODAY,
         )
+
+    def execution_dir(self) -> Path:
+        return (
+            review_root(
+                workspace_root=self.root,
+                book_slug=self.book,
+                job_id=self.job,
+            )
+            / "executions"
+            / self.plan["plan_id"]
+        )
+
+    def expected_job_id(self) -> str:
+        return f"dilon-opening-credit-{self.plan['plan_id'][:16]}"
 
     def test_owner_authorization_blocks_before_provider(self) -> None:
         backend = FakeBackend(self.root)
@@ -196,7 +327,9 @@ class OpeningCreditExternalExecutionTests(unittest.TestCase):
     def test_changed_price_requires_fresh_prepare_and_authorization(self) -> None:
         backend = FakeBackend(self.root)
         with self.assertRaises(OpeningCreditExecutionError) as caught:
-            self.execute(self.service(backend, current_pricing=pricing("0.31146666")))
+            self.execute(
+                self.service(backend, current_pricing=pricing("0.31146666"))
+            )
         self.assertEqual(caught.exception.code, "plan_stale_reprepare_required")
         self.assertEqual(backend.calls, 0)
 
@@ -220,16 +353,29 @@ class OpeningCreditExternalExecutionTests(unittest.TestCase):
         self.assertFalse(first["manual_approval_published"])
         self.assertFalse(first["whole_book_release_ready"])
         self.assertEqual(backend.calls, 1)
-        current = review_root(workspace_root=self.root, book_slug=self.book, job_id=self.job) / "CURRENT.json"
+        current = (
+            review_root(
+                workspace_root=self.root,
+                book_slug=self.book,
+                job_id=self.job,
+            )
+            / "CURRENT.json"
+        )
         self.assertFalse(current.exists())
-        candidate = json.loads(Path(first["candidate_path"]).read_text(encoding="utf-8"))
+        candidate = json.loads(
+            Path(first["candidate_path"]).read_text(encoding="utf-8")
+        )
         self.assertEqual(candidate["candidate"]["manual_state"], "PENDING_HUMAN_REVIEW")
         self.assertEqual(candidate["candidate"]["provider_requests"], 1)
         self.assertTrue(candidate["candidate"]["remote_request_sent"])
         self.assertEqual(candidate["candidate"]["profile"], EXPECTED_PROFILE)
 
         second = self.execute(service)
-        self.assertEqual(backend.calls, 1, "completed provider result must never be requested again")
+        self.assertEqual(
+            backend.calls,
+            1,
+            "completed provider result must never be requested again",
+        )
         self.assertEqual(second["provider_requests"], 0)
         self.assertFalse(second["remote_request_sent"])
         self.assertEqual(second["historical_provenance"]["provider_requests"], 1)
@@ -258,9 +404,31 @@ class OpeningCreditExternalExecutionTests(unittest.TestCase):
         backend.mode = "done"
         with self.assertRaises(OpeningCreditExecutionError) as second:
             self.execute(service)
-        self.assertEqual(second.exception.code, "prior_provider_result_requires_resolution")
+        self.assertEqual(
+            second.exception.code,
+            "prior_provider_result_requires_resolution",
+        )
         self.assertEqual(backend.calls, 1)
         self.assertFalse(second.exception.remote_request_sent)
+
+    def test_prior_inflight_without_local_artifact_blocks_before_backend(self) -> None:
+        backend = FakeBackend(self.root, mode="done")
+        execution_dir = self.execution_dir()
+        backend._manifest(
+            self.plan["text"],
+            execution_dir,
+            "IN_FLIGHT",
+            job_id=self.expected_job_id(),
+            pricing_config=self.pricing,
+        )
+        with self.assertRaises(OpeningCreditExecutionError) as caught:
+            self.execute(self.service(backend))
+        self.assertEqual(
+            caught.exception.code,
+            "prior_provider_result_requires_resolution",
+        )
+        self.assertEqual(backend.calls, 0)
+        self.assertFalse(caught.exception.remote_request_sent)
 
     def test_pre_request_credential_failure_can_retry_without_double_charge(self) -> None:
         backend = FakeBackend(self.root, mode="credentials")
@@ -285,7 +453,33 @@ class OpeningCreditExternalExecutionTests(unittest.TestCase):
         backend.mode = "done"
         with self.assertRaises(OpeningCreditExecutionError) as second:
             self.execute(service)
-        self.assertEqual(second.exception.code, "prior_provider_result_requires_resolution")
+        self.assertEqual(
+            second.exception.code,
+            "prior_provider_result_requires_resolution",
+        )
+        self.assertEqual(backend.calls, 1)
+
+    def test_completed_manifest_cannot_repoint_joined_wav(self) -> None:
+        backend = FakeBackend(self.root, mode="done")
+        service = self.service(backend)
+        self.execute(service)
+        manifest_path = self.execution_dir() / "MANIFEST.json"
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        payload["joined_wav"] = "../other.wav"
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaises(OpeningCreditExecutionError) as caught:
+            self.execute(service)
+        self.assertEqual(caught.exception.code, "execution_manifest_mismatch")
+        self.assertEqual(backend.calls, 1)
+
+    def test_completed_remote_result_requires_exact_billing_ledger_evidence(self) -> None:
+        backend = FakeBackend(self.root, mode="done")
+        service = self.service(backend)
+        self.execute(service)
+        backend.transactions = []
+        with self.assertRaises(OpeningCreditExecutionError) as caught:
+            self.execute(service)
+        self.assertEqual(caught.exception.code, "billing_evidence_missing")
         self.assertEqual(backend.calls, 1)
 
     def test_candidate_qa_failure_never_publishes_current(self) -> None:
@@ -293,7 +487,14 @@ class OpeningCreditExternalExecutionTests(unittest.TestCase):
         with self.assertRaises(OpeningCreditExecutionError) as caught:
             self.execute(self.service(backend))
         self.assertEqual(caught.exception.code, "opening_credit_silent")
-        current = review_root(workspace_root=self.root, book_slug=self.book, job_id=self.job) / "CURRENT.json"
+        current = (
+            review_root(
+                workspace_root=self.root,
+                book_slug=self.book,
+                job_id=self.job,
+            )
+            / "CURRENT.json"
+        )
         self.assertFalse(current.exists())
 
     def test_unicode_slug_uses_canonical_book_identity(self) -> None:
