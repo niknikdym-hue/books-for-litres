@@ -1,114 +1,141 @@
 # Audiobook Studio
 
-Audiobook Studio — единое приложение для подготовки и производства аудиокниг с подключаемыми TTS backend:
+Audiobook Studio — единое local-first macOS приложение для подготовки и производства аудиокниг с подключаемыми TTS backend:
 
-- Qwen / MLX Local — локальный синтез на Mac;
-- Yandex SpeechKit v3 — облачный backend;
-- OpenAI TTS — облачный backend.
+- Qwen / MLX Local;
+- Yandex SpeechKit v3;
+- OpenAI TTS.
 
-Qwen, Yandex и OpenAI не являются отдельными Studio. Книги, подготовка текста, сегментация, Voice Library, cache/fingerprint, manifest/Resume, QA, сборка и export образуют один общий контур.
+Book Library, preprocessing, Voice Library, provider adapters, cache/fingerprint, paid-run safety, Audio QA, chapter assembly, mastering, Dilon Voices identity и LitRes export образуют один provider-neutral production pipeline.
 
 ## Canonical authority
 
 Использовать документы в таком порядке:
 
-1. [`docs/AUDIOBOOK-STUDIO-ARCHITECTURE.md`](docs/AUDIOBOOK-STUDIO-ARCHITECTURE.md) — стабильная архитектура и производственный регламент;
-2. [`docs/OPENAI-TTS-BACKEND-CONTRACT.md`](docs/OPENAI-TTS-BACKEND-CONTRACT.md) — provider-specific contract OpenAI;
-3. [`docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md`](docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md) — фактическая текущая точка, принятые acceptance-факты, launch readiness, активный checkpoint и changelog.
+1. [`docs/AUDIOBOOK-STUDIO-ARCHITECTURE.md`](docs/AUDIOBOOK-STUDIO-ARCHITECTURE.md) — стабильная архитектура и production invariants;
+2. provider-specific contracts;
+3. [`docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md`](docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md) — фактическая текущая launch-точка, accepted gates, paid/provider blockers и real-book progress.
 
-Если старый authority-документ содержит устаревший **status** этапа, текущий status из `AUDIOBOOK-STUDIO-CURRENT-STATE.md` имеет приоритет. Стабильные архитектурные правила при этом не переопределяются. GitHub `main` является source of truth; chat не является source of truth проекта.
+GitHub `main` — source of truth. Chat не является project authority. Перед продолжением всегда проверять фактический `main`, current-state и открытые launch PR/issues.
 
-## Текущий статус запуска
+## Текущий launch status
 
-Техническое ядро и установленная production Desktop Studio уже приняты:
-
-```text
-LEVEL A — technical core       PASS
-LEVEL B — installed Studio     PASS
-DEPLOY-0                       PASS
-```
-
-Safe native OpenAI paid workflow принят, находится в `main` и развёрнут в production Desktop app. Post-merge runtime provisioning, fresh build, strict codesign и zero-action production acceptance завершены.
-
-`BOOK_LIBRARY_ADD_BOOK_V1` принят, находится в `main` и развёрнут в production Desktop app:
+Приняты:
 
 ```text
-BOOK_LIBRARY_ADD_BOOK_V1 = ACCEPTED_AND_DEPLOYED
-canonical registry = <AUDIOBOOK_STUDIO_HOME>/books/*.json
-immutable source = books/<slug>/source/original.txt
-editable TTS copy = books/<slug>/tts/working.txt
+BOOK_TEXT_PREPARATION_V1             ACCEPTED
+CHAPTER_PRODUCTION_V1               ACCEPTED
+AUDIO_QA_REVIEW_V1                  ACCEPTED
+CHAPTER_ASSEMBLY_V1                 ACCEPTED
+MASTERING_EXPORT_V1                 ACCEPTED
+DILON_IDENTITY_V1_OFFLINE_PREFLIGHT ACCEPTED
+DILON_IDENTITY_V1_NO_MUSIC_BUILD    ACCEPTED
+DILON_OPENING_CREDIT_PREPARE_V1     ACCEPTED
+DILON_IDENTITY_TECHNICAL_QA_V1      ACCEPTED
+DILON_OPENING_CREDIT_PLAN_STORE_V1  ACCEPTED
 ```
 
-Add Book работает через native file picker и offline bridge; импорт не выполняет provider request.
+Активный gate:
 
-`BOOK_TEXT_PREPARATION_V1` принят в `main` на `1414ebdbea358a8aa264651f2756a21d7edca8c9`: conservative normalization, chapter detection, provider-neutral literary segmentation, fail-closed artifact integrity и prepared chapter jobs работают без synthesis/provider requests.
+```text
+DILON_IDENTITY_V1 = IN_PROGRESS
+```
 
-Активный checkpoint — `CHAPTER_PRODUCTION_V1`: безопасное производство одной выбранной подготовленной главы. Первый production route — Yandex Lera с локальным immutable PREPARE-планом, отдельным подтверждением, cache/Resume и жёсткой верхней границей provider-запросов.
+Следующий production-engineering контур — Dilon identity bridge/native status + exact-output preview/QA integration. После полного Dilon gate — `REAL_BOOK_E2E_ACCEPTANCE`.
 
-Полный production launch для реальной книги end-to-end ещё не завершён. После chapter production по порядку: QA/Review → assembly → mastering → Dilon Voices → export → LitRes profile → MP3/M4B → end-to-end acceptance на реальной книге.
+Первая реальная книга пока не whole-book ready:
 
-Definition of Done активного checkpoint хранится в `docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md`.
+```text
+book = hvatit-sebya-obestsenivat
+production progress = 1 / 16
+WHOLE_BOOK_RELEASE_READY = FALSE
+```
 
-Не переходить к mastering/export раньше готовности production book workflow.
+Первую принятую Yandex-главу не пересинтезировать.
+
+## Dilon Voices
+
+Canonical brand:
+
+```text
+Dilon Voices
+```
+
+Canonical opening credit:
+
+```text
+Елена Дилон. Хватит себя обесценивать. Читает Dilon Voices.
+```
+
+Frozen production voice:
+
+```text
+yandex_lera = lera / neutral / 1.04
+```
+
+Canonical no-music path:
+
+```text
+reviewed opening-credit WAV
+→ exact 0.5 s digital silence
+→ exact-current clean master
+→ immutable Dilon identity WAV + MANIFEST + CURRENT
+→ independent offline technical QA
+```
+
+No-music path не блокируется optional signature/music. Candidate `Lounge Vibes 05.7` не использовать без доказанных commercial audiobook rights/provenance.
+
+Opening-credit PREPARE и immutable plan store полностью offline. Они фиксируют exact `plan_id`, `plan_digest`, frozen voice, request cap и local price estimate, но не дают права на provider execution. Цена обязана быть повторно проверена непосредственно перед любой будущей платной операцией.
 
 ## Локальный workspace
 
-Канонический workspace по умолчанию:
+По умолчанию:
 
 ```text
 ~/Documents/New project/Audiobook-Studio
 ```
 
-Единственный resolver находится в `workspace_paths.py`. Корень можно переопределить через `AUDIOBOOK_STUDIO_HOME` или общий JSON contract, указанный в `AUDIOBOOK_STUDIO_PATH_CONTRACT`. Локальный contract по умолчанию: `Audiobook-Studio/settings/workspace-paths.json`.
+Единственный path resolver — `workspace_paths.py`. Корень можно переопределить через `AUDIOBOOK_STUDIO_HOME` или `AUDIOBOOK_STUDIO_PATH_CONTRACT`.
 
-Production-книги, WAV, manifests, cache, renders, masters и exports хранятся в локальном workspace, а не в Git. В `books/` репозитория остаются только template и безопасный demo profile.
-
-Canonical production book library:
-
-```text
-<AUDIOBOOK_STUDIO_HOME>/books/<slug>.json
-<AUDIOBOOK_STUDIO_HOME>/books/<slug>/source/original.txt
-<AUDIOBOOK_STUDIO_HOME>/books/<slug>/tts/working.txt
-```
-
-Единственный resolver/import/integrity authority — `book_library.py`. Старый `runtime/studio-workspace/books` и repository fixtures не являются параллельным production registry.
-
-Native app исполняет Python из local runtime copy. Repository остаётся source of truth для production code/config; installation/update flow должен синхронизировать bounded execution contour без перезаписи пользовательских книг, billing, cache, manifests и audio artifacts.
+Production data находятся вне Git: реальные книги, renders, cache, QA state, chapters, masters, identities, exports, paid-run plans и billing runtime.
 
 ## Voice Library
 
-`voice-library.json` и `voice_library.py` задают единый schema v1 для cloud-профилей. Утверждены:
+`voice-library.json` / `voice_library.py` — единая authority для cloud voice profiles.
 
+Утверждены:
 - Yandex: Lera, Ermil, Kirill, Anton;
-- OpenAI: Onyx и Cedar — равноправные built-in профили;
-- Qwen: 9 профилей, динамически нормализуемых из `studio.load_voices()`.
+- OpenAI: Onyx, Cedar;
+- Qwen profiles нормализуются из local runtime catalog.
 
-OpenAI Custom Voice отложен. Synthetic slots `openai_female` / `openai_male` и обязательное поле `gender` не используются.
+Для текущей production-книги Yandex Lera frozen: `lera / neutral / 1.04`.
 
 ## Безопасность платных операций
 
-Тесты, catalog/bridge checks и estimates работают offline. API keys, credentials, `.env`, runtime manifests и audio artifacts не коммитятся.
+Никакой provider execution без explicit owner action.
 
-OpenAI global config сохраняет:
+OpenAI global safety:
 
 ```text
 paid_execution_enabled=false
 ```
 
-Принятый native paid flow:
+Общий paid flow:
 
 ```text
 explicit user action
-→ local PREPARE confirmation
-→ one-shot intent
-→ network-free immutable PREPARE
-→ separate paid confirmation
-→ revalidation
-→ maximum one provider request
-→ CONSUMED
+→ offline PREPARE + current pricing
+→ immutable plan/request/cost cap
+→ separate explicit authorization
+→ authority and price revalidation
+→ bounded provider execution
+→ automatic QA
+→ human review bound to exact output identity
 ```
 
-Без explicit user action PREPARE не выполняется. Automatic retry safe paid run = 0. `AMBIGUOUS` автоматически не retry.
+Automatic retry ambiguous paid action = 0.
+
+Текущие Dilon preflight/build/PREPARE/plan-store/technical-QA/bridge-status работы не имеют права выполнять provider requests или менять billing.
 
 ## Тесты
 
@@ -118,26 +145,24 @@ explicit user action
 python3 -m unittest discover -s audiobook-studio/tests -v
 ```
 
-Команда не выполняет TTS synthesis и не отправляет provider API requests.
-
-Принятый baseline после Book Library deployment:
-
-```text
-233 / 233 PASS
-```
+Offline CI также проверяет macOS native contract/build/strict codesign. Тестовая команда не должна выполнять TTS synthesis/provider requests.
 
 ## Native staging app
 
-Source находится в `native/`. Сборка использует Swift toolchain и изолированный version-keyed module cache:
+Source: `audiobook-studio/native/`.
+
+Build:
 
 ```bash
 audiobook-studio/native/build_native_app.sh
 ```
 
-Default output:
+Default staging output:
 
 ```text
 ~/Documents/New project/Audiobook-Studio/builds/native-staging/Audiobook Studio.app
 ```
 
-Staging artifact не заменяет production Desktop app автоматически. Production deployment/update остаётся отдельной fail-safe операцией. Текущие `DEPLOY-0` и `BOOK_LIBRARY_ADD_BOOK_V1` приняты и развёрнуты.
+Staging build не заменяет production Desktop app автоматически. Production deployment — отдельный owner-controlled fail-safe gate.
+
+Точную актуальную launch точку всегда брать из `docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md` и фактического GitHub `main`.
