@@ -22,39 +22,7 @@ class DilonIdentityStatusTests(unittest.TestCase):
         self.book = "demo-book"
         self.job = "chapter-ch001"
         self.master_identity = "m" * 64
-        self.master_dir = self.masters / self.book / self.job / self.master_identity
-        self.master_dir.mkdir(parents=True)
-        self.master = self.master_dir / "master.wav"
-        self._wav(self.master, 4_800, 100)
-        self.master_manifest = self.master_dir / "MANIFEST.json"
-        self.master_manifest.write_text(
-            json.dumps({"schema_version": 1, "master_identity": self.master_identity}),
-            encoding="utf-8",
-        )
-        (self.master_dir.parent / "CURRENT.json").write_text(
-            json.dumps({
-                "schema_version": 1,
-                "master_identity": self.master_identity,
-                "manifest_path": str(self.master_manifest),
-            }),
-            encoding="utf-8",
-        )
-        self.master_authority = {
-            "master_identity": self.master_identity,
-            "master_manifest_path": str(self.master_manifest),
-            "master_manifest_sha256": sha256_file(self.master_manifest),
-            "audio_path": str(self.master),
-            "audio_sha256": sha256_file(self.master),
-            "path_identity": path_identity(self.master),
-            "wav": inspect_pcm_wav(self.master).to_dict(),
-            "book_slug": self.book,
-            "book_title": "Demo Book",
-            "job_id": self.job,
-            "job_label": "Chapter 1",
-            "provider": "yandex",
-            "profile_id": "yandex_lera",
-            "assembly_identity": "a" * 64,
-        }
+        self.master_authority = self._make_master_authority(self.book)
         self.credit = self.root / "credits" / "opening.wav"
         self.credit.parent.mkdir()
         self._wav(self.credit, 2_400, 50)
@@ -71,6 +39,41 @@ class DilonIdentityStatusTests(unittest.TestCase):
             output.setsampwidth(2)
             output.setframerate(48_000)
             output.writeframes(int(sample).to_bytes(2, "little", signed=True) * frames)
+
+    def _make_master_authority(self, book_slug: str) -> dict[str, object]:
+        master_dir = self.masters / book_slug / self.job / self.master_identity
+        master_dir.mkdir(parents=True)
+        master = master_dir / "master.wav"
+        self._wav(master, 4_800, 100)
+        manifest = master_dir / "MANIFEST.json"
+        manifest.write_text(
+            json.dumps({"schema_version": 1, "master_identity": self.master_identity}),
+            encoding="utf-8",
+        )
+        (master_dir.parent / "CURRENT.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "master_identity": self.master_identity,
+                "manifest_path": str(manifest),
+            }),
+            encoding="utf-8",
+        )
+        return {
+            "master_identity": self.master_identity,
+            "master_manifest_path": str(manifest),
+            "master_manifest_sha256": sha256_file(manifest),
+            "audio_path": str(master),
+            "audio_sha256": sha256_file(master),
+            "path_identity": path_identity(master),
+            "wav": inspect_pcm_wav(master).to_dict(),
+            "book_slug": book_slug,
+            "book_title": "Demo Book",
+            "job_id": self.job,
+            "job_label": "Chapter 1",
+            "provider": "yandex",
+            "profile_id": "yandex_lera",
+            "assembly_identity": "a" * 64,
+        }
 
     def _credit_record(self) -> dict[str, object]:
         digest = sha256_file(self.credit)
@@ -204,11 +207,10 @@ class DilonIdentityStatusTests(unittest.TestCase):
 
     def test_unicode_canonical_book_slug_is_accepted_by_status_bridge(self) -> None:
         unicode_book = "книга-тест"
-        unicode_master = dict(self.master_authority)
-        unicode_master["book_slug"] = unicode_book
+        unicode_master = self._make_master_authority(unicode_book)
 
         def resolver(**_: object) -> dict[str, object]:
-            return unicode_master
+            return dict(unicode_master)
 
         status = current_dilon_identity_status(
             workspace_root=self.root,
