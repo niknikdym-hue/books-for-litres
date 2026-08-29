@@ -1,9 +1,10 @@
 """Offline aggregate snapshot for the native Dilon Voices workflow.
 
-This module is deliberately read-only.  It combines the accepted current Dilon
+This module is deliberately read-only. It combines the accepted current Dilon
 identity status with an explicitly validated catalog of immutable opening-credit
-review candidates.  It never prepares or executes a provider request, never
-approves a candidate, and never mutates billing or release authority.
+review candidates and, only for an exact-current identity, a separately validated
+preview binding. It never prepares or executes a provider request, never approves
+a candidate, and never mutates billing or release authority.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import stat
 from pathlib import Path
 from typing import Any, Mapping
 
+from dilon_identity_bridge import DilonIdentityBridgeService
 from dilon_identity_status import current_dilon_identity_status
 from dilon_opening_credit_review import (
     CURRENT_SCHEMA_VERSION,
@@ -245,6 +247,79 @@ def list_review_candidates(
     return results
 
 
+def _identity_preview(
+    *,
+    workspace_root: Path,
+    identities_root: Path,
+    status: Mapping[str, Any],
+    book_slug: str,
+    job_id: str,
+) -> dict[str, Any] | None:
+    identity = status.get("identity")
+    if not isinstance(identity, Mapping) or identity.get("current") is not True:
+        return None
+    expected_build_identity = identity.get("build_identity")
+    status_audio_path = identity.get("output_path")
+    status_audio_sha256 = identity.get("output_sha256")
+    if (
+        not isinstance(expected_build_identity, str)
+        or not expected_build_identity
+        or not isinstance(status_audio_path, str)
+        or not status_audio_path
+        or not isinstance(status_audio_sha256, str)
+        or not status_audio_sha256
+    ):
+        raise DilonNativeSnapshotError(
+            "identity_preview_not_current", "Current Dilon identity не имеет exact output authority."
+        )
+    service = DilonIdentityBridgeService(
+        workspace_root=workspace_root,
+        identities_root=identities_root,
+        paid_plans_root=workspace_root / "runtime" / "paid-run-plans",
+    )
+    bridge = service.identity_status(
+        book_slug=book_slug,
+        job_id=job_id,
+        expected_build_identity=expected_build_identity,
+    )
+    if (
+        bridge.get("provider_requests") != 0
+        or bridge.get("remote_request_sent") is not False
+        or bridge.get("paid_execution") is not False
+        or bridge.get("billing_changed") is not False
+    ):
+        raise DilonNativeSnapshotError(
+            "offline_contract_violation", "Identity preview bridge нарушил offline contract."
+        )
+    preview = bridge.get("preview")
+    bridge_identity = bridge.get("identity")
+    if (
+        bridge.get("state") != "READY"
+        or bridge.get("decision") != "READY_TO_PREVIEW"
+        or not isinstance(preview, Mapping)
+        or not isinstance(bridge_identity, Mapping)
+        or bridge_identity.get("build_identity") != expected_build_identity
+        or bridge_identity.get("book_slug") != book_slug
+        or bridge_identity.get("job_id") != job_id
+        or preview.get("read_only") is not True
+        or preview.get("audio_path") != status_audio_path
+        or preview.get("audio_sha256") != status_audio_sha256
+        or not isinstance(preview.get("path_identity"), str)
+        or not preview.get("path_identity")
+    ):
+        raise DilonNativeSnapshotError(
+            "identity_preview_not_current",
+            "Current Dilon identity не прошёл exact preview revalidation.",
+        )
+    return {
+        "build_identity": expected_build_identity,
+        "audio_path": preview["audio_path"],
+        "audio_sha256": preview["audio_sha256"],
+        "path_identity": preview["path_identity"],
+        "read_only": True,
+    }
+
+
 def current_native_snapshot(
     *,
     workspace_root: Path,
@@ -280,6 +355,13 @@ def current_native_snapshot(
         raise DilonNativeSnapshotError(
             "offline_contract_violation", "Dilon current status нарушил offline contract."
         )
+    preview = _identity_preview(
+        workspace_root=root,
+        identities_root=identities_root,
+        status=status,
+        book_slug=slug,
+        job_id=job,
+    )
     return {
         "schema_version": NATIVE_SNAPSHOT_SCHEMA_VERSION,
         "state": "READY",
@@ -288,6 +370,7 @@ def current_native_snapshot(
         "job_id": job,
         "dilon_status": status,
         "review_candidates": candidates,
+        "identity_preview": preview,
         "capabilities": {
             "prepare_opening_credit_offline": True,
             "review_candidate_offline": True,
