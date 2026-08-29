@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import stat
 import wave
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any, Mapping
 
 from audio_qa_review import path_identity, sha256_file
 from backends.common import WavValidationError, inspect_pcm_wav
+from dilon_identity import OPENING_CREDIT_TEXT
 from dilon_identity_build import DilonIdentityBuildError, resolve_current_identity
 
 
@@ -77,10 +79,58 @@ def _source(
         raise DilonIdentityQAError("source_identity_mismatch", f"{label} identity изменилась.")
     if require_review:
         reviewed = value.get("reviewed_identity")
-        if value.get("manual_state") != "APPROVED" or not isinstance(reviewed, Mapping):
-            raise DilonIdentityQAError("opening_credit_not_approved", "Opening credit не одобрен вручную.")
-        if reviewed.get("audio_sha256") != digest or reviewed.get("path_identity") != identity:
+        fingerprint = value.get("synthesis_fingerprint")
+        if (
+            value.get("text") != OPENING_CREDIT_TEXT
+            or value.get("automatic_status") not in {"PASS", "WARN"}
+            or value.get("manual_state") != "APPROVED"
+            or not isinstance(fingerprint, str)
+            or not fingerprint
+            or not isinstance(reviewed, Mapping)
+        ):
+            raise DilonIdentityQAError("opening_credit_not_approved", "Opening credit authority не подтверждена.")
+        if (
+            reviewed.get("audio_sha256") != digest
+            or reviewed.get("path_identity") != identity
+            or reviewed.get("synthesis_fingerprint") != fingerprint
+        ):
             raise DilonIdentityQAError("opening_credit_review_stale", "Reviewed opening credit устарел.")
+    return path, facts
+
+
+def _current_master_source(
+    value: Mapping[str, Any], *, root: Path, book_slug: str, job_id: str
+) -> tuple[Path, dict[str, Any]]:
+    master_identity = value.get("master_identity")
+    if (
+        not isinstance(master_identity, str)
+        or not master_identity
+        or master_identity in {".", ".."}
+        or "/" in master_identity
+        or "\\" in master_identity
+    ):
+        raise DilonIdentityQAError("invalid_master_identity", "Некорректный master_identity.")
+    path, facts = _source(value, root=root, label="Clean master")
+    canonical_dir = root / "masters" / book_slug / job_id / master_identity
+    manifest = _regular(
+        Path(str(value.get("master_manifest_path") or "")), root=root, label="Clean master manifest"
+    )
+    if path != canonical_dir / "master.wav" or manifest != canonical_dir / "MANIFEST.json":
+        raise DilonIdentityQAError("clean_master_not_current", "Clean master находится вне canonical immutable package.")
+    if value.get("master_manifest_sha256") != sha256_file(manifest):
+        raise DilonIdentityQAError("clean_master_not_current", "Clean master manifest identity изменилась.")
+    pointer_path = _regular(canonical_dir.parent / "CURRENT.json", root=root, label="Clean master CURRENT")
+    try:
+        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as error:
+        raise DilonIdentityQAError("clean_master_not_current", "Clean master CURRENT повреждён.") from error
+    if (
+        not isinstance(pointer, Mapping)
+        or pointer.get("schema_version") != 1
+        or pointer.get("master_identity") != master_identity
+        or pointer.get("manifest_path") != str(manifest)
+    ):
+        raise DilonIdentityQAError("clean_master_not_current", "Clean master больше не является exact-current.")
     return path, facts
 
 
@@ -151,16 +201,19 @@ def run_identity_technical_qa(
         raise DilonIdentityQAError("identity_execution_contract_invalid", "Identity manifest нарушает offline contract.")
 
     components = manifest.get("components")
-    if not isinstance(components, list) or [item.get("kind") for item in components if isinstance(item, Mapping)] != [
-        "opening_credit", "gap", "clean_master"
-    ] or len(components) != 3:
+    if (
+        not isinstance(components, list)
+        or len(components) != 3
+        or [item.get("kind") for item in components if isinstance(item, Mapping)]
+        != ["opening_credit", "gap", "clean_master"]
+    ):
         raise DilonIdentityQAError("identity_component_order_invalid", "Identity component order повреждён.")
 
     credit_path, credit_facts = _source(
         opening_credit_authority, root=root, label="Opening credit", require_review=True
     )
-    master_path, master_facts = _source(
-        clean_master_authority, root=root, label="Clean master"
+    master_path, master_facts = _current_master_source(
+        clean_master_authority, root=root, book_slug=book_slug, job_id=job_id
     )
     credit_sha = sha256_file(credit_path)
     master_sha = sha256_file(master_path)
