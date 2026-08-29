@@ -1,10 +1,9 @@
-"""Offline current-state bridge for the Dilon Voices identity layer.
+"""Offline current-state orchestration for the Dilon Voices identity layer.
 
-This module is intentionally read-only with respect to provider execution.  It
-resolves the exact-current clean master, an optional exact reviewed opening-credit
-authority, the deterministic no-music build identity, current immutable identity
-output, and technical QA.  It never synthesizes audio, contacts a provider, or
-mutates billing.
+The status operation itself is strictly network-free and billing-neutral.  It may
+consume a reviewed opening-credit authority that was produced historically by an
+explicit paid provider action; historical production provenance must not be
+misrepresented as a new request made by this read-only status call.
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ from dilon_identity import (
     DILON_BRAND,
     DILON_DESCRIPTION,
     OPENING_CREDIT_TEXT,
+    DilonIdentityError,
     build_identity_preflight,
 )
 from dilon_identity_build import (
@@ -102,6 +102,13 @@ def opening_credit_authority_path(*, workspace_root: Path, book_slug: str, job_i
 def _load_opening_credit_authority(
     *, workspace_root: Path, book_slug: str, job_id: str
 ) -> tuple[dict[str, Any] | None, Path]:
+    """Load exact reviewed credit authority without falsifying historical billing facts.
+
+    `provider_requests`, `remote_request_sent`, `paid_execution`, and
+    `billing_changed` may describe the historical production that created the
+    credit.  They are deliberately not required to be zero here.  The status
+    response itself always reports zero/false for the current read-only call.
+    """
     expected = opening_credit_authority_path(
         workspace_root=workspace_root, book_slug=book_slug, job_id=job_id
     )
@@ -118,13 +125,17 @@ def _load_opening_credit_authority(
         raise DilonIdentityStatusError(
             "opening_credit_authority_invalid", "Opening credit authority имеет неверный формат."
         )
+    try:
+        same_slug = _safe_slug(payload.get("book_slug")) == _safe_slug(book_slug)
+        same_job = _safe_id(payload.get("job_id"), "job_id") == _safe_id(job_id, "job_id")
+    except DilonIdentityStatusError as error:
+        raise DilonIdentityStatusError(
+            "opening_credit_authority_invalid", "Opening credit authority не совпадает с selection."
+        ) from error
     if (
         payload.get("schema_version") != OPENING_CREDIT_AUTHORITY_SCHEMA_VERSION
-        or _safe_slug(payload.get("book_slug")) != _safe_slug(book_slug)
-        or _safe_id(payload.get("job_id"), "job_id") != _safe_id(job_id, "job_id")
-        or payload.get("provider_requests") != 0
-        or payload.get("remote_request_sent") is not False
-        or payload.get("billing_changed") is not False
+        or not same_slug
+        or not same_job
     ):
         raise DilonIdentityStatusError(
             "opening_credit_authority_invalid", "Opening credit authority не совпадает с canonical envelope."
@@ -135,6 +146,15 @@ def _load_opening_credit_authority(
             "opening_credit_authority_invalid", "Opening credit record отсутствует."
         )
     return dict(record), path
+
+
+def _offline_fields() -> dict[str, Any]:
+    return {
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "paid_execution": False,
+        "billing_changed": False,
+    }
 
 
 def _blocked(
@@ -167,10 +187,7 @@ def _blocked(
         "technical_ready": False,
         "whole_book_release_ready": False,
         "blockers": list(dict.fromkeys(blockers)),
-        "provider_requests": 0,
-        "remote_request_sent": False,
-        "paid_execution": False,
-        "billing_changed": False,
+        **_offline_fields(),
     }
 
 
@@ -184,7 +201,7 @@ def current_dilon_identity_status(
     opening_credit_prepare: Mapping[str, Any] | None = None,
     master_resolver: Callable[..., Mapping[str, Any]] = resolve_current_master,
 ) -> dict[str, Any]:
-    """Return exact-current Dilon identity state without any provider execution."""
+    """Return exact-current Dilon identity state without provider execution."""
     root = _workspace_root(workspace_root)
     slug = _safe_slug(book_slug)
     job = _safe_id(job_id, "job_id")
@@ -225,13 +242,24 @@ def current_dilon_identity_status(
             opening_credit_prepare=opening_credit_prepare,
         )
 
-    preflight = build_identity_preflight(
-        master,
-        workspace_root=root,
-        opening_credit_text=OPENING_CREDIT_TEXT,
-        opening_credit=opening_credit,
-        signature_asset=None,
-    )
+    try:
+        preflight = build_identity_preflight(
+            master,
+            workspace_root=root,
+            opening_credit_text=OPENING_CREDIT_TEXT,
+            opening_credit=opening_credit,
+            signature_asset=None,
+        )
+    except DilonIdentityError as error:
+        return _blocked(
+            slug=slug,
+            job=job,
+            blockers=[error.code],
+            master=master,
+            authority_path=authority_path,
+            opening_credit=opening_credit,
+            opening_credit_prepare=opening_credit_prepare,
+        )
     if preflight.get("state") != "READY":
         return _blocked(
             slug=slug,
@@ -285,7 +313,7 @@ def current_dilon_identity_status(
             "opening_credit_prepare": dict(opening_credit_prepare) if isinstance(opening_credit_prepare, Mapping) else None,
             "identity": {
                 "build_identity": expected_identity,
-                "output_path": plan.get("output_dir"),
+                "output_path": str(Path(str(plan.get("output_dir") or "")) / "identity.wav"),
                 "current": False,
             },
             "technical_qa": None,
@@ -294,10 +322,7 @@ def current_dilon_identity_status(
             "technical_ready": False,
             "whole_book_release_ready": False,
             "blockers": ["identity_output_missing"],
-            "provider_requests": 0,
-            "remote_request_sent": False,
-            "paid_execution": False,
-            "billing_changed": False,
+            **_offline_fields(),
         }
 
     try:
@@ -336,10 +361,7 @@ def current_dilon_identity_status(
             "technical_ready": False,
             "whole_book_release_ready": False,
             "blockers": [error.code],
-            "provider_requests": 0,
-            "remote_request_sent": False,
-            "paid_execution": False,
-            "billing_changed": False,
+            **_offline_fields(),
         }
 
     return {
@@ -367,8 +389,5 @@ def current_dilon_identity_status(
         "technical_ready": True,
         "whole_book_release_ready": False,
         "blockers": [],
-        "provider_requests": 0,
-        "remote_request_sent": False,
-        "paid_execution": False,
-        "billing_changed": False,
+        **_offline_fields(),
     }
