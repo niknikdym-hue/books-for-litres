@@ -101,7 +101,7 @@ final class DilonNativeFlowController: ObservableObject {
         guard !bookName.isEmpty, !jobID.isEmpty else { return }
         let expectedGeneration = selectionGeneration
         Task {
-            await loadSnapshot(
+            _ = await loadSnapshot(
                 bookName: bookName,
                 jobID: jobID,
                 expectedGeneration: expectedGeneration
@@ -124,7 +124,7 @@ final class DilonNativeFlowController: ObservableObject {
         let bookName = activeBookName
         let jobID = activeJobID
         Task {
-            await loadSnapshot(
+            _ = await loadSnapshot(
                 bookName: bookName,
                 jobID: jobID,
                 expectedGeneration: expectedGeneration
@@ -194,13 +194,13 @@ final class DilonNativeFlowController: ObservableObject {
 
                 player.clear()
                 selectedCandidateID = nil
-                await loadSnapshot(
+                let refreshed = await loadSnapshot(
                     bookName: expectedBookName,
                     jobID: expectedJobID,
                     expectedGeneration: expectedGeneration,
                     markLoading: false
                 )
-                guard selectionGeneration == expectedGeneration else { return }
+                guard refreshed, selectionGeneration == expectedGeneration else { return }
                 statusText = "Opening credit одобрен по exact listened identity."
                 errorMessage = nil
             } catch {
@@ -213,12 +213,13 @@ final class DilonNativeFlowController: ObservableObject {
         }
     }
 
+    @discardableResult
     private func loadSnapshot(
         bookName: String,
         jobID: String,
         expectedGeneration: UInt64,
         markLoading: Bool = true
-    ) async {
+    ) async -> Bool {
         if markLoading { isLoading = true }
         defer {
             if markLoading, selectionGeneration == expectedGeneration {
@@ -244,11 +245,13 @@ final class DilonNativeFlowController: ObservableObject {
                 self.selectedCandidateID = nil
             }
             errorMessage = nil
+            return true
         } catch {
-            guard selectionGeneration == expectedGeneration else { return }
+            guard selectionGeneration == expectedGeneration else { return false }
             snapshot = nil
             selectedCandidateID = nil
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
