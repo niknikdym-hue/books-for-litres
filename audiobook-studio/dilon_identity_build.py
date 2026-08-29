@@ -109,12 +109,11 @@ def _regular(path: Path, *, root: Path, label: str) -> Path:
 def _output_root(workspace_root: Path, identities_root: Path) -> Path:
     boundary = _workspace(workspace_root)
     requested = Path(identities_root).expanduser().absolute()
-    try:
-        relative = requested.relative_to(boundary)
-    except ValueError as error:
-        raise DilonIdentityBuildError("output_root_escape", "Identity root вне workspace.") from error
+    canonical = boundary / "identities"
+    if requested != canonical:
+        raise DilonIdentityBuildError("noncanonical_identity_root", "Identity root должен быть canonical workspace/identities.")
     current = boundary
-    for part in relative.parts:
+    for part in requested.relative_to(boundary).parts:
         current /= part
         if current.is_symlink():
             raise DilonIdentityBuildError("symlink_output_root", "Identity root содержит symlink.")
@@ -326,6 +325,8 @@ def build_identity_output(
     temp_dir = chapter_root / f".tmp-{identity}-{uuid.uuid4().hex}"
     temp_dir.mkdir()
     temp_audio = temp_dir / "identity.wav"
+    final_audio = output_dir / "identity.wav"
+    final_manifest = output_dir / "MANIFEST.json"
     try:
         with wave.open(str(temp_audio), "wb") as target:
             target.setnchannels(1)
@@ -360,9 +361,9 @@ def build_identity_output(
                 {"kind": "clean_master", "sha256": master_before, "frames": master_frames},
             ],
             "output": {
-                "path": str((output_dir / "identity.wav").absolute()),
+                "path": str(final_audio.absolute()),
                 "sha256": sha256_file(temp_audio),
-                "path_identity": None,
+                "path_identity": path_identity(final_audio),
                 "wav": wav_facts,
                 "clipped_samples": 0,
             },
@@ -380,11 +381,6 @@ def build_identity_output(
         }
         atomic_write_json(temp_dir / "MANIFEST.json", manifest)
         os.rename(temp_dir, output_dir)
-        final_audio = output_dir / "identity.wav"
-        final_manifest = output_dir / "MANIFEST.json"
-        manifest["output"]["path"] = str(final_audio.resolve(strict=True))
-        manifest["output"]["path_identity"] = path_identity(final_audio)
-        atomic_write_json(final_manifest, manifest)
         if _read_ready(output_dir, identity) is None:
             raise DilonIdentityBuildError("identity_publication_invalid", "Published identity package invalid.")
         atomic_write_json(chapter_root / "CURRENT.json", {
