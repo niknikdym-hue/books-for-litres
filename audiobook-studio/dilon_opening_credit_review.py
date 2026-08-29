@@ -1,10 +1,11 @@
 """Offline human-review authority for the Dilon Voices opening credit.
 
-This module never synthesizes audio and never contacts a provider.  It takes an
+This module never synthesizes audio and never contacts a provider. It takes an
 already-produced, review-ready PCM WAV, copies it into an immutable candidate
 package, and keeps it PENDING_HUMAN_REVIEW until an explicit approval call binds
-the exact candidate id/digest.  Only that explicit approval may publish the
-CURRENT.json envelope consumed by ``dilon_identity_status``.
+the exact candidate id/digest *and* the exact identity actually listened to by
+the player. Only that approval may publish the CURRENT.json envelope consumed by
+``dilon_identity_status``.
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ from dilon_identity import OPENING_CREDIT_TEXT
 
 REVIEW_SCHEMA_VERSION = 1
 CURRENT_SCHEMA_VERSION = 1
+MIN_REVIEW_SECONDS = 1.5
+MAX_REVIEW_SECONDS = 30.0
 EXPECTED_PROFILE = {
     "profile_id": "yandex_lera",
     "provider": "yandex",
@@ -151,18 +154,27 @@ def _wav(path: Path) -> dict[str, Any]:
             "unsupported_review_wav",
             "Review-ready opening credit должен быть PCM16 mono 48 kHz.",
         )
+    duration = float(facts.get("duration_seconds") or 0.0)
+    if duration < MIN_REVIEW_SECONDS or duration > MAX_REVIEW_SECONDS:
+        raise OpeningCreditReviewError(
+            "opening_credit_duration_invalid",
+            "Opening-credit candidate имеет недопустимую длительность.",
+        )
     return facts
 
 
-def _clipped_samples(path: Path) -> int:
+def _signal_stats(path: Path) -> tuple[int, int]:
     clipped = 0
+    nonzero = 0
     with wave.open(str(path), "rb") as source:
         while True:
             data = source.readframes(8192)
             if not data:
-                return clipped
+                return clipped, nonzero
             for index in range(0, len(data), 2):
                 sample = int.from_bytes(data[index:index + 2], "little", signed=True)
+                if sample != 0:
+                    nonzero += 1
                 if sample in {-32768, 32767}:
                     clipped += 1
 
@@ -202,17 +214,21 @@ def prepare_review_candidate(
         )
     if (
         not isinstance(provider_requests, int)
-        or provider_requests < 0
+        or provider_requests not in {0, 1}
         or not isinstance(remote_request_sent, bool)
         or not isinstance(paid_execution, bool)
         or not isinstance(billing_changed, bool)
+        or (provider_requests == 0 and (remote_request_sent or paid_execution or billing_changed))
     ):
         raise OpeningCreditReviewError("invalid_provenance", "Historical provider provenance некорректна.")
 
     source = _regular(source_wav, root=root, label="Opening-credit source WAV")
     facts = _wav(source)
-    if _clipped_samples(source):
+    clipped, nonzero = _signal_stats(source)
+    if clipped:
         raise OpeningCreditReviewError("opening_credit_clipping", "Opening-credit candidate содержит clipping.")
+    if nonzero == 0:
+        raise OpeningCreditReviewError("opening_credit_silent", "Opening-credit candidate полностью silent.")
     source_sha = sha256_file(source)
     semantic_identity = {
         "schema_version": REVIEW_SCHEMA_VERSION,
@@ -244,7 +260,13 @@ def prepare_review_candidate(
         temp = package_root / f".{uuid.uuid4().hex}.wav.part"
         try:
             shutil.copyfile(source, temp)
-            if sha256_file(temp) != source_sha or _wav(temp) != facts:
+            temp_clipped, temp_nonzero = _signal_stats(temp)
+            if (
+                sha256_file(temp) != source_sha
+                or _wav(temp) != facts
+                or temp_clipped
+                or temp_nonzero != nonzero
+            ):
                 raise OpeningCreditReviewError("candidate_copy_mismatch", "Copied review candidate не совпадает с source.")
             os.replace(temp, audio_path)
         finally:
@@ -256,6 +278,11 @@ def prepare_review_candidate(
         "audio_path": str(audio_path),
         "path_identity": path_identity(audio_path),
         "automatic_status": "PASS",
+        "automatic_qa": {
+            "clipped_samples": 0,
+            "nonzero_samples": nonzero,
+            "duration_seconds": facts["duration_seconds"],
+        },
         "manual_state": "PENDING_HUMAN_REVIEW",
         "provider_requests": provider_requests,
         "remote_request_sent": remote_request_sent,
@@ -294,6 +321,8 @@ def prepare_review_candidate(
         "candidate_path": str(manifest_path),
         "audio_path": str(audio_path),
         "audio_sha256": source_sha,
+        "path_identity": path_identity(audio_path),
+        "synthesis_fingerprint": fingerprint,
         "provider_requests": 0,
         "remote_request_sent": False,
         "paid_execution": False,
@@ -334,15 +363,24 @@ def _load_candidate(
         or candidate.get("text") != OPENING_CREDIT_TEXT
         or candidate.get("manual_state") != "PENDING_HUMAN_REVIEW"
         or candidate.get("automatic_status") != "PASS"
+        or any(candidate.get("profile", {}).get(key) != value for key, value in EXPECTED_PROFILE.items())
     ):
         raise OpeningCreditReviewError("candidate_integrity_mismatch", "Opening-credit review authority не подтверждена.")
     audio = _regular(Path(str(candidate.get("audio_path") or "")), root=root, label="Opening-credit candidate WAV")
+    facts = _wav(audio)
+    clipped, nonzero = _signal_stats(audio)
     if (
         audio != package_root / "opening-credit.wav"
         or candidate.get("audio_sha256") != sha256_file(audio)
         or candidate.get("path_identity") != path_identity(audio)
-        or candidate.get("wav") != _wav(audio)
-        or _clipped_samples(audio)
+        or candidate.get("wav") != facts
+        or clipped
+        or nonzero == 0
+        or candidate.get("automatic_qa") != {
+            "clipped_samples": 0,
+            "nonzero_samples": nonzero,
+            "duration_seconds": facts["duration_seconds"],
+        }
     ):
         raise OpeningCreditReviewError("candidate_integrity_mismatch", "Opening-credit candidate WAV изменён.")
     return candidate, manifest_path
@@ -356,8 +394,11 @@ def approve_review_candidate(
     candidate_id: str,
     candidate_digest: str,
     decision: str,
+    listened_audio_sha256: str,
+    listened_path_identity: str,
+    listened_synthesis_fingerprint: str,
 ) -> dict[str, Any]:
-    """Publish CURRENT only after an explicit exact-candidate approval decision."""
+    """Publish CURRENT only after explicit approval of the exact listened audio identity."""
     if decision != "APPROVE":
         raise OpeningCreditReviewError(
             "explicit_approval_required", "Для публикации opening-credit authority требуется decision=APPROVE."
@@ -372,8 +413,22 @@ def approve_review_candidate(
         candidate_id=candidate_id,
         candidate_digest=candidate_digest,
     )
-    audio = Path(candidate["audio_path"])
     fingerprint = candidate["synthesis_fingerprint"]
+    if (
+        listened_audio_sha256 != candidate["audio_sha256"]
+        or listened_path_identity != candidate["path_identity"]
+        or listened_synthesis_fingerprint != fingerprint
+    ):
+        raise OpeningCreditReviewError(
+            "listened_identity_mismatch",
+            "Human approval не совпадает с exact audio identity, прослушанной player-ом.",
+        )
+    audio = Path(candidate["audio_path"])
+    reviewed_identity = {
+        "audio_sha256": candidate["audio_sha256"],
+        "path_identity": candidate["path_identity"],
+        "synthesis_fingerprint": fingerprint,
+    }
     opening_credit = {
         "text": OPENING_CREDIT_TEXT,
         "audio_path": str(audio),
@@ -383,11 +438,7 @@ def approve_review_candidate(
         "synthesis_fingerprint": fingerprint,
         "automatic_status": "PASS",
         "manual_state": "APPROVED",
-        "reviewed_identity": {
-            "audio_sha256": candidate["audio_sha256"],
-            "path_identity": candidate["path_identity"],
-            "synthesis_fingerprint": fingerprint,
-        },
+        "reviewed_identity": reviewed_identity,
         "plan_id": candidate["plan_id"],
         "plan_digest": candidate["plan_digest"],
         "profile": candidate["profile"],
@@ -404,6 +455,7 @@ def approve_review_candidate(
         "candidate_digest": candidate_digest,
         "candidate_manifest_path": str(manifest_path),
         "approved_at": utc_now_iso(),
+        "listened_identity": reviewed_identity,
         "opening_credit": opening_credit,
     }
     current = _ensure_directory(
@@ -419,6 +471,7 @@ def approve_review_candidate(
         "candidate_id": candidate["candidate_id"],
         "candidate_digest": candidate_digest,
         "authority_path": str(current),
+        "listened_identity": reviewed_identity,
         "opening_credit": opening_credit,
         "provider_requests": 0,
         "remote_request_sent": False,
