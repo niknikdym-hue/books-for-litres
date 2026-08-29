@@ -4,13 +4,13 @@
 **Дата фиксации:** 2026-08-29  
 **Проект:** `audiobook-studio/`  
 **Repository:** `niknikdym-hue/books-for-litres`  
-**Accepted feature baseline after PR #34:** `184f884274706fe1fc4e89e2b719ca9a8c474d99`
+**Accepted main after PR #35:** `f3620fb275ff86d98f5030436b0914c53b2f3cde`
 
 ---
 
 ## 1. Authority и safety
 
-GitHub `main` — source of truth кода и project authority. Перед каждым действием сверять фактический `main`, открытые launch issues/PR и exact-head CI.
+GitHub `main` — source of truth кода и project authority. Перед каждым действием сверять фактический `main`, launch issues/PR и exact-head CI.
 
 Без отдельного bounded owner decision запрещены:
 - provider/network TTS execution;
@@ -21,6 +21,8 @@ GitHub `main` — source of truth кода и project authority. Перед ка
 - предположение прав на сторонние audio/music assets.
 
 Global OpenAI safety: `paid_execution_enabled = false`.
+
+Никогда не выполнять silent retry после неоднозначного или отправленного provider request.
 
 ---
 
@@ -47,30 +49,42 @@ Global OpenAI safety: `paid_execution_enabled = false`.
 17. exact-current Dilon native preview backend binding — PR #31;
 18. fail-closed native Swift Dilon card — PR #32;
 19. native Dilon flow orchestration / exact-listened approval controller — PR #33;
-20. mounted native Dilon flow in the normal Studio form — PR #34.
+20. mounted native Dilon flow in normal Studio form — PR #34;
+21. `DILON_IDENTITY_EXTERNAL_READINESS_V1` — PR #35.
 
-PR #34 acceptance evidence:
-- final feature HEAD `950f8b4526adca6761dcef06e54c72227b9d011e`;
-- merge/main baseline `184f884274706fe1fc4e89e2b719ca9a8c474d99`;
-- exact-head workflow `Audiobook Studio Offline` run `#187`: SUCCESS;
-- Python full offline suite: SUCCESS;
-- macOS ARM64 native contract/build/strict codesign: SUCCESS;
-- review threads: 0;
-- open P1/P2: 0;
-- provider/network requests: 0;
-- paid execution: 0;
-- billing mutation: false;
-- production deployment: false.
+### PR #34 native-flow acceptance
 
-The mounted native flow now lives in the normal `StudioView`. It owns one `DilonNativeFlowController`, binds only to the exact selected production book/chapter, clears Dilon snapshot/candidate/shared-player state when that selection changes, mounts the accepted `DilonNativeCard`, and wires approval only through the accepted exact-listened controller path. Canonical Unicode Book Library identity remains delegated to the accepted snapshot bridge; no ASCII-only slug transformation was introduced.
+- feature HEAD `950f8b4526adca6761dcef06e54c72227b9d011e`;
+- Python full offline suite SUCCESS;
+- macOS ARM64 native contract/build/strict codesign SUCCESS;
+- review threads 0;
+- provider/network requests 0;
+- paid execution 0;
+- production deployment false.
+
+The normal `StudioView` now contains the accepted Dilon flow. It binds only to the exact selected production book/chapter, invalidates Dilon state/player on selection change, exposes exact review candidates without automatic selection, and permits approval only through exact fully-listened SHA/path/fingerprint binding.
 
 `DILON_IDENTITY_NATIVE_FLOW_V1 = ACCEPTED`.
 
-`DILON_IDENTITY_V1` as a whole is **NOT ACCEPTED YET**. The remaining path must now be audited only for real opening-credit external readiness and human-listening acceptance; no accepted upstream gate is to be reopened without a new evidence-backed defect.
+### PR #35 external-readiness acceptance
+
+- feature HEAD `fb8cf4d4280f0037f8b0184c553195f8c462435d`;
+- merge commit `f3620fb275ff86d98f5030436b0914c53b2f3cde`;
+- exact-head workflow `Audiobook Studio Offline` run `#193`: SUCCESS;
+- Python full offline suite SUCCESS;
+- macOS ARM64 native contract SUCCESS;
+- native build + strict codesign SUCCESS;
+- review threads 0;
+- real provider/network requests during implementation/CI: 0;
+- paid execution during implementation/CI: 0.
+
+The accepted future one-request executor requires exact persisted `plan_id + plan_digest`, fresh price/voice/route/segmentation/fingerprint revalidation, explicit owner authorization and a hard one-request cap. It reuses completed exact results with zero new requests, blocks AMBIGUOUS/unrecoverable IN_FLIGHT/sent-FAILED retries, validates remote DONE against the billing ledger, preserves provider WAV bytes, normalizes a review copy to PCM16 mono 48 kHz and may hand off only to immutable `PENDING_HUMAN_REVIEW`; it cannot auto-approve.
+
+`DILON_IDENTITY_EXTERNAL_READINESS_V1 = ACCEPTED`.
 
 ---
 
-## 3. Canonical real book — do not re-synthesize accepted chapter
+## 3. Canonical real book — accepted first chapter is immutable
 
 ```text
 book = hvatit-sebya-obestsenivat
@@ -83,13 +97,13 @@ speed = 1.04
 segments = 35
 ```
 
-Accepted Yandex source WAV SHA-256:
+Accepted provider WAV SHA-256:
 
 ```text
 2311b300ea1d1769fd9b299a7cb8e20ff218393e36e71bb6d86fb523172784b6
 ```
 
-Known facts:
+Known accepted facts:
 
 ```text
 PCM16 mono 22050 Hz
@@ -102,7 +116,7 @@ automatic QA = PASS
 manual QA = APPROVED
 ```
 
-This accepted chapter must not be re-synthesized merely to satisfy later gates.
+This chapter must **never be re-synthesized** merely to satisfy later gates.
 
 ```text
 REAL_BOOK_PROGRESS = 1/16
@@ -111,18 +125,18 @@ WHOLE_BOOK_RELEASE_READY = FALSE
 
 ---
 
-## 4. Mastering / export authority
+## 4. Mastering / LitRes authority
 
-Accepted clean-master preset: `spoken_word_master_v1`.
+Clean-master preset: `spoken_word_master_v1`.
 
-Clean-master contract:
+Contract:
 - provider-neutral WAV/LPCM;
 - 48 kHz mono PCM16;
 - target `-19 LUFS-I`;
 - true-peak ceiling `-3.0 dBTP`;
 - deterministic two-pass mastering;
 - conservative boundaries;
-- clean master preserved independently from identity/delivery exports.
+- clean master preserved independently from Dilon/delivery outputs.
 
 LitRes profile: `litres_author_v1`.
 
@@ -130,7 +144,7 @@ Release authority fails closed on stale/corrupt/noncanonical pointers, path/syml
 
 ---
 
-## 5. DILON_IDENTITY_V1 canonical authority
+## 5. DILON_IDENTITY_V1 authority
 
 Brand:
 
@@ -150,13 +164,13 @@ Opening credit:
 Елена Дилон. Хватит себя обесценивать. Читает Dilon Voices.
 ```
 
-Current production voice:
+Production voice:
 
 ```text
 Yandex Lera / neutral / 1.04
 ```
 
-Canonical no-music path:
+Canonical no-music identity path:
 
 ```text
 exact reviewed opening credit
@@ -164,18 +178,32 @@ exact reviewed opening credit
 → exact-current clean master
 → immutable identity.wav + MANIFEST.json
 → independent technical QA
-→ human listening required
+→ exact identity human listening
 ```
-
-Accepted safeguards include exact clean-master/current-pointer binding, exact reviewed opening-credit SHA/path/fingerprint authority, deterministic preflight/build identities, PCM16 mono 48 kHz output, no-clipping/frame-count/component-order checks, immutable canonical output containment, crash-safe CURRENT recovery, Unicode canonical Book Library slugs, exact-listened native approval and no false whole-book release-ready state.
 
 Candidate signature/music `Lounge Vibes 05.7` is **NOT release-approved**. Missing rights never blocks the canonical no-music path.
 
 ---
 
-## 6. Opening-credit external gate
+## 6. Current owner/provider gate
 
-Accepted offline PREPARE facts for canonical phrase:
+Repository-side external readiness is complete. If no exact-current reviewed opening-credit WAV already exists locally, remaining external sequence is now genuinely bounded:
+
+```text
+fresh offline PREPARE + exact current plan_id/digest/cost
+→ explicit owner authorization
+→ maximum 1 Yandex request
+→ automatic candidate QA
+→ immutable PENDING_HUMAN_REVIEW
+→ exact candidate listening in mounted Studio UI
+→ explicit exact-listened approval
+→ no-music Dilon identity build
+→ technical QA
+→ exact identity listening
+→ DILON_IDENTITY_V1 ACCEPTED
+```
+
+Historical PREPARE estimate:
 
 ```text
 billing units = 1
@@ -184,35 +212,28 @@ estimated cost ≈ 0.21146666 RUB
 Dilon planning ceiling = 10.00 RUB
 ```
 
-Price/route/authority must be revalidated immediately before any provider execution.
-
-If no exact-current reviewed opening-credit artifact exists, external sequence remains:
-
-```text
-revalidate PREPARE
-→ explicit owner paid authorization
-→ one bounded Yandex request
-→ automatic candidate QA
-→ immutable review candidate
-→ exact-identity human listening
-→ explicit approval
-→ no-music Dilon build
-→ technical QA
-```
-
-No provider execution is authorized by this document.
+The historical estimate does **not** authorize execution. Fresh PREPARE is mandatory immediately before the real request.
 
 ---
 
-## 7. Current active launch work
+## 7. Parallel final launch work
+
+While the owner/provider gate is pending, Central Brain must prepare the final `REAL_BOOK_E2E_ACCEPTANCE` / production-launch preflight so the short external action is followed immediately by final acceptance rather than another engineering cycle.
+
+The final E2E must prove the exact first-real-chapter chain:
 
 ```text
-DILON_IDENTITY_EXTERNAL_READINESS_V1
+source/prepared authority
+→ accepted Yandex chapter identity
+→ QA/downstream approval
+→ chapter assembly
+→ clean master
+→ LitRes chapter export
+→ exact current Dilon identity + technical QA + human listening
+→ production app candidate build/codesign
 ```
 
-The native/offline status, preview, review, exact-listened approval and mounted UI contour is accepted. The next safe work is a bounded audit of whether all repository-side preparation for the single future opening-credit provider action already exists. Central Brain must not treat owner authorization as the sole blocker until the code path can prove, without executing it, exact persisted plan identity, current price/voice/authority revalidation, one-request cap, unambiguous provider-result handling, automatic candidate QA and handoff into immutable `PENDING_HUMAN_REVIEW` without auto-approval.
-
-If any of that executor/readiness contour is missing, implement and test it offline with fakes only; real provider requests remain forbidden. If the contour is already complete, stop at the exact owner-only gate and request explicit authorization for the bounded Yandex request plus subsequent human listening.
+It must continue to report whole-book release-ready false while only 1/16 chapters exist.
 
 ---
 
@@ -236,15 +257,14 @@ DILON_NATIVE_CARD_V1 = ACCEPTED
 DILON_NATIVE_FLOW_ORCHESTRATION_V1 = ACCEPTED
 DILON_NATIVE_MOUNTED_UI_V1 = ACCEPTED
 DILON_IDENTITY_NATIVE_FLOW_V1 = ACCEPTED
-DILON_IDENTITY_EXTERNAL_READINESS_V1 = IN_PROGRESS
-DILON_IDENTITY_V1 = IN_PROGRESS
-REAL_BOOK_E2E_ACCEPTANCE = AFTER_DILON
+DILON_IDENTITY_EXTERNAL_READINESS_V1 = ACCEPTED
+DILON_IDENTITY_V1 = OWNER_PROVIDER_GATE
+REAL_BOOK_E2E_ACCEPTANCE = PREPARE_IN_PARALLEL
 REAL_BOOK_PROGRESS = 1/16
 WHOLE_BOOK_RELEASE_READY = FALSE
-PROVIDER_REQUESTS_DURING_CURRENT_DILON_OFFLINE_WORK = 0
-PAID_EXECUTION_DURING_CURRENT_DILON_OFFLINE_WORK = 0
-BILLING_CHANGED_DURING_CURRENT_DILON_OFFLINE_WORK = FALSE
+PROVIDER_REQUESTS_DURING_PR35_OFFLINE_WORK = 0
+PAID_EXECUTION_DURING_PR35_OFFLINE_WORK = 0
 PRODUCTION_DESKTOP_DEPLOYED = FALSE
 ```
 
-Главный принцип: каждый следующий action сокращает путь к launch, сохраняет exact authority и не возвращается к принятым gates без нового конкретного дефекта.
+Главный принцип: каждый следующий action сокращает путь к production launch; принятые gates не переоткрываются без нового конкретного evidence-backed дефекта.
