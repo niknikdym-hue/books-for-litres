@@ -31,6 +31,7 @@ xcrun swiftc \
   "$script_dir/StudioContracts.swift" \
   "$script_dir/AudioQAContracts.swift" \
   "$script_dir/EmbeddedAudioPlayer.swift" \
+  "$script_dir/DilonNativeFlowController.swift" \
   "$script_dir/DilonNativeCard.swift" \
   "$script_dir/AudiobookStudioApp.swift" \
   -parse-as-library \
