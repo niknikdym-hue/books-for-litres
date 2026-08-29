@@ -37,6 +37,20 @@ def test_dilon_native_flow_controller_is_exact_identity_offline_only() -> None:
         assert token not in source
 
 
+def test_approval_mutation_cannot_race_native_selection_change() -> None:
+    source = CONTROLLER.read_text(encoding="utf-8")
+
+    approval = source.index("func approveListenedCandidate")
+    sync_bridge = source.index("try runJSONSync", approval)
+    refresh_task = source.index("Task {", sync_bridge)
+
+    assert sync_bridge < refresh_task
+    assert "blocking UI selection events during this bounded call" in source
+    assert "selectionGeneration == expectedGeneration" in source[approval:refresh_task]
+    assert "activeBookName == expectedBookName" in source[approval:refresh_task]
+    assert "activeJobID == expectedJobID" in source[approval:refresh_task]
+
+
 def test_selection_generation_clears_stale_dilon_playback_and_state() -> None:
     source = CONTROLLER.read_text(encoding="utf-8")
 
