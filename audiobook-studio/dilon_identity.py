@@ -128,6 +128,12 @@ def _validate_master_authority(
         root=workspace_root,
         label="Clean master manifest",
     )
+    canonical = workspace_root / "masters" / book_slug / job_id / master_identity
+    if audio != canonical / "master.wav" or manifest != canonical / "MANIFEST.json":
+        raise DilonIdentityError(
+            "master_path_identity_mismatch",
+            "Clean master находится вне канонического immutable master package.",
+        )
     wav = _inspect_wav(
         audio,
         code="master_invalid_wav",
@@ -291,7 +297,12 @@ def build_identity_preflight(
     opening_credit: Mapping[str, Any] | None = None,
     signature_asset: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Return a deterministic, network-free Dilon identity build plan."""
+    """Return a deterministic, network-free Dilon identity build plan.
+
+    ``master_authority`` must already represent the exact-current clean master;
+    ``prepare_current_identity`` is the canonical entry point that resolves it
+    through the MASTERING_EXPORT_V1 CURRENT authority first.
+    """
     if not isinstance(opening_credit_text, str) or not opening_credit_text.strip():
         raise DilonIdentityError("invalid_opening_credit_text", "Opening credit text обязателен.")
     root = Path(workspace_root).expanduser().resolve(strict=True)
