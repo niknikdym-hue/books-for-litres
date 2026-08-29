@@ -906,6 +906,53 @@ class MasteringExportTests(unittest.TestCase):
                 relocated_payload, self.book,
             )
         )
+        stale_manifest = json.loads(stale_manifest_bytes)
+        canonical_chapter = Path(stale_manifest["chapters"][0]["path"])
+        relocated_chapter = self.root / "relocated-chapter.mp3"
+        shutil.copyfile(canonical_chapter, relocated_chapter)
+        stale_manifest["chapters"][0].update({
+            "path": str(relocated_chapter),
+            "path_identity": path_identity(relocated_chapter),
+            "sha256": sha256_file(relocated_chapter),
+        })
+        stale_manifest_path.write_text(json.dumps(stale_manifest), encoding="utf-8")
+        self.assertFalse(
+            self.exporting._release_pointer_payload_matches_book_authority(
+                stale_payload, self.book,
+            )
+        )
+        stale_manifest_path.write_bytes(stale_manifest_bytes)
+
+        invalid_pointer = {**stale_payload, "schema_version": 999}
+        self.assertFalse(
+            self.exporting._release_pointer_payload_matches_book_authority(
+                invalid_pointer, self.book,
+            )
+        )
+        envelope_mutations = {
+            "schema_version": 999,
+            "status": "INCOMPLETE",
+            "export_profile_hash": "0" * 64,
+            "provider_requests": 1,
+            "remote_request_sent": True,
+            "billing_changed": True,
+            "chapter_expected_order": [],
+            "total_file_count": 999,
+        }
+        for field, invalid_value in envelope_mutations.items():
+            with self.subTest(manifest_field=field):
+                invalid_manifest = json.loads(stale_manifest_bytes)
+                invalid_manifest[field] = invalid_value
+                stale_manifest_path.write_text(
+                    json.dumps(invalid_manifest), encoding="utf-8",
+                )
+                self.assertFalse(
+                    self.exporting._release_pointer_payload_matches_book_authority(
+                        stale_payload, self.book,
+                    )
+                )
+        stale_manifest_path.write_bytes(stale_manifest_bytes)
+        stale_manifest = json.loads(stale_manifest_bytes)
         stale_mp3 = Path(stale_manifest["chapters"][0]["path"])
         stale_mp3.write_bytes(b"corrupted-after-publication")
         self.assertFalse(

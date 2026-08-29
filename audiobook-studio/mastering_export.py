@@ -1282,13 +1282,20 @@ class LitresExportService:
                 return False
             derived_state = build_book_export_state(book, chapters)
             for chapter in chapters:
+                filename = _safe_output_name(
+                    int(chapter["position"]),
+                    str(chapter["chapter_title"]),
+                )
+                expected_output = manifest_path.parent / filename
                 output = _require_regular_path(
                     Path(chapter["path"]),
                     root=self.workspace_root,
                     label="Export MP3",
                 )
                 if (
-                    chapter.get("sha256") != sha256_file(output)
+                    chapter.get("filename") != filename
+                    or output != expected_output
+                    or chapter.get("sha256") != sha256_file(output)
                     or chapter.get("path_identity") != path_identity(output)
                 ):
                     return False
@@ -1325,12 +1332,21 @@ class LitresExportService:
                 / "MANIFEST.json"
             )
             return bool(
-                identity == manifest.get("export_identity")
+                pointer.get("schema_version") == EXPORT_SCHEMA_VERSION
+                and manifest.get("schema_version") == EXPORT_SCHEMA_VERSION
+                and identity == manifest.get("export_identity")
                 and identity == manifest_path.parent.name
                 and manifest_path == canonical_manifest_path
                 and identity == _export_identity(book, chapters)
                 and _canonical_json(manifest.get("whole_book")) == _canonical_json(derived_state)
                 and derived_state["ready"] is True
+                and manifest.get("status") == "RELEASE_READY"
+                and manifest.get("chapter_expected_order") == book.get("chapters")
+                and manifest.get("total_file_count") == len(chapters)
+                and manifest.get("export_profile_hash") == litres_profile_hash()
+                and manifest.get("provider_requests") == 0
+                and manifest.get("remote_request_sent") is False
+                and manifest.get("billing_changed") is False
                 and _canonical_json(book) == _canonical_json(self._validated_book(book_value))
             )
         except (OSError, ValueError, KeyError, TypeError, MasteringExportError):
