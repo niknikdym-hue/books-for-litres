@@ -25,10 +25,24 @@ class DilonIdentityBuildTests(unittest.TestCase):
         self.book = "demo-book"
         self.job = "chapter-ch001"
         self.master_identity = "m" * 64
-        master_dir = self.root / "masters" / self.book / self.job / self.master_identity
-        master_dir.mkdir(parents=True)
-        self.master = master_dir / "master.wav"
+        self.master_dir = self.root / "masters" / self.book / self.job / self.master_identity
+        self.master_dir.mkdir(parents=True)
+        self.master = self.master_dir / "master.wav"
         self._write_wav(self.master, frames=4_800, sample=100)
+        self.master_manifest = self.master_dir / "MANIFEST.json"
+        self.master_manifest.write_text(
+            json.dumps({"schema_version": 1, "master_identity": self.master_identity}),
+            encoding="utf-8",
+        )
+        self.master_pointer = self.master_dir.parent / "CURRENT.json"
+        self.master_pointer.write_text(
+            json.dumps({
+                "schema_version": 1,
+                "master_identity": self.master_identity,
+                "manifest_path": str(self.master_manifest),
+            }),
+            encoding="utf-8",
+        )
         self.credit = self.root / "credits" / "opening.wav"
         self.credit.parent.mkdir(parents=True)
         self._write_wav(self.credit, frames=2_400, sample=50)
@@ -61,7 +75,7 @@ class DilonIdentityBuildTests(unittest.TestCase):
                 "master_identity": self.master_identity,
                 "audio_sha256": sha256_file(self.master),
                 "path_identity": path_identity(self.master),
-                "master_manifest_sha256": "x" * 64,
+                "master_manifest_sha256": sha256_file(self.master_manifest),
             },
             "opening_credit": {
                 "text": "Demo credit",
@@ -91,18 +105,14 @@ class DilonIdentityBuildTests(unittest.TestCase):
         blocked["decision"] = "BLOCKED"
         blocked["blockers"] = ["opening_credit_missing"]
         with self.assertRaises(DilonIdentityBuildError) as caught:
-            prepare_identity_build(
-                blocked, workspace_root=self.root, identities_root=self.identities_root
-            )
+            prepare_identity_build(blocked, workspace_root=self.root, identities_root=self.identities_root)
         self.assertEqual(caught.exception.code, "preflight_not_ready")
 
     def test_signature_path_is_fail_closed_until_mixer_slice(self) -> None:
         with_signature = copy.deepcopy(self.preflight)
         with_signature["signature_asset"] = {"asset_id": "approved-signature"}
         with self.assertRaises(DilonIdentityBuildError) as caught:
-            prepare_identity_build(
-                with_signature, workspace_root=self.root, identities_root=self.identities_root
-            )
+            prepare_identity_build(with_signature, workspace_root=self.root, identities_root=self.identities_root)
         self.assertEqual(caught.exception.code, "signature_render_not_implemented")
 
     def test_no_music_build_is_deterministic_and_preserves_sources(self) -> None:
@@ -112,9 +122,7 @@ class DilonIdentityBuildTests(unittest.TestCase):
             self.preflight, workspace_root=self.root, identities_root=self.identities_root
         )
         second = build_identity_output(
-            copy.deepcopy(self.preflight),
-            workspace_root=self.root,
-            identities_root=self.identities_root,
+            copy.deepcopy(self.preflight), workspace_root=self.root, identities_root=self.identities_root
         )
         self.assertEqual(first["build_identity"], second["build_identity"])
         self.assertEqual(first["output"]["sha256"], second["output"]["sha256"])
@@ -126,8 +134,7 @@ class DilonIdentityBuildTests(unittest.TestCase):
         self.assertFalse(first["billing_changed"])
         self.assertIsNone(first["signature_asset"])
 
-        output = Path(first["output"]["path"])
-        facts = inspect_pcm_wav(output).to_dict()
+        facts = inspect_pcm_wav(Path(first["output"]["path"])).to_dict()
         self.assertEqual(facts["sample_rate_hz"], 48_000)
         self.assertEqual(facts["channels"], 1)
         self.assertEqual(facts["sample_width_bytes"], 2)
@@ -169,20 +176,28 @@ class DilonIdentityBuildTests(unittest.TestCase):
     def test_changed_master_invalidates_preflight_before_build(self) -> None:
         self._write_wav(self.master, frames=4_800, sample=101)
         with self.assertRaises(DilonIdentityBuildError) as caught:
-            prepare_identity_build(
-                self.preflight, workspace_root=self.root, identities_root=self.identities_root
-            )
+            prepare_identity_build(self.preflight, workspace_root=self.root, identities_root=self.identities_root)
         self.assertEqual(caught.exception.code, "input_identity_mismatch")
 
+    def test_master_current_change_invalidates_preflight_before_build(self) -> None:
+        payload = json.loads(self.master_pointer.read_text(encoding="utf-8"))
+        payload["master_identity"] = "n" * 64
+        self.master_pointer.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaises(DilonIdentityBuildError) as caught:
+            prepare_identity_build(self.preflight, workspace_root=self.root, identities_root=self.identities_root)
+        self.assertEqual(caught.exception.code, "stale_master_authority")
+
+    def test_master_manifest_change_invalidates_preflight_before_build(self) -> None:
+        self.master_manifest.write_text(json.dumps({"changed": True}), encoding="utf-8")
+        with self.assertRaises(DilonIdentityBuildError) as caught:
+            prepare_identity_build(self.preflight, workspace_root=self.root, identities_root=self.identities_root)
+        self.assertEqual(caught.exception.code, "stale_master_authority")
+
     def test_changed_preflight_plan_changes_build_identity(self) -> None:
-        first = prepare_identity_build(
-            self.preflight, workspace_root=self.root, identities_root=self.identities_root
-        )
+        first = prepare_identity_build(self.preflight, workspace_root=self.root, identities_root=self.identities_root)
         changed = copy.deepcopy(self.preflight)
         changed["identity_plan_id"] = "q" * 64
-        second = prepare_identity_build(
-            changed, workspace_root=self.root, identities_root=self.identities_root
-        )
+        second = prepare_identity_build(changed, workspace_root=self.root, identities_root=self.identities_root)
         self.assertNotEqual(first["build_identity"], second["build_identity"])
 
     def test_symlinked_identity_root_is_rejected_without_following(self) -> None:
@@ -191,9 +206,7 @@ class DilonIdentityBuildTests(unittest.TestCase):
         alias = self.root / "identities-alias"
         alias.symlink_to(outside, target_is_directory=True)
         with self.assertRaises(DilonIdentityBuildError) as caught:
-            prepare_identity_build(
-                self.preflight, workspace_root=self.root, identities_root=alias
-            )
+            prepare_identity_build(self.preflight, workspace_root=self.root, identities_root=alias)
         self.assertEqual(caught.exception.code, "symlink_output_root")
         self.assertEqual(list(outside.iterdir()), [])
 
@@ -207,13 +220,11 @@ class DilonIdentityBuildTests(unittest.TestCase):
         changed["opening_credit"]["audio_sha256"] = sha256_file(self.credit)
         changed["opening_credit"]["path_identity"] = path_identity(self.credit)
         with self.assertRaises(DilonIdentityBuildError) as caught:
-            prepare_identity_build(
-                changed, workspace_root=self.root, identities_root=self.identities_root
-            )
+            prepare_identity_build(changed, workspace_root=self.root, identities_root=self.identities_root)
         self.assertEqual(caught.exception.code, "unsupported_wav_format")
 
     def test_current_pointer_manifest_relocation_is_rejected(self) -> None:
-        built = build_identity_output(
+        build_identity_output(
             self.preflight, workspace_root=self.root, identities_root=self.identities_root
         )
         pointer = self.identities_root / self.book / self.job / "CURRENT.json"
