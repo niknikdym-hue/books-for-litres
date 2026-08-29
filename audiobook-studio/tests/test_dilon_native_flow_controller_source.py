@@ -46,8 +46,9 @@ class DilonNativeFlowControllerSourceTests(unittest.TestCase):
         refresh_task = source.index("Task {", sync_bridge)
 
         self.assertLess(sync_bridge, refresh_task)
-        self.assertIn("blocking UI selection events during this bounded call", source)
         pre_refresh = source[approval:refresh_task]
+        self.assertIn("intentionally executed synchronously", pre_refresh)
+        self.assertIn("main actor", pre_refresh)
         self.assertIn("selectionGeneration == expectedGeneration", pre_refresh)
         self.assertIn("activeBookName == expectedBookName", pre_refresh)
         self.assertIn("activeJobID == expectedJobID", pre_refresh)
