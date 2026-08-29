@@ -4,7 +4,7 @@
 """Machine-readable offline bridge for Dilon opening-credit human review.
 
 This adapter deliberately exposes only exact candidate status and explicit human
-approval.  It cannot synthesize audio, resolve provider credentials, make a
+approval. It cannot synthesize audio, resolve provider credentials, make a
 network request, execute a paid plan, or mutate billing.
 """
 
@@ -30,10 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--candidate-status", action="store_true")
     mode.add_argument("--approve-candidate", action="store_true")
-    parser.add_argument("--book", required=True)
-    parser.add_argument("--job", required=True)
-    parser.add_argument("--candidate-id", required=True)
-    parser.add_argument("--candidate-digest", required=True)
+    parser.add_argument("--book", default="")
+    parser.add_argument("--job", default="")
+    parser.add_argument("--candidate-id", default="")
+    parser.add_argument("--candidate-digest", default="")
     parser.add_argument("--decision", default="")
     parser.add_argument("--listened-audio-sha256", default="")
     parser.add_argument("--listened-path-identity", default="")
@@ -149,21 +149,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         workspace_root = load_workspace_paths().root
+        book = _require(args.book, "--book")
+        job = _require(args.job, "--job")
+        candidate_id = _require(args.candidate_id, "--candidate-id")
+        candidate_digest = _require(args.candidate_digest, "--candidate-digest")
         if args.candidate_status:
             result = candidate_status(
                 workspace_root=workspace_root,
-                book_slug=args.book,
-                job_id=args.job,
-                candidate_id=args.candidate_id,
-                candidate_digest=args.candidate_digest,
+                book_slug=book,
+                job_id=job,
+                candidate_id=candidate_id,
+                candidate_digest=candidate_digest,
             )
         else:
             result = approve_candidate(
                 workspace_root=workspace_root,
-                book_slug=args.book,
-                job_id=args.job,
-                candidate_id=args.candidate_id,
-                candidate_digest=args.candidate_digest,
+                book_slug=book,
+                job_id=job,
+                candidate_id=candidate_id,
+                candidate_digest=candidate_digest,
                 decision=_require(args.decision, "--decision"),
                 listened_audio_sha256=_require(
                     args.listened_audio_sha256, "--listened-audio-sha256"
