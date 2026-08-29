@@ -4,7 +4,7 @@
 **Дата фиксации:** 2026-08-29  
 **Проект:** `audiobook-studio/`  
 **Repository:** `niknikdym-hue/books-for-litres`  
-**Accepted feature baseline after PR #33:** `8a86b72cbaa383b309b7d0469abd489c41e3dcb7`
+**Accepted feature baseline after PR #34:** `184f884274706fe1fc4e89e2b719ca9a8c474d99`
 
 ---
 
@@ -46,23 +46,27 @@ Global OpenAI safety: `paid_execution_enabled = false`.
 16. `DILON_NATIVE_OFFLINE_SNAPSHOT_V1` — PR #30;
 17. exact-current Dilon native preview backend binding — PR #31;
 18. fail-closed native Swift Dilon card — PR #32;
-19. native Dilon flow orchestration / exact-listened approval controller — PR #33.
+19. native Dilon flow orchestration / exact-listened approval controller — PR #33;
+20. mounted native Dilon flow in the normal Studio form — PR #34.
 
-PR #33 acceptance evidence:
-- final feature HEAD `a1340fe2cb26ef75de890b8b0b08f4fd93962e34`;
-- merge/main baseline `8a86b72cbaa383b309b7d0469abd489c41e3dcb7`;
-- exact-head workflow `Audiobook Studio Offline` run `#183`: SUCCESS;
+PR #34 acceptance evidence:
+- final feature HEAD `950f8b4526adca6761dcef06e54c72227b9d011e`;
+- merge/main baseline `184f884274706fe1fc4e89e2b719ca9a8c474d99`;
+- exact-head workflow `Audiobook Studio Offline` run `#187`: SUCCESS;
 - Python full offline suite: SUCCESS;
 - macOS ARM64 native contract/build/strict codesign: SUCCESS;
 - review threads: 0;
+- open P1/P2: 0;
 - provider/network requests: 0;
 - paid execution: 0;
 - billing mutation: false;
 - production deployment: false.
 
-The accepted native orchestration now loads the read-only Dilon snapshot for an exact selected Book Library book/job, invalidates snapshot/candidate/player state on selection changes, preserves canonical Unicode `book_slug` returned by the accepted snapshot bridge, and invokes the accepted offline review bridge only after full exact-candidate playback plus SHA/path/fingerprint revalidation. The bounded approval mutation runs synchronously on the main actor to prevent a stale-selection race, then refreshes the snapshot before reporting success. No provider/paid action is exposed.
+The mounted native flow now lives in the normal `StudioView`. It owns one `DilonNativeFlowController`, binds only to the exact selected production book/chapter, clears Dilon snapshot/candidate/shared-player state when that selection changes, mounts the accepted `DilonNativeCard`, and wires approval only through the accepted exact-listened controller path. Canonical Unicode Book Library identity remains delegated to the accepted snapshot bridge; no ASCII-only slug transformation was introduced.
 
-`DILON_IDENTITY_V1` as a whole is **NOT ACCEPTED YET**. Remaining software work is to mount the accepted controller/card into the normal `StudioView` selection lifecycle and prove that the mounted UI preserves the same selection-generation / Unicode / exact-listened guards. After that, only the real opening-credit external production + human-listening gate remains if no reviewed artifact already exists.
+`DILON_IDENTITY_NATIVE_FLOW_V1 = ACCEPTED`.
+
+`DILON_IDENTITY_V1` as a whole is **NOT ACCEPTED YET**. The remaining path must now be audited only for real opening-credit external readiness and human-listening acceptance; no accepted upstream gate is to be reopened without a new evidence-backed defect.
 
 ---
 
@@ -163,7 +167,7 @@ exact reviewed opening credit
 → human listening required
 ```
 
-Accepted safeguards include exact clean-master/current-pointer binding, exact reviewed opening-credit SHA/path/fingerprint authority, deterministic preflight/build identities, PCM16 mono 48 kHz output, no-clipping/frame-count/component-order checks, immutable canonical output containment, crash-safe CURRENT recovery, Unicode canonical Book Library slugs and no false whole-book release-ready state.
+Accepted safeguards include exact clean-master/current-pointer binding, exact reviewed opening-credit SHA/path/fingerprint authority, deterministic preflight/build identities, PCM16 mono 48 kHz output, no-clipping/frame-count/component-order checks, immutable canonical output containment, crash-safe CURRENT recovery, Unicode canonical Book Library slugs, exact-listened native approval and no false whole-book release-ready state.
 
 Candidate signature/music `Lounge Vibes 05.7` is **NOT release-approved**. Missing rights never blocks the canonical no-music path.
 
@@ -203,22 +207,12 @@ No provider execution is authorized by this document.
 ## 7. Current active launch work
 
 ```text
-DILON_IDENTITY_NATIVE_FLOW_V1 — MOUNTED_UI_SLICE
+DILON_IDENTITY_EXTERNAL_READINESS_V1
 ```
 
-Accepted backend/native primitives now include: current status, PREPARE/plan lookup, review candidates, exact-listened approval bridge, aggregate native snapshot, exact-current identity preview binding, compiled fail-closed Dilon Swift card, and selection-generation-bound native flow orchestration.
+The native/offline status, preview, review, exact-listened approval and mounted UI contour is accepted. The next safe work is a bounded audit of whether all repository-side preparation for the single future opening-credit provider action already exists. Central Brain must not treat owner authorization as the sole blocker until the code path can prove, without executing it, exact persisted plan identity, current price/voice/authority revalidation, one-request cap, unambiguous provider-result handling, automatic candidate QA and handoff into immutable `PENDING_HUMAN_REVIEW` without auto-approval.
 
-Immediate next safe slice:
-- mount `DilonNativeFlowController` + `DilonNativeCard` into the normal `StudioView` form;
-- bind the mounted flow to the currently selected canonical book/job only;
-- call `selectionDidChange` on book/job changes so player/snapshot/candidate state is invalidated;
-- wire card approval callback only to `approveListenedCandidate`;
-- keep provider/network/paid controls absent;
-- preserve Unicode canonical Book Library slug identity;
-- add source/native regressions proving mounted selection lifecycle and no unauthorized action;
-- compile/build/codesign in CI before acceptance.
-
-After mounted native flow acceptance, complete remaining offline/pre-execution checks. Only if the reviewed opening-credit artifact is still absent may Central Brain request explicit owner authorization for the one bounded Yandex opening-credit call and subsequent human listening.
+If any of that executor/readiness contour is missing, implement and test it offline with fakes only; real provider requests remain forbidden. If the contour is already complete, stop at the exact owner-only gate and request explicit authorization for the bounded Yandex request plus subsequent human listening.
 
 ---
 
@@ -240,7 +234,9 @@ DILON_NATIVE_OFFLINE_SNAPSHOT_V1 = ACCEPTED
 DILON_NATIVE_IDENTITY_PREVIEW_BINDING_V1 = ACCEPTED
 DILON_NATIVE_CARD_V1 = ACCEPTED
 DILON_NATIVE_FLOW_ORCHESTRATION_V1 = ACCEPTED
-DILON_IDENTITY_NATIVE_FLOW_V1 = IN_PROGRESS / MOUNTED_UI_SLICE
+DILON_NATIVE_MOUNTED_UI_V1 = ACCEPTED
+DILON_IDENTITY_NATIVE_FLOW_V1 = ACCEPTED
+DILON_IDENTITY_EXTERNAL_READINESS_V1 = IN_PROGRESS
 DILON_IDENTITY_V1 = IN_PROGRESS
 REAL_BOOK_E2E_ACCEPTANCE = AFTER_DILON
 REAL_BOOK_PROGRESS = 1/16
