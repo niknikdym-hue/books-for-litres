@@ -11,11 +11,13 @@ No command can synthesize or execute a provider request.
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
+from decimal import Decimal
 import json
 from pathlib import Path
 from typing import Sequence
 
-from backends.yandex_pricing import load_pricing_config
+from backends.yandex_pricing import YandexPricingConfig, load_pricing_config
 from dilon_identity_bridge import DilonIdentityBridgeError, DilonIdentityBridgeService
 from dilon_opening_credit_plan_store import OpeningCreditPlanStoreError
 from workspace_paths import load_workspace_paths
@@ -23,6 +25,7 @@ from workspace_paths import load_workspace_paths
 
 STUDIO_DIR = Path(__file__).resolve().parent
 YANDEX_PRICING_CONFIG = STUDIO_DIR / "yandex-pricing.json"
+DILON_OPENING_CREDIT_HARD_LIMIT_RUB = Decimal("10.00")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,14 +53,30 @@ def _service() -> DilonIdentityBridgeService:
     )
 
 
+def _opening_credit_pricing() -> YandexPricingConfig:
+    """Apply the accepted Dilon-specific PREPARE ceiling without raising a lower global cap.
+
+    The shared Yandex tariff may deliberately leave the general book hard limit
+    unset. Dilon opening credit has its own bounded one-request PREPARE authority:
+    at most 10 RUB. This remains a planning ceiling only and never authorizes
+    provider execution.
+    """
+    pricing = load_pricing_config(YANDEX_PRICING_CONFIG)
+    current = pricing.hard_limit_rub
+    bounded = (
+        DILON_OPENING_CREDIT_HARD_LIMIT_RUB
+        if current is None
+        else min(current, DILON_OPENING_CREDIT_HARD_LIMIT_RUB)
+    )
+    return replace(pricing, hard_limit_rub=bounded)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         service = _service()
         if args.prepare_opening_credit:
-            result = service.prepare_opening_credit(
-                pricing=load_pricing_config(YANDEX_PRICING_CONFIG)
-            )
+            result = service.prepare_opening_credit(pricing=_opening_credit_pricing())
         else:
             result = service.opening_credit_plan_status(
                 plan_id=_require(args.plan_id, "--plan-id"),
