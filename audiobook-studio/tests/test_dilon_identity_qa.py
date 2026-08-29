@@ -30,7 +30,8 @@ class DilonIdentityQATests(unittest.TestCase):
             json.dumps({"schema_version": 1, "master_identity": self.master_identity}),
             encoding="utf-8",
         )
-        (self.master_dir.parent / "CURRENT.json").write_text(
+        self.master_pointer = self.master_dir.parent / "CURRENT.json"
+        self.master_pointer.write_text(
             json.dumps({
                 "schema_version": 1,
                 "master_identity": self.master_identity,
@@ -126,11 +127,31 @@ class DilonIdentityQATests(unittest.TestCase):
         self.assertFalse(result["paid_execution"])
         self.assertFalse(result["billing_changed"])
 
-    def test_unapproved_or_stale_credit_is_rejected(self) -> None:
+    def test_unapproved_credit_is_rejected(self) -> None:
         self.credit_authority["manual_state"] = "UNREVIEWED"
         with self.assertRaises(DilonIdentityQAError) as caught:
             self._qa()
         self.assertEqual(caught.exception.code, "opening_credit_not_approved")
+
+    def test_stale_reviewed_fingerprint_is_rejected(self) -> None:
+        self.credit_authority["reviewed_identity"]["synthesis_fingerprint"] = "stale-credit"
+        with self.assertRaises(DilonIdentityQAError) as caught:
+            self._qa()
+        self.assertEqual(caught.exception.code, "opening_credit_review_stale")
+
+    def test_wrong_credit_text_is_rejected(self) -> None:
+        self.credit_authority["text"] = "Wrong opening credit"
+        with self.assertRaises(DilonIdentityQAError) as caught:
+            self._qa()
+        self.assertEqual(caught.exception.code, "opening_credit_not_approved")
+
+    def test_master_current_pointer_change_is_rejected(self) -> None:
+        payload = json.loads(self.master_pointer.read_text(encoding="utf-8"))
+        payload["master_identity"] = "n" * 64
+        self.master_pointer.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaises(DilonIdentityQAError) as caught:
+            self._qa()
+        self.assertEqual(caught.exception.code, "clean_master_not_current")
 
     def test_changed_clean_master_authority_is_rejected(self) -> None:
         self._wav(self.master, 4_800, 101)
