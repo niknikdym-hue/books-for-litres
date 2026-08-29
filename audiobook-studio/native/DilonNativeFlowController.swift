@@ -164,52 +164,58 @@ final class DilonNativeFlowController: ObservableObject {
         statusText = ""
         errorMessage = nil
 
-        Task {
-            do {
-                let approval: DilonNativeReviewApprovalResult = try await runJSON(
-                    executable: reviewRunner,
-                    arguments: [
-                        "--approve-candidate",
-                        "--book", expectedBookSlug,
-                        "--job", expectedJobID,
-                        "--candidate-id", candidate.candidateID,
-                        "--candidate-digest", candidate.candidateDigest,
-                        "--decision", "APPROVE",
-                        "--listened-audio-sha256", listenedBinding.audioSHA256,
-                        "--listened-path-identity", listenedBinding.pathIdentity,
-                        "--listened-synthesis-fingerprint", listenedBinding.synthesisFingerprint,
-                    ]
-                )
-                guard approval.isOfflineSafe else {
-                    throw DilonNativeFlowError.offlineContractViolation
-                }
-                guard approval.state == "APPROVED", approval.decision == "REVIEW_COMPLETE" else {
-                    throw DilonNativeFlowError.approvalRejected
-                }
-                guard selectionGeneration == expectedGeneration,
-                      activeBookName == expectedBookName,
-                      activeJobID == expectedJobID else {
-                    throw DilonNativeFlowError.staleSelection
-                }
+        do {
+            // The approval bridge is intentionally executed synchronously on the
+            // main actor. It is a tiny local file-authority mutation, and blocking
+            // UI selection events during this bounded call prevents a stale
+            // book/job selection from being approved after the user switches away.
+            let approval: DilonNativeReviewApprovalResult = try runJSONSync(
+                executable: reviewRunner,
+                arguments: [
+                    "--approve-candidate",
+                    "--book", expectedBookSlug,
+                    "--job", expectedJobID,
+                    "--candidate-id", candidate.candidateID,
+                    "--candidate-digest", candidate.candidateDigest,
+                    "--decision", "APPROVE",
+                    "--listened-audio-sha256", listenedBinding.audioSHA256,
+                    "--listened-path-identity", listenedBinding.pathIdentity,
+                    "--listened-synthesis-fingerprint", listenedBinding.synthesisFingerprint,
+                ]
+            )
+            guard approval.isOfflineSafe else {
+                throw DilonNativeFlowError.offlineContractViolation
+            }
+            guard approval.state == "APPROVED", approval.decision == "REVIEW_COMPLETE" else {
+                throw DilonNativeFlowError.approvalRejected
+            }
+            guard selectionGeneration == expectedGeneration,
+                  activeBookName == expectedBookName,
+                  activeJobID == expectedJobID else {
+                throw DilonNativeFlowError.staleSelection
+            }
 
-                player.clear()
-                selectedCandidateID = nil
+            player.clear()
+            selectedCandidateID = nil
+            Task {
                 let refreshed = await loadSnapshot(
                     bookName: expectedBookName,
                     jobID: expectedJobID,
                     expectedGeneration: expectedGeneration,
                     markLoading: false
                 )
-                guard refreshed, selectionGeneration == expectedGeneration else { return }
+                guard refreshed, selectionGeneration == expectedGeneration else {
+                    if selectionGeneration == expectedGeneration { isLoading = false }
+                    return
+                }
                 statusText = "Opening credit одобрен по exact listened identity."
                 errorMessage = nil
-            } catch {
-                guard selectionGeneration == expectedGeneration else { return }
-                errorMessage = error.localizedDescription
-            }
-            if selectionGeneration == expectedGeneration {
                 isLoading = false
             }
+        } catch {
+            guard selectionGeneration == expectedGeneration else { return }
+            errorMessage = error.localizedDescription
+            isLoading = false
         }
     }
 
@@ -253,6 +259,30 @@ final class DilonNativeFlowController: ObservableObject {
             errorMessage = error.localizedDescription
             return false
         }
+    }
+
+    private func runJSONSync<T: Decodable>(
+        executable: URL,
+        arguments: [String]
+    ) throws -> T {
+        let process = Process()
+        process.executableURL = pythonExecutable
+        process.arguments = [executable.path] + arguments
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        let output = stdout.fileHandleForReading.readDataToEndOfFile()
+        let error = String(
+            decoding: stderr.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+        guard process.terminationStatus == 0 else {
+            throw DilonNativeFlowError.bridgeFailed(error)
+        }
+        return try JSONDecoder().decode(T.self, from: output)
     }
 
     private func runJSON<T: Decodable>(
