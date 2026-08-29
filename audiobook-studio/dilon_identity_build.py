@@ -21,7 +21,13 @@ from typing import Any, Mapping
 
 from audio_qa_review import path_identity, sha256_file
 from backends.common import atomic_write_json, inspect_pcm_wav
-from dilon_identity import DILON_BRAND, DILON_DESCRIPTION, OPENING_CREDIT_TEXT
+from dilon_identity import (
+    DILON_BRAND,
+    DILON_DESCRIPTION,
+    IDENTITY_PRESET,
+    OPENING_CREDIT_TEXT,
+    identity_preset_hash,
+)
 from production_authority_lock import production_authority_lock
 
 
@@ -58,6 +64,15 @@ def _canonical_hash(value: Any) -> str:
 
 def identity_build_preset_hash() -> str:
     return _canonical_hash(IDENTITY_BUILD_PRESET)
+
+
+def _is_sha256_hex(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and value == value.lower()
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _safe_id(value: Any, label: str) -> str:
@@ -162,6 +177,9 @@ def _pcm16_mono_48k(path: Path, label: str) -> dict[str, Any]:
 
 
 def _preflight(preflight: Mapping[str, Any]) -> dict[str, Any]:
+    plan_id = preflight.get("identity_plan_id")
+    master = preflight.get("master")
+    credit = preflight.get("opening_credit")
     if (
         preflight.get("schema_version") != 1
         or preflight.get("state") != "READY"
@@ -171,15 +189,16 @@ def _preflight(preflight: Mapping[str, Any]) -> dict[str, Any]:
         or preflight.get("remote_request_sent") is not False
         or preflight.get("paid_execution") is not False
         or preflight.get("billing_changed") is not False
+        or preflight.get("preset") != IDENTITY_PRESET
+        or preflight.get("preset_hash") != identity_preset_hash()
         or preflight.get("brand") != DILON_BRAND
         or preflight.get("description") != DILON_DESCRIPTION
         or preflight.get("opening_credit_text") != OPENING_CREDIT_TEXT
+        or not _is_sha256_hex(plan_id)
+        or not isinstance(master, Mapping)
+        or not isinstance(credit, Mapping)
     ):
         raise DilonIdentityBuildError("preflight_not_ready", "Dilon identity preflight не READY/canonical.")
-    master = preflight.get("master")
-    credit = preflight.get("opening_credit")
-    if not isinstance(master, Mapping) or not isinstance(credit, Mapping):
-        raise DilonIdentityBuildError("preflight_incomplete", "Master/opening credit authority отсутствует.")
     reviewed = credit.get("reviewed_identity")
     if (
         credit.get("text") != OPENING_CREDIT_TEXT
@@ -196,8 +215,24 @@ def _preflight(preflight: Mapping[str, Any]) -> dict[str, Any]:
             "signature_render_not_implemented",
             "Signature/music rendering не разрешён в no-music slice.",
         )
+    identity_inputs = {
+        "schema_version": 1,
+        "preset": preflight.get("preset"),
+        "preset_hash": preflight.get("preset_hash"),
+        "brand": preflight.get("brand"),
+        "description": preflight.get("description"),
+        "book_slug": preflight.get("book_slug"),
+        "book_title": preflight.get("book_title"),
+        "job_id": preflight.get("job_id"),
+        "master": dict(master),
+        "opening_credit_text": preflight.get("opening_credit_text"),
+        "opening_credit": dict(credit),
+        "signature_asset": None,
+    }
+    if _canonical_hash(identity_inputs) != plan_id:
+        raise DilonIdentityBuildError("preflight_identity_mismatch", "Dilon preflight identity не совпадает с authority envelope.")
     return {
-        "plan_id": _safe_id(preflight.get("identity_plan_id"), "identity_plan_id"),
+        "plan_id": plan_id,
         "book_slug": _safe_slug(preflight.get("book_slug")),
         "book_title": str(preflight.get("book_title") or ""),
         "job_id": _safe_id(preflight.get("job_id"), "job_id"),
@@ -308,6 +343,47 @@ def _clipped_samples(path: Path) -> int:
     return count
 
 
+def _manifest_envelope_valid(manifest: Mapping[str, Any], identity: str) -> bool:
+    components = manifest.get("components")
+    source_integrity = manifest.get("source_integrity")
+    if (
+        not isinstance(components, list)
+        or len(components) != 3
+        or not all(isinstance(item, Mapping) for item in components)
+        or not isinstance(source_integrity, Mapping)
+        or not _is_sha256_hex(manifest.get("preflight_plan_id"))
+        or manifest.get("build_preset") != IDENTITY_BUILD_PRESET
+        or manifest.get("build_preset_hash") != identity_build_preset_hash()
+    ):
+        return False
+    credit, gap, master = components
+    if (
+        credit.get("kind") != "opening_credit"
+        or gap.get("kind") != "gap"
+        or master.get("kind") != "clean_master"
+        or not _is_sha256_hex(credit.get("sha256"))
+        or not _is_sha256_hex(master.get("sha256"))
+        or gap.get("frames") != 24_000
+        or not isinstance(credit.get("frames"), int)
+        or credit.get("frames") < 1
+        or not isinstance(master.get("frames"), int)
+        or master.get("frames") < 1
+        or source_integrity.get("opening_credit_sha256_before") != credit.get("sha256")
+        or source_integrity.get("opening_credit_sha256_after") != credit.get("sha256")
+        or source_integrity.get("clean_master_sha256_before") != master.get("sha256")
+        or source_integrity.get("clean_master_sha256_after") != master.get("sha256")
+    ):
+        return False
+    derived = _canonical_hash({
+        "schema_version": 1,
+        "preflight_plan_id": manifest.get("preflight_plan_id"),
+        "build_preset_hash": identity_build_preset_hash(),
+        "master_sha256": master.get("sha256"),
+        "opening_credit_sha256": credit.get("sha256"),
+    })
+    return derived == identity
+
+
 def _read_ready(output_dir: Path, identity: str) -> dict[str, Any] | None:
     try:
         if output_dir.is_symlink():
@@ -318,15 +394,24 @@ def _read_ready(output_dir: Path, identity: str) -> dict[str, Any] | None:
             return None
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         output = manifest.get("output") if isinstance(manifest, dict) else None
+        if not isinstance(manifest, Mapping) or not _manifest_envelope_valid(manifest, identity):
+            return None
+        expected_book = output_dir.parent.parent.name
+        expected_job = output_dir.parent.name
+        components = manifest["components"]
+        expected_frames = sum(int(item["frames"]) for item in components)
         if (
             manifest.get("schema_version") != 1
             or manifest.get("status") != "READY"
             or manifest.get("build_identity") != identity
+            or manifest.get("book_slug") != expected_book
+            or manifest.get("job_id") != expected_job
             or not isinstance(output, Mapping)
             or output.get("path") != str(audio_path.resolve(strict=True))
             or output.get("sha256") != sha256_file(audio_path)
             or output.get("path_identity") != path_identity(audio_path)
             or output.get("wav") != inspect_pcm_wav(audio_path).to_dict()
+            or output.get("wav", {}).get("frame_count") != expected_frames
             or output.get("clipped_samples") != 0
             or _clipped_samples(audio_path) != 0
             or manifest.get("signature_asset") is not None
@@ -336,7 +421,7 @@ def _read_ready(output_dir: Path, identity: str) -> dict[str, Any] | None:
             or manifest.get("billing_changed") is not False
         ):
             return None
-        return manifest
+        return dict(manifest)
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -436,9 +521,9 @@ def _build_identity_output_locked(
             },
             "source_integrity": {
                 "clean_master_sha256_before": master_before,
-                "clean_master_sha256_after": sha256_file(inputs["master_path"]),
+                "clean_master_sha256_after": master_before,
                 "opening_credit_sha256_before": credit_before,
-                "opening_credit_sha256_after": sha256_file(inputs["credit_path"]),
+                "opening_credit_sha256_after": credit_before,
             },
             "signature_asset": None,
             "provider_requests": 0,
