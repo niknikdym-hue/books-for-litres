@@ -9,7 +9,7 @@ from pathlib import Path
 
 from audio_qa_review import path_identity, sha256_file
 from backends.common import inspect_pcm_wav
-from dilon_identity import DILON_BRAND, DILON_DESCRIPTION, OPENING_CREDIT_TEXT
+from dilon_identity import OPENING_CREDIT_TEXT, build_identity_preflight
 from dilon_identity_build import (
     DilonIdentityBuildError,
     build_identity_output,
@@ -62,48 +62,51 @@ class DilonIdentityBuildTests(unittest.TestCase):
             output.setframerate(48_000)
             output.writeframes(payload)
 
-    def _preflight(self) -> dict[str, object]:
+    def _credit_authority(self, *, fingerprint: str = "credit-v1") -> dict[str, object]:
         credit_sha = sha256_file(self.credit)
         credit_path_identity = path_identity(self.credit)
         return {
-            "schema_version": 1,
-            "identity_plan_id": "p" * 64,
-            "state": "READY",
-            "decision": "READY_TO_BUILD",
-            "blockers": [],
-            "brand": DILON_BRAND,
-            "description": DILON_DESCRIPTION,
-            "opening_credit_text": OPENING_CREDIT_TEXT,
+            "text": OPENING_CREDIT_TEXT,
+            "audio_path": str(self.credit),
+            "audio_sha256": credit_sha,
+            "path_identity": credit_path_identity,
+            "wav": inspect_pcm_wav(self.credit).to_dict(),
+            "synthesis_fingerprint": fingerprint,
+            "automatic_status": "PASS",
+            "manual_state": "APPROVED",
+            "reviewed_identity": {
+                "audio_sha256": credit_sha,
+                "path_identity": credit_path_identity,
+                "synthesis_fingerprint": fingerprint,
+            },
+        }
+
+    def _master_authority(self) -> dict[str, object]:
+        return {
+            "master_identity": self.master_identity,
+            "master_manifest_path": str(self.master_manifest),
+            "master_manifest_sha256": sha256_file(self.master_manifest),
+            "audio_path": str(self.master),
+            "audio_sha256": sha256_file(self.master),
+            "path_identity": path_identity(self.master),
+            "wav": inspect_pcm_wav(self.master).to_dict(),
             "book_slug": self.book,
             "book_title": "Demo Book",
             "job_id": self.job,
-            "master": {
-                "master_identity": self.master_identity,
-                "audio_sha256": sha256_file(self.master),
-                "path_identity": path_identity(self.master),
-                "master_manifest_sha256": sha256_file(self.master_manifest),
-            },
-            "opening_credit": {
-                "text": OPENING_CREDIT_TEXT,
-                "audio_path": str(self.credit),
-                "audio_sha256": credit_sha,
-                "path_identity": credit_path_identity,
-                "wav": inspect_pcm_wav(self.credit).to_dict(),
-                "synthesis_fingerprint": "credit-v1",
-                "automatic_status": "PASS",
-                "manual_state": "APPROVED",
-                "reviewed_identity": {
-                    "audio_sha256": credit_sha,
-                    "path_identity": credit_path_identity,
-                    "synthesis_fingerprint": "credit-v1",
-                },
-            },
-            "signature_asset": None,
-            "provider_requests": 0,
-            "remote_request_sent": False,
-            "paid_execution": False,
-            "billing_changed": False,
+            "job_label": "Demo chapter",
+            "provider": "test-provider",
+            "profile_id": "test-profile",
+            "assembly_identity": "assembly-v1",
         }
+
+    def _preflight(self, *, fingerprint: str = "credit-v1") -> dict[str, object]:
+        return build_identity_preflight(
+            self._master_authority(),
+            workspace_root=self.root,
+            opening_credit_text=OPENING_CREDIT_TEXT,
+            opening_credit=self._credit_authority(fingerprint=fingerprint),
+            signature_asset=None,
+        )
 
     def test_blocked_preflight_cannot_build(self) -> None:
         blocked = copy.deepcopy(self.preflight)
@@ -213,12 +216,12 @@ class DilonIdentityBuildTests(unittest.TestCase):
             prepare_identity_build(self.preflight, workspace_root=self.root, identities_root=self.identities_root)
         self.assertEqual(caught.exception.code, "stale_master_authority")
 
-    def test_changed_preflight_plan_changes_build_identity(self) -> None:
+    def test_changed_canonical_preflight_changes_build_identity(self) -> None:
         first = prepare_identity_build(self.preflight, workspace_root=self.root, identities_root=self.identities_root)
-        changed = copy.deepcopy(self.preflight)
-        changed["identity_plan_id"] = "q" * 64
+        changed = self._preflight(fingerprint="credit-v2")
         second = prepare_identity_build(changed, workspace_root=self.root, identities_root=self.identities_root)
         self.assertNotEqual(first["build_identity"], second["build_identity"])
+        self.assertNotEqual(self.preflight["identity_plan_id"], changed["identity_plan_id"])
 
     def test_symlinked_noncanonical_identity_root_is_rejected_without_following(self) -> None:
         outside = self.root / "outside"
@@ -246,11 +249,7 @@ class DilonIdentityBuildTests(unittest.TestCase):
             output.setsampwidth(2)
             output.setframerate(44_100)
             output.writeframes(b"\x00\x00" * 2_400)
-        changed = copy.deepcopy(self.preflight)
-        changed["opening_credit"]["audio_sha256"] = sha256_file(self.credit)
-        changed["opening_credit"]["path_identity"] = path_identity(self.credit)
-        changed["opening_credit"]["reviewed_identity"]["audio_sha256"] = sha256_file(self.credit)
-        changed["opening_credit"]["reviewed_identity"]["path_identity"] = path_identity(self.credit)
+        changed = self._preflight()
         with self.assertRaises(DilonIdentityBuildError) as caught:
             prepare_identity_build(changed, workspace_root=self.root, identities_root=self.identities_root)
         self.assertEqual(caught.exception.code, "unsupported_wav_format")
