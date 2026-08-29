@@ -8,6 +8,7 @@ or music rendering is intentionally rejected until a later rights-cleared slice.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -20,9 +21,12 @@ from typing import Any, Mapping
 
 from audio_qa_review import path_identity, sha256_file
 from backends.common import atomic_write_json, inspect_pcm_wav
+from production_authority_lock import production_authority_lock
 
 
 IDENTITY_BUILD_SCHEMA_VERSION = 1
+MASTER_SCHEMA_VERSION = 1
+MASTER_PRESET_ID = "spoken_word_master_v1"
 IDENTITY_BUILD_PRESET: dict[str, Any] = {
     "id": "dilon_identity_no_music_build_v1",
     "version": 1,
@@ -111,7 +115,9 @@ def _output_root(workspace_root: Path, identities_root: Path) -> Path:
     requested = Path(identities_root).expanduser().absolute()
     canonical = boundary / "identities"
     if requested != canonical:
-        raise DilonIdentityBuildError("noncanonical_identity_root", "Identity root должен быть canonical workspace/identities.")
+        raise DilonIdentityBuildError(
+            "noncanonical_identity_root", "Identity root должен быть canonical workspace/identities."
+        )
     current = boundary
     for part in requested.relative_to(boundary).parts:
         current /= part
@@ -132,7 +138,9 @@ def _pcm16_mono_48k(path: Path, label: str) -> dict[str, Any]:
         or facts.get("sample_width_bytes") != 2
         or facts.get("compression_type") != "NONE"
     ):
-        raise DilonIdentityBuildError("unsupported_wav_format", f"{label} должен быть PCM16 mono 48 kHz.")
+        raise DilonIdentityBuildError(
+            "unsupported_wav_format", f"{label} должен быть PCM16 mono 48 kHz."
+        )
     return facts
 
 
@@ -180,7 +188,8 @@ def _validated_inputs(preflight: Mapping[str, Any], workspace_root: Path) -> dic
     except (OSError, ValueError) as error:
         raise DilonIdentityBuildError("invalid_master_pointer", "Master CURRENT повреждён.") from error
     if (
-        pointer.get("master_identity") != master_identity
+        pointer.get("schema_version") != MASTER_SCHEMA_VERSION
+        or pointer.get("master_identity") != master_identity
         or pointer.get("manifest_path") != str(manifest_path)
         or authority["master"].get("master_manifest_sha256") != sha256_file(manifest_path)
     ):
@@ -302,6 +311,32 @@ def _read_ready(output_dir: Path, identity: str) -> dict[str, Any] | None:
 def build_identity_output(
     preflight: Mapping[str, Any], *, workspace_root: Path, identities_root: Path
 ) -> dict[str, Any]:
+    authority = _preflight(preflight)
+    root = _workspace(workspace_root)
+    with production_authority_lock(
+        root,
+        provider="master-book",
+        book_slug=authority["book_slug"],
+        job_id="book",
+        profile_id=MASTER_PRESET_ID,
+        exclusive=False,
+    ):
+        with production_authority_lock(
+            root,
+            provider="master",
+            book_slug=authority["book_slug"],
+            job_id=authority["job_id"],
+            profile_id=MASTER_PRESET_ID,
+            exclusive=False,
+        ):
+            return _build_identity_output_locked(
+                preflight, workspace_root=root, identities_root=identities_root
+            )
+
+
+def _build_identity_output_locked(
+    preflight: Mapping[str, Any], *, workspace_root: Path, identities_root: Path
+) -> dict[str, Any]:
     inputs = _validated_inputs(preflight, workspace_root)
     identities = _output_root(workspace_root, identities_root)
     chapter_root = identities / inputs["book_slug"] / inputs["job_id"]
@@ -380,7 +415,20 @@ def build_identity_output(
             "billing_changed": False,
         }
         atomic_write_json(temp_dir / "MANIFEST.json", manifest)
-        os.rename(temp_dir, output_dir)
+        try:
+            os.rename(temp_dir, output_dir)
+        except OSError as error:
+            if error.errno not in {errno.EEXIST, errno.ENOTEMPTY}:
+                raise
+            winner = _read_ready(output_dir, identity)
+            if winner is None:
+                raise DilonIdentityBuildError("identity_publish_conflict", "Конфликт immutable identity publication.")
+            atomic_write_json(chapter_root / "CURRENT.json", {
+                "schema_version": 1,
+                "build_identity": identity,
+                "manifest_path": str(final_manifest.resolve(strict=True)),
+            })
+            return winner
         if _read_ready(output_dir, identity) is None:
             raise DilonIdentityBuildError("identity_publication_invalid", "Published identity package invalid.")
         atomic_write_json(chapter_root / "CURRENT.json", {
