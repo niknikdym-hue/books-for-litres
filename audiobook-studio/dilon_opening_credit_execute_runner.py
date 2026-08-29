@@ -76,6 +76,7 @@ def execute_from_current_runtime(
         plans_root=WORKSPACE_PATHS.paid_run_plans,
         pricing=pricing,
         backend=backend,
+        billing_transactions=billing.ledger.transactions,
     )
     return service.execute_authorized(
         book_slug=book_slug,
