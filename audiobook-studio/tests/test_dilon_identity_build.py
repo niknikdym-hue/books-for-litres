@@ -200,14 +200,14 @@ class DilonIdentityBuildTests(unittest.TestCase):
         second = prepare_identity_build(changed, workspace_root=self.root, identities_root=self.identities_root)
         self.assertNotEqual(first["build_identity"], second["build_identity"])
 
-    def test_symlinked_identity_root_is_rejected_without_following(self) -> None:
+    def test_symlinked_noncanonical_identity_root_is_rejected_without_following(self) -> None:
         outside = self.root / "outside"
         outside.mkdir()
         alias = self.root / "identities-alias"
         alias.symlink_to(outside, target_is_directory=True)
         with self.assertRaises(DilonIdentityBuildError) as caught:
             prepare_identity_build(self.preflight, workspace_root=self.root, identities_root=alias)
-        self.assertEqual(caught.exception.code, "symlink_output_root")
+        self.assertEqual(caught.exception.code, "noncanonical_identity_root")
         self.assertEqual(list(outside.iterdir()), [])
 
     def test_non_48k_opening_credit_fails_closed(self) -> None:
