@@ -180,10 +180,16 @@ def run_identity_technical_qa(
     expected_build_identity: str | None = None,
 ) -> dict[str, Any]:
     """Independently verify an exact-current Dilon identity WAV without network access."""
-    root = Path(workspace_root).expanduser().resolve(strict=True)
+    requested_root = Path(workspace_root).expanduser().absolute()
+    if requested_root.is_symlink():
+        raise DilonIdentityQAError("symlink_workspace_root", "Workspace root является ссылкой.")
+    try:
+        root = requested_root.resolve(strict=True)
+    except OSError as error:
+        raise DilonIdentityQAError("missing_workspace", "Workspace root не найден.") from error
     try:
         manifest = resolve_current_identity(
-            workspace_root=root,
+            workspace_root=requested_root,
             identities_root=identities_root,
             book_slug=book_slug,
             job_id=job_id,
