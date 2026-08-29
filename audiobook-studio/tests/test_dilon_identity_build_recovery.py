@@ -28,6 +28,7 @@ class DilonIdentityBuildRecoveryTests(unittest.TestCase):
         manifest.write_text(json.dumps({"master_identity": self.master_identity}), encoding="utf-8")
         (master_dir.parent / "CURRENT.json").write_text(
             json.dumps({
+                "schema_version": 1,
                 "master_identity": self.master_identity,
                 "manifest_path": str(manifest),
             }),
