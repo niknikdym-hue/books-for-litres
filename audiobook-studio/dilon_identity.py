@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from audio_qa_review import path_identity, sha256_file
-from backends.common import inspect_pcm_wav
+from backends.common import WavValidationError, inspect_pcm_wav
 from book_library import BookLibraryError, normalize_slug
 from mastering_export import resolve_current_master
 
@@ -105,6 +105,13 @@ def _require_regular_path(path: Path, *, root: Path, label: str) -> Path:
     return resolved
 
 
+def _inspect_wav(path: Path, *, code: str, message: str) -> dict[str, Any]:
+    try:
+        return inspect_pcm_wav(path).to_dict()
+    except (OSError, ValueError, WavValidationError) as error:
+        raise DilonIdentityError(code, message) from error
+
+
 def _validate_master_authority(
     value: Mapping[str, Any], *, workspace_root: Path
 ) -> dict[str, Any]:
@@ -121,7 +128,11 @@ def _validate_master_authority(
         root=workspace_root,
         label="Clean master manifest",
     )
-    wav = inspect_pcm_wav(audio).to_dict()
+    wav = _inspect_wav(
+        audio,
+        code="master_invalid_wav",
+        message="Clean master WAV повреждён.",
+    )
     if (
         value.get("audio_sha256") != sha256_file(audio)
         or value.get("path_identity") != path_identity(audio)
@@ -189,7 +200,11 @@ def _validate_opening_credit(
     )
     audio_sha = sha256_file(audio)
     audio_path_identity = path_identity(audio)
-    wav = inspect_pcm_wav(audio).to_dict()
+    wav = _inspect_wav(
+        audio,
+        code="opening_credit_invalid_wav",
+        message="Opening credit WAV повреждён.",
+    )
     if (
         value.get("audio_sha256") != audio_sha
         or value.get("path_identity") != audio_path_identity
@@ -303,7 +318,6 @@ def build_identity_preflight(
         except DilonIdentityError as error:
             blockers.append(error.code)
 
-    # Stable order matters for UI, tests, and immutable downstream identity.
     blockers = list(dict.fromkeys(blockers))
     identity_inputs = {
         "schema_version": IDENTITY_SCHEMA_VERSION,
