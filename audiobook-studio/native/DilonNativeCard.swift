@@ -154,10 +154,20 @@ struct DilonNativeCard: View {
     @ObservedObject var player: EmbeddedAudioPlayer
     @Binding var selectedCandidateID: String?
     let onApproveListenedCandidate: (DilonReviewCandidate) -> Void
+    @StateObject private var identityReview = DilonIdentityReviewController()
 
     private var selectedCandidate: DilonReviewCandidate? {
         guard let selectedCandidateID else { return nil }
         return snapshot.reviewCandidates.first { $0.candidateID == selectedCandidateID }
+    }
+
+    private var identityReviewKey: String {
+        [
+            snapshot.bookSlug,
+            snapshot.jobID,
+            snapshot.identityPreview?.buildIdentity ?? "",
+            snapshot.identityPreview?.audioSHA256 ?? "",
+        ].joined(separator: "\u{1f}")
     }
 
     private func candidateBinding(_ candidate: DilonReviewCandidate) -> AudioPlaybackBinding {
@@ -199,6 +209,17 @@ struct DilonNativeCard: View {
             && binding.audioSHA256 == candidate.audioSHA256
             && binding.pathIdentity == candidate.pathIdentity
             && binding.synthesisFingerprint == candidate.synthesisFingerprint
+    }
+
+    private func fullyListenedIdentity(_ preview: DilonIdentityPreview) -> Bool {
+        guard player.state == .finished, let binding = player.binding else { return false }
+        return binding.role == "dilon-identity-preview"
+            && binding.bookSlug == snapshot.bookSlug
+            && binding.jobID == snapshot.jobID
+            && binding.segmentID == "identity-preview"
+            && binding.audioSHA256 == preview.audioSHA256
+            && binding.pathIdentity == preview.pathIdentity
+            && binding.synthesisFingerprint == preview.buildIdentity
     }
 
     var body: some View {
@@ -261,10 +282,51 @@ struct DilonNativeCard: View {
                 }
 
                 if let preview = snapshot.identityPreview, preview.readOnly {
-                    Button("Прослушать текущий Dilon identity") {
-                        player.loadAndPlay(identityBinding(preview))
+                    Divider()
+                    Text("Финальный Dilon identity")
+                        .font(.headline)
+                    HStack {
+                        Button("Прослушать текущий Dilon identity") {
+                            player.loadAndPlay(identityBinding(preview))
+                        }
+                        .buttonStyle(.bordered)
+
+                        if identityReview.result?.identityAccepted == true {
+                            Label("Прослушан и принят", systemImage: "checkmark.shield.fill")
+                                .foregroundStyle(.green)
+                        } else {
+                            Button("Подтвердить прослушанный Dilon identity") {
+                                identityReview.approveListenedIdentity(
+                                    preview,
+                                    snapshot: snapshot,
+                                    player: player
+                                )
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(
+                                identityReview.isLoading
+                                    || snapshot.dilonStatus.technicalReady != true
+                                    || !fullyListenedIdentity(preview)
+                            )
+                        }
                     }
-                    .buttonStyle(.bordered)
+                    Text(
+                        identityReview.result?.identityAccepted == true
+                            ? "Persisted human acceptance привязан к exact current build/SHA/path."
+                            : "Финальное принятие разблокируется только после полного прослушивания exact identity.wav."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    if !identityReview.statusText.isEmpty {
+                        Label(identityReview.statusText, systemImage: "checkmark.shield")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+                    if let reviewError = identityReview.errorMessage {
+                        Label(reviewError, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                     Text("Identity preview доступен только для independently revalidated CURRENT output.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -277,6 +339,13 @@ struct DilonNativeCard: View {
                 Label("Whole-book release остаётся заблокирован", systemImage: "lock.fill")
                     .foregroundStyle(.secondary)
             }
+        }
+        .task(id: identityReviewKey) {
+            identityReview.selectionDidChange(
+                bookSlug: snapshot.bookSlug,
+                jobID: snapshot.jobID,
+                buildIdentity: snapshot.identityPreview?.buildIdentity
+            )
         }
     }
 }
