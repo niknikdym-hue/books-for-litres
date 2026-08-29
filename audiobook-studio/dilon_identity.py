@@ -27,6 +27,7 @@ DILON_DESCRIPTION = (
     "Dilon Voices — проект аудиокниг с профессионально подготовленной "
     "синтезированной озвучкой и авторской аудиообработкой."
 )
+OPENING_CREDIT_TEXT = "Елена Дилон. Хватит себя обесценивать. Читает Dilon Voices."
 
 IDENTITY_PRESET: dict[str, Any] = {
     "id": IDENTITY_PRESET_ID,
@@ -303,8 +304,10 @@ def build_identity_preflight(
     ``prepare_current_identity`` is the canonical entry point that resolves it
     through the MASTERING_EXPORT_V1 CURRENT authority first.
     """
-    if not isinstance(opening_credit_text, str) or not opening_credit_text.strip():
-        raise DilonIdentityError("invalid_opening_credit_text", "Opening credit text обязателен.")
+    if opening_credit_text != OPENING_CREDIT_TEXT:
+        raise DilonIdentityError(
+            "invalid_opening_credit_text", "Opening credit text не совпадает с Dilon authority."
+        )
     root = Path(workspace_root).expanduser().resolve(strict=True)
     master = _validate_master_authority(master_authority, workspace_root=root)
     blockers: list[str] = []
