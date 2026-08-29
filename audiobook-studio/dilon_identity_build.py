@@ -21,6 +21,7 @@ from typing import Any, Mapping
 
 from audio_qa_review import path_identity, sha256_file
 from backends.common import atomic_write_json, inspect_pcm_wav
+from dilon_identity import DILON_BRAND, DILON_DESCRIPTION, OPENING_CREDIT_TEXT
 from production_authority_lock import production_authority_lock
 
 
@@ -127,6 +128,22 @@ def _output_root(workspace_root: Path, identities_root: Path) -> Path:
     return requested
 
 
+def _chapter_root(identities: Path, book_slug: str, job_id: str, *, create: bool) -> Path:
+    current = identities
+    for part in (book_slug, job_id):
+        current = current / part
+        if current.is_symlink():
+            raise DilonIdentityBuildError("symlink_identity_path", "Identity package path содержит symlink.")
+        if create:
+            try:
+                current.mkdir(exist_ok=True)
+            except OSError as error:
+                raise DilonIdentityBuildError("invalid_identity_path", "Identity package path недоступен.") from error
+        elif not current.is_dir():
+            raise DilonIdentityBuildError("missing_identity_path", "Identity package path не найден.")
+    return current
+
+
 def _pcm16_mono_48k(path: Path, label: str) -> dict[str, Any]:
     try:
         facts = inspect_pcm_wav(path).to_dict()
@@ -154,12 +171,26 @@ def _preflight(preflight: Mapping[str, Any]) -> dict[str, Any]:
         or preflight.get("remote_request_sent") is not False
         or preflight.get("paid_execution") is not False
         or preflight.get("billing_changed") is not False
+        or preflight.get("brand") != DILON_BRAND
+        or preflight.get("description") != DILON_DESCRIPTION
+        or preflight.get("opening_credit_text") != OPENING_CREDIT_TEXT
     ):
-        raise DilonIdentityBuildError("preflight_not_ready", "Dilon identity preflight не READY.")
+        raise DilonIdentityBuildError("preflight_not_ready", "Dilon identity preflight не READY/canonical.")
     master = preflight.get("master")
     credit = preflight.get("opening_credit")
     if not isinstance(master, Mapping) or not isinstance(credit, Mapping):
         raise DilonIdentityBuildError("preflight_incomplete", "Master/opening credit authority отсутствует.")
+    reviewed = credit.get("reviewed_identity")
+    if (
+        credit.get("text") != OPENING_CREDIT_TEXT
+        or credit.get("automatic_status") not in {"PASS", "WARN"}
+        or credit.get("manual_state") != "APPROVED"
+        or not isinstance(reviewed, Mapping)
+        or reviewed.get("audio_sha256") != credit.get("audio_sha256")
+        or reviewed.get("path_identity") != credit.get("path_identity")
+        or reviewed.get("synthesis_fingerprint") != credit.get("synthesis_fingerprint")
+    ):
+        raise DilonIdentityBuildError("opening_credit_not_approved", "Opening credit exact review authority не подтверждён.")
     if preflight.get("signature_asset") is not None:
         raise DilonIdentityBuildError(
             "signature_render_not_implemented",
@@ -279,6 +310,8 @@ def _clipped_samples(path: Path) -> int:
 
 def _read_ready(output_dir: Path, identity: str) -> dict[str, Any] | None:
     try:
+        if output_dir.is_symlink():
+            return None
         manifest_path = output_dir / "MANIFEST.json"
         audio_path = output_dir / "identity.wav"
         if manifest_path.is_symlink() or audio_path.is_symlink():
@@ -339,8 +372,7 @@ def _build_identity_output_locked(
 ) -> dict[str, Any]:
     inputs = _validated_inputs(preflight, workspace_root)
     identities = _output_root(workspace_root, identities_root)
-    chapter_root = identities / inputs["book_slug"] / inputs["job_id"]
-    chapter_root.mkdir(parents=True, exist_ok=True)
+    chapter_root = _chapter_root(identities, inputs["book_slug"], inputs["job_id"], create=True)
     identity = _build_identity(inputs)
     output_dir = chapter_root / identity
     existing = _read_ready(output_dir, identity) if output_dir.exists() else None
@@ -351,7 +383,7 @@ def _build_identity_output_locked(
             "manifest_path": str((output_dir / "MANIFEST.json").resolve(strict=True)),
         })
         return existing
-    if output_dir.exists():
+    if output_dir.exists() or output_dir.is_symlink():
         raise DilonIdentityBuildError("invalid_existing_output", "Existing immutable identity package invalid.")
 
     master_before = sha256_file(inputs["master_path"])
@@ -456,7 +488,7 @@ def resolve_current_identity(
     identities = _output_root(root, identities_root)
     book = _safe_slug(book_slug)
     job = _safe_id(job_id, "job_id")
-    chapter_root = identities / book / job
+    chapter_root = _chapter_root(identities, book, job, create=False)
     pointer_path = _regular(chapter_root / "CURRENT.json", root=root, label="Identity CURRENT")
     try:
         pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
