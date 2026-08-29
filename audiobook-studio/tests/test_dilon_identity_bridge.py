@@ -10,7 +10,7 @@ from audio_qa_review import sha256_file
 from backends.yandex_pricing import YandexPricingConfig
 from backends.yandex_speechkit import YandexSpeechKitBackend
 import dilon_identity_bridge as bridge_module
-from dilon_identity_bridge import DilonIdentityBridgeService
+from dilon_identity_bridge import DilonIdentityBridgeError, DilonIdentityBridgeService
 from dilon_identity_build import DilonIdentityBuildError
 
 
@@ -46,6 +46,28 @@ class DilonIdentityBridgeTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp.cleanup()
+
+    def _output(self, name: str = "identity.wav") -> Path:
+        output = self.identities / "demo-book" / "chapter-ch001" / ("a" * 64) / name
+        output.parent.mkdir(parents=True, exist_ok=True)
+        return output
+
+    def test_bridge_requires_canonical_identity_and_plan_roots(self) -> None:
+        with self.assertRaises(DilonIdentityBridgeError) as identity_error:
+            DilonIdentityBridgeService(
+                workspace_root=self.root,
+                identities_root=self.root / "other-identities",
+                paid_plans_root=self.plans,
+            )
+        self.assertEqual(identity_error.exception.code, "noncanonical_identity_root")
+
+        with self.assertRaises(DilonIdentityBridgeError) as plans_error:
+            DilonIdentityBridgeService(
+                workspace_root=self.root,
+                identities_root=self.identities,
+                paid_plans_root=self.root / "other-plans",
+            )
+        self.assertEqual(plans_error.exception.code, "noncanonical_plan_root")
 
     def test_prepare_persists_owner_ready_plan_without_network(self) -> None:
         with mock.patch.object(
@@ -93,8 +115,7 @@ class DilonIdentityBridgeTests(unittest.TestCase):
         self.assertEqual(result["provider_requests"], 0)
 
     def test_exact_current_identity_returns_read_only_preview(self) -> None:
-        output = self.root / "identities" / "demo-book" / "chapter-ch001" / ("a" * 64) / "identity.wav"
-        output.parent.mkdir(parents=True)
+        output = self._output()
         output.write_bytes(b"offline-audio-fixture")
         digest = sha256_file(output)
         manifest = {
@@ -123,7 +144,7 @@ class DilonIdentityBridgeTests(unittest.TestCase):
         self.assertFalse(result["billing_changed"])
 
     def test_preview_rechecks_output_sha_after_resolver(self) -> None:
-        output = self.root / "identity.wav"
+        output = self._output()
         output.write_bytes(b"current")
         old_digest = sha256_file(output)
         manifest = {
@@ -143,6 +164,30 @@ class DilonIdentityBridgeTests(unittest.TestCase):
         self.assertEqual(result["state"], "BLOCKED")
         self.assertEqual(result["blockers"], ["identity_output_sha_mismatch"])
         self.assertIsNone(result["preview"])
+
+    def test_preview_symlink_swap_fails_closed_without_following(self) -> None:
+        output = self._output()
+        outside = self.root / "outside-audio.wav"
+        outside.write_bytes(b"outside")
+        output.symlink_to(outside)
+        digest = sha256_file(outside)
+        manifest = {
+            "build_identity": "a" * 64,
+            "preflight_plan_id": "b" * 64,
+            "book_slug": "demo-book",
+            "job_id": "chapter-ch001",
+            "output": {"path": str(output), "sha256": digest},
+        }
+        with mock.patch.object(
+            bridge_module, "resolve_current_identity", return_value=manifest
+        ):
+            result = self.service.identity_status(
+                book_slug="demo-book", job_id="chapter-ch001"
+            )
+        self.assertEqual(result["state"], "BLOCKED")
+        self.assertEqual(result["blockers"], ["identity_preview_path_invalid"])
+        self.assertIsNone(result["preview"])
+        self.assertEqual(outside.read_bytes(), b"outside")
 
     def test_service_exposes_no_execute_or_synthesize_action(self) -> None:
         self.assertFalse(hasattr(self.service, "execute"))
