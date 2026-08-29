@@ -71,12 +71,36 @@ class DilonNativeSnapshotTests(unittest.TestCase):
             "decision": "BLOCKED",
             "book_slug": book,
             "job_id": job,
+            "identity": None,
             "whole_book_release_ready": False,
             "provider_requests": 0,
             "remote_request_sent": False,
             "paid_execution": False,
             "billing_changed": False,
             "blockers": ["opening_credit_missing"],
+        }
+
+    @staticmethod
+    def _current_status(book: str, job: str, identity: str = "a" * 64) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "state": "CURRENT_TECHNICAL_QA_PASS",
+            "decision": "HUMAN_LISTENING_REQUIRED",
+            "book_slug": book,
+            "job_id": job,
+            "identity": {
+                "build_identity": identity,
+                "output_path": "/canonical/identity.wav",
+                "output_sha256": "b" * 64,
+                "current": True,
+            },
+            "technical_ready": True,
+            "whole_book_release_ready": False,
+            "provider_requests": 0,
+            "remote_request_sent": False,
+            "paid_execution": False,
+            "billing_changed": False,
+            "blockers": [],
         }
 
     def test_valid_candidate_catalog_is_exact_deterministic_and_read_only(self) -> None:
@@ -204,7 +228,7 @@ class DilonNativeSnapshotTests(unittest.TestCase):
             native,
             "current_dilon_identity_status",
             return_value=fake_status,
-        ) as status_call:
+        ) as status_call, mock.patch.object(native, "DilonIdentityBridgeService") as bridge:
             snapshot = native.current_native_snapshot(
                 workspace_root=self.root,
                 masters_root=self.masters,
@@ -213,10 +237,12 @@ class DilonNativeSnapshotTests(unittest.TestCase):
                 job_id=self.job,
             )
         status_call.assert_called_once()
+        bridge.assert_not_called()
         self.assertEqual(snapshot["state"], "READY")
         self.assertEqual(snapshot["decision"], "DISPLAY_CURRENT_DILON_STATE")
         self.assertEqual(snapshot["dilon_status"], fake_status)
         self.assertEqual(snapshot["review_candidates"][0]["candidate_id"], prepared["candidate_id"])
+        self.assertIsNone(snapshot["identity_preview"])
         self.assertTrue(snapshot["capabilities"]["prepare_opening_credit_offline"])
         self.assertTrue(snapshot["capabilities"]["review_candidate_offline"])
         self.assertTrue(snapshot["capabilities"]["identity_preview_offline"])
@@ -228,6 +254,158 @@ class DilonNativeSnapshotTests(unittest.TestCase):
         self.assertFalse(snapshot["remote_request_sent"])
         self.assertFalse(snapshot["paid_execution"])
         self.assertFalse(snapshot["billing_changed"])
+
+    def test_current_identity_preview_is_revalidated_by_exact_bridge(self) -> None:
+        build_identity = "a" * 64
+        fake_status = self._current_status(self.book, self.job, build_identity)
+        bridge_result = {
+            "schema_version": 1,
+            "state": "READY",
+            "decision": "READY_TO_PREVIEW",
+            "blockers": [],
+            "identity": {
+                "build_identity": build_identity,
+                "book_slug": self.book,
+                "job_id": self.job,
+                "output_sha256": "b" * 64,
+            },
+            "preview": {
+                "audio_path": "/canonical/identity.wav",
+                "audio_sha256": "b" * 64,
+                "path_identity": "c" * 64,
+                "read_only": True,
+            },
+            "provider_requests": 0,
+            "remote_request_sent": False,
+            "paid_execution": False,
+            "billing_changed": False,
+        }
+        service = mock.Mock()
+        service.identity_status.return_value = bridge_result
+        with mock.patch.object(
+            native,
+            "current_dilon_identity_status",
+            return_value=fake_status,
+        ), mock.patch.object(
+            native,
+            "DilonIdentityBridgeService",
+            return_value=service,
+        ) as constructor:
+            snapshot = native.current_native_snapshot(
+                workspace_root=self.root,
+                masters_root=self.masters,
+                identities_root=self.identities,
+                book_slug=self.book,
+                job_id=self.job,
+            )
+        constructor.assert_called_once_with(
+            workspace_root=self.root.resolve(),
+            identities_root=self.identities,
+            paid_plans_root=self.root.resolve() / "runtime" / "paid-run-plans",
+        )
+        service.identity_status.assert_called_once_with(
+            book_slug=self.book,
+            job_id=self.job,
+            expected_build_identity=build_identity,
+        )
+        self.assertEqual(snapshot["identity_preview"], {
+            "build_identity": build_identity,
+            "audio_path": "/canonical/identity.wav",
+            "audio_sha256": "b" * 64,
+            "path_identity": "c" * 64,
+            "read_only": True,
+        })
+
+    def test_stale_or_noncurrent_identity_is_never_exposed_for_preview(self) -> None:
+        status = self._current_status(self.book, self.job)
+        status["identity"]["current"] = False
+        with mock.patch.object(
+            native,
+            "current_dilon_identity_status",
+            return_value=status,
+        ), mock.patch.object(native, "DilonIdentityBridgeService") as bridge:
+            snapshot = native.current_native_snapshot(
+                workspace_root=self.root,
+                masters_root=self.masters,
+                identities_root=self.identities,
+                book_slug=self.book,
+                job_id=self.job,
+            )
+        bridge.assert_not_called()
+        self.assertIsNone(snapshot["identity_preview"])
+
+    def test_nonoffline_preview_bridge_is_rejected(self) -> None:
+        status = self._current_status(self.book, self.job)
+        service = mock.Mock()
+        service.identity_status.return_value = {
+            "state": "READY",
+            "decision": "READY_TO_PREVIEW",
+            "identity": {
+                "build_identity": "a" * 64,
+                "book_slug": self.book,
+                "job_id": self.job,
+            },
+            "preview": {
+                "audio_path": "/canonical/identity.wav",
+                "audio_sha256": "b" * 64,
+                "path_identity": "c" * 64,
+                "read_only": True,
+            },
+            "provider_requests": 1,
+            "remote_request_sent": False,
+            "paid_execution": False,
+            "billing_changed": False,
+        }
+        with mock.patch.object(
+            native,
+            "current_dilon_identity_status",
+            return_value=status,
+        ), mock.patch.object(
+            native,
+            "DilonIdentityBridgeService",
+            return_value=service,
+        ):
+            with self.assertRaises(native.DilonNativeSnapshotError) as caught:
+                native.current_native_snapshot(
+                    workspace_root=self.root,
+                    masters_root=self.masters,
+                    identities_root=self.identities,
+                    book_slug=self.book,
+                    job_id=self.job,
+                )
+        self.assertEqual(caught.exception.code, "offline_contract_violation")
+
+    def test_current_status_bridge_disagreement_fails_closed(self) -> None:
+        status = self._current_status(self.book, self.job)
+        service = mock.Mock()
+        service.identity_status.return_value = {
+            "state": "BLOCKED",
+            "decision": "IDENTITY_NOT_CURRENT",
+            "identity": None,
+            "preview": None,
+            "provider_requests": 0,
+            "remote_request_sent": False,
+            "paid_execution": False,
+            "billing_changed": False,
+        }
+        with mock.patch.object(
+            native,
+            "current_dilon_identity_status",
+            return_value=status,
+        ), mock.patch.object(
+            native,
+            "DilonIdentityBridgeService",
+            return_value=service,
+        ):
+            with self.assertRaises(native.DilonNativeSnapshotError) as caught:
+                native.current_native_snapshot(
+                    workspace_root=self.root,
+                    masters_root=self.masters,
+                    identities_root=self.identities,
+                    book_slug=self.book,
+                    job_id=self.job,
+                )
+        self.assertEqual(caught.exception.code, "identity_preview_not_current")
 
     def test_nonoffline_status_is_rejected_before_native_presentation(self) -> None:
         unsafe = self._offline_status(self.book, self.job)
