@@ -21,6 +21,7 @@ from typing import Any, Mapping
 
 from audio_qa_review import path_identity, sha256_file
 from backends.common import atomic_write_json, inspect_pcm_wav
+from book_library import BookLibraryError, normalize_slug
 from dilon_identity import (
     DILON_BRAND,
     DILON_DESCRIPTION,
@@ -88,10 +89,10 @@ def _safe_id(value: Any, label: str) -> str:
 
 
 def _safe_slug(value: Any) -> str:
-    slug = _safe_id(value, "book_slug")
-    if slug.lower() != slug or any(not (c.isascii() and (c.isalnum() or c == "-")) for c in slug):
-        raise DilonIdentityBuildError("invalid_book_slug", "Некорректный book_slug.")
-    return slug
+    try:
+        return normalize_slug(str(value or ""))
+    except BookLibraryError as error:
+        raise DilonIdentityBuildError("invalid_book_slug", "Некорректный book_slug.") from error
 
 
 def _workspace(workspace_root: Path) -> Path:
