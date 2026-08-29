@@ -154,7 +154,7 @@ class DilonOpeningCreditReviewTests(unittest.TestCase):
         Path(prepared["audio_path"]).write_bytes(b"tampered")
         with self.assertRaises(OpeningCreditReviewError) as caught:
             self._approve(prepared)
-        self.assertEqual(caught.exception.code, "candidate_integrity_mismatch")
+        self.assertEqual(caught.exception.code, "invalid_wav")
 
     def test_coordinated_manifest_tamper_blocks_approval(self) -> None:
         prepared = self._prepare()
