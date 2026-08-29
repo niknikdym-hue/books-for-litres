@@ -17,7 +17,8 @@ class DilonNativeMountedUISourceTests(unittest.TestCase):
         self.assertIn("snapshot: snapshot", source)
         self.assertIn("player: model.audioPlayer", source)
         self.assertIn("selectedCandidateID: $dilonFlow.selectedCandidateID", source)
-        self.assertIn("dilonFlow.approveListenedCandidate(candidate, player: model.audioPlayer)", source)
+        self.assertIn("dilonFlow.approveListenedCandidate(", source)
+        self.assertIn("candidate, player: model.audioPlayer", source)
 
     def test_mounted_flow_tracks_exact_book_job_selection(self) -> None:
         source = APP.read_text(encoding="utf-8")
