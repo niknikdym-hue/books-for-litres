@@ -144,6 +144,17 @@ final class StudioModel: ObservableObject {
         invalidateOpenAIIntent()
         isLoading = true
         defer { isLoading = false }
+        books = []
+        selectedBookID = ""
+        selectedJobID = ""
+        audioQA = nil
+        audioQAPlaybackIdentity = nil
+        downstreamApprovedOutput = nil
+        chapterAssembly = nil
+        mastering = nil
+        litresExport = nil
+        completedOutput = nil
+        audioPlayer.clear()
         do {
             let releaseSweep: LitresReleaseAuthoritySweep = try await runBridgeJSON([
                 "--reconcile-all-litres-release-authorities",

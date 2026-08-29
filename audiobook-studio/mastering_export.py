@@ -1393,6 +1393,26 @@ class LitresExportService:
     ) -> None:
         book_pointer = profile_root / "CURRENT.json"
         declared_state = manifest.get("whole_book")
+        identity = _safe_id(manifest.get("export_identity"), "export_identity")
+        manifest_path = output_dir / "MANIFEST.json"
+        pointer_matches = False
+        if book_pointer.is_file() and not book_pointer.is_symlink():
+            try:
+                current_pointer = json.loads(book_pointer.read_text(encoding="utf-8"))
+                pointer_matches = (
+                    current_pointer.get("schema_version") == EXPORT_SCHEMA_VERSION
+                    and current_pointer.get("export_identity") == identity
+                    and current_pointer.get("manifest_path") == str(manifest_path)
+                )
+            except (OSError, ValueError, TypeError):
+                pointer_matches = False
+        if not pointer_matches and (book_pointer.exists() or book_pointer.is_symlink()):
+            if book_pointer.is_symlink() or not book_pointer.is_file():
+                raise MasteringExportError(
+                    "invalid_export_pointer",
+                    "Export CURRENT должен быть обычным файлом.",
+                )
+            book_pointer.unlink()
         if (
             not isinstance(declared_state, Mapping)
             or declared_state.get("ready") is not True
@@ -1404,11 +1424,9 @@ class LitresExportService:
                         "Export CURRENT должен быть обычным файлом.",
                     )
                 book_pointer.unlink()
-        identity = _safe_id(manifest.get("export_identity"), "export_identity")
         validated = self._read_export(output_dir, identity)
         if validated is None:
             raise MasteringExportError("invalid_export_winner", "Export package не прошёл проверку перед публикацией CURRENT.")
-        manifest_path = output_dir / "MANIFEST.json"
         for record in validated["chapters"]:
             atomic_write_json(profile_root / f"CURRENT-{record['job_id']}.json", {
                 "schema_version": EXPORT_SCHEMA_VERSION,
@@ -1597,7 +1615,9 @@ class LitresExportService:
                     )
                     packages[manifest_path] = (
                         chapter_manifest,
-                        chapter_manifest is not None and self._package_cover_is_valid(chapter_manifest),
+                        chapter_manifest is not None and self._package_cover_is_valid(
+                            chapter_manifest, output_dir=manifest_path.parent,
+                        ),
                     )
                 manifest, package_cover_valid = packages[manifest_path]
                 if manifest is None:
@@ -2231,7 +2251,12 @@ class LitresExportService:
             raise MasteringExportError("export_identity_mismatch", "MP3 export identity изменилась.")
         return prepared
 
-    def _package_cover_is_valid(self, payload: Mapping[str, Any]) -> bool:
+    def _package_cover_is_valid(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        output_dir: Path | None = None,
+    ) -> bool:
         try:
             cover = payload.get("cover")
             book = payload.get("book")
@@ -2241,8 +2266,16 @@ class LitresExportService:
             package_cover = _require_regular_path(
                 Path(cover["package_path"]), root=self.workspace_root, label="Package cover"
             )
+            if output_dir is None:
+                manifest_path = Path(payload["manifest_path"])
+                output_dir = manifest_path.parent
+            canonical_path = _require_regular_path(
+                Path(canonical_cover["path"]), root=self.workspace_root, label="Canonical cover"
+            )
+            expected_cover = output_dir / f"cover{canonical_path.suffix.lower()}"
             return bool(
                 isinstance(canonical_cover, Mapping)
+                and package_cover == expected_cover
                 and cover.get("package_sha256") == canonical_cover.get("sha256")
                 and cover.get("package_sha256") == sha256_file(package_cover)
                 and cover.get("package_path_identity") == path_identity(package_cover)
@@ -2273,10 +2306,12 @@ class LitresExportService:
             ):
                 return None
             derived_identity = _export_identity(book, chapters)
+            canonical_manifest_path = self._profile_root(book["slug"]) / derived_identity / "MANIFEST.json"
             derived_state = build_book_export_state(book, chapters)
             if (
                 identity != derived_identity
                 or output_dir.name != derived_identity
+                or manifest_path != canonical_manifest_path
                 or _canonical_json(payload.get("whole_book")) != _canonical_json(derived_state)
                 or payload.get("status") != ("RELEASE_READY" if derived_state["ready"] else "INCOMPLETE")
                 or payload.get("chapter_expected_order") != book.get("chapters")
@@ -2312,7 +2347,7 @@ class LitresExportService:
                     or self._probe_mp3(cover_ffmpeg.path, path).get("cover_art_embedded") is not True
                 ):
                     return None
-            if validate_package_cover and not self._package_cover_is_valid(payload):
+            if validate_package_cover and not self._package_cover_is_valid(payload, output_dir=output_dir):
                 return None
             return payload
         except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.TimeoutExpired, MasteringExportError):

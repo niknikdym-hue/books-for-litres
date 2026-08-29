@@ -156,6 +156,13 @@ class NativeUIBridgeTests(unittest.TestCase):
             "releaseSweep.quarantineFailedBookIDs.isEmpty", release_sweep,
         )
         self.assertLess(quarantine_failed_guard, ui_snapshot)
+        for clearing in (
+            'books = []', 'selectedBookID = ""', 'selectedJobID = ""',
+            'audioQA = nil', 'downstreamApprovedOutput = nil',
+            'chapterAssembly = nil', 'mastering = nil', 'litresExport = nil',
+            'completedOutput = nil', 'audioPlayer.clear()',
+        ):
+            self.assertLess(source.index(clearing, reload), release_sweep)
         self.assertIn('Button("Подготовить мастер")', source)
         self.assertIn('Button("Восстановить текущий master")', source)
         self.assertIn('mastering.decision == "READY_TO_REPAIR"', source)

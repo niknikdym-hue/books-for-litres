@@ -336,16 +336,26 @@ def reconcile_all_litres_release_authorities() -> dict[str, Any]:
     if exports_root.is_dir():
         for book_root in sorted(exports_root.iterdir()):
             try:
-                if book_root.is_symlink() or not book_root.is_dir():
+                if book_root.is_symlink():
+                    book_slug = normalize_slug(book_root.name)
+                    if book_slug != book_root.name or book_slug in known_profile_slugs:
+                        continue
+                    book_root.unlink()
+                    quarantined_book_ids.append(f"{book_slug}.json")
+                    continue
+                if not book_root.is_dir():
                     continue
                 book_slug = normalize_slug(book_root.name)
                 if book_slug != book_root.name or book_slug in known_profile_slugs:
                     continue
                 profile_root = book_root / "litres_author_v1"
                 pointer = profile_root / "CURRENT.json"
+                if profile_root.is_symlink():
+                    profile_root.unlink()
+                    quarantined_book_ids.append(f"{book_slug}.json")
+                    continue
                 if (
-                    profile_root.is_symlink()
-                    or not profile_root.is_dir()
+                    not profile_root.is_dir()
                     or not (pointer.exists() or pointer.is_symlink())
                 ):
                     continue

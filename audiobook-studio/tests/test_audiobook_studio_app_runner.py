@@ -310,6 +310,28 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertFalse(result["remote_request_sent"])
         self.assertFalse(result["billing_changed"])
 
+    def test_orphan_symlink_roots_are_unlinked_without_target_traversal(self):
+        exports_root = bridge.WORKSPACE_PATHS.exports_root
+        outside = self.workspace / "outside-release-authority"
+        (outside / "litres_author_v1").mkdir(parents=True)
+        outside_pointer = outside / "litres_author_v1" / "CURRENT.json"
+        outside_pointer.write_text("must-survive", encoding="utf-8")
+        book_root = exports_root / "orphan-book-link"
+        book_root.symlink_to(outside, target_is_directory=True)
+        result = bridge.reconcile_all_litres_release_authorities()
+        self.assertFalse(book_root.exists())
+        self.assertEqual(outside_pointer.read_text(encoding="utf-8"), "must-survive")
+        self.assertIn("orphan-book-link.json", result["quarantined_book_ids"])
+
+        real_book = exports_root / "orphan-profile-link"
+        real_book.mkdir()
+        profile_link = real_book / "litres_author_v1"
+        profile_link.symlink_to(outside / "litres_author_v1", target_is_directory=True)
+        result = bridge.reconcile_all_litres_release_authorities()
+        self.assertFalse(profile_link.exists())
+        self.assertEqual(outside_pointer.read_text(encoding="utf-8"), "must-survive")
+        self.assertIn("orphan-profile-link.json", result["quarantined_book_ids"])
+
     def test_invalid_profile_name_does_not_block_orphan_pointer_cleanup(self):
         invalid_profile = bridge.WORKSPACE_PATHS.books_root / "bad name.json"
         invalid_profile.write_text("{}", encoding="utf-8")

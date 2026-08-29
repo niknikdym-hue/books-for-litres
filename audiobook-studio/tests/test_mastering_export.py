@@ -23,6 +23,7 @@ from audio_qa_review import path_identity, sha256_file
 from backends.common import inspect_pcm_wav
 from mastering_export import (
     BOUNDARY_POLICY,
+    EXPORT_SCHEMA_VERSION,
     LITRES_PROFILE,
     MASTER_PRESET,
     LitresExportService,
@@ -502,6 +503,27 @@ class MasteringExportTests(unittest.TestCase):
         book_pointer.write_text("stale-release-ready", encoding="utf-8")
         chapter_pointer.unlink()
         chapter_pointer.mkdir()
+        with mock.patch.object(
+            self.exporting, "_read_export",
+            side_effect=MasteringExportError("invalid_export", "forced failure"),
+        ), self.assertRaises(MasteringExportError):
+            self.exporting._publish_current_pointers(
+                profile_root, manifest_path.parent, manifest,
+            )
+        self.assertFalse(book_pointer.exists())
+
+    def test_ready_replacement_revokes_different_release_pointer_before_validation_failure(self):
+        exported = self._export()
+        manifest_path = Path(exported["manifest_path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["whole_book"]["ready"] = True
+        profile_root = manifest_path.parent.parent
+        book_pointer = profile_root / "CURRENT.json"
+        book_pointer.write_text(json.dumps({
+            "schema_version": EXPORT_SCHEMA_VERSION,
+            "export_identity": "0" * 64,
+            "manifest_path": str(profile_root / ("0" * 64) / "MANIFEST.json"),
+        }), encoding="utf-8")
         with mock.patch.object(
             self.exporting, "_read_export",
             side_effect=MasteringExportError("invalid_export", "forced failure"),
@@ -1228,6 +1250,34 @@ class MasteringExportTests(unittest.TestCase):
         quarantined = list(recovered_cover.parent.parent.glob(f".invalid-{recovered['export_manifest']['export_identity']}-*"))
         self.assertEqual(len(quarantined), 1)
         self.assertTrue((quarantined[0] / package_cover.name).is_file())
+
+        recovered_manifest = recovered["export_manifest"]
+        canonical_path = recovered_manifest["cover"]["package_path"]
+        for replacement in (cover, quarantined[0] / package_cover.name):
+            recovered_manifest["cover"]["package_path"] = str(replacement)
+            recovered_manifest["cover"]["package_path_identity"] = path_identity(replacement)
+            self.assertFalse(self.exporting._package_cover_is_valid(
+                recovered_manifest, output_dir=recovered_cover.parent,
+            ))
+        alias = recovered_cover.with_name("cover-alias.jpg")
+        alias.symlink_to(recovered_cover)
+        recovered_manifest["cover"]["package_path"] = str(alias)
+        recovered_manifest["cover"]["package_path_identity"] = path_identity(alias)
+        self.assertFalse(self.exporting._package_cover_is_valid(
+            recovered_manifest, output_dir=recovered_cover.parent,
+        ))
+        recovered_manifest["cover"]["package_path"] = canonical_path
+        recovered_manifest["cover"]["package_path_identity"] = path_identity(recovered_cover)
+        self.assertTrue(self.exporting._package_cover_is_valid(
+            recovered_manifest, output_dir=recovered_cover.parent,
+        ))
+
+        relocated = self.root / "relocated" / recovered_cover.parent.name
+        relocated.mkdir(parents=True)
+        shutil.copyfile(Path(recovered["manifest_path"]), relocated / "MANIFEST.json")
+        self.assertIsNone(self.exporting._read_export(
+            relocated, recovered_manifest["export_identity"],
+        ))
 
     def test_cover_copy_race_is_blocked_before_package_publication(self):
         master = self._master_authority()
