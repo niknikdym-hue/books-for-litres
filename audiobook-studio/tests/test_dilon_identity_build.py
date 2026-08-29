@@ -9,6 +9,7 @@ from pathlib import Path
 
 from audio_qa_review import path_identity, sha256_file
 from backends.common import inspect_pcm_wav
+from dilon_identity import DILON_BRAND, DILON_DESCRIPTION, OPENING_CREDIT_TEXT
 from dilon_identity_build import (
     DilonIdentityBuildError,
     build_identity_output,
@@ -62,12 +63,17 @@ class DilonIdentityBuildTests(unittest.TestCase):
             output.writeframes(payload)
 
     def _preflight(self) -> dict[str, object]:
+        credit_sha = sha256_file(self.credit)
+        credit_path_identity = path_identity(self.credit)
         return {
             "schema_version": 1,
             "identity_plan_id": "p" * 64,
             "state": "READY",
             "decision": "READY_TO_BUILD",
             "blockers": [],
+            "brand": DILON_BRAND,
+            "description": DILON_DESCRIPTION,
+            "opening_credit_text": OPENING_CREDIT_TEXT,
             "book_slug": self.book,
             "book_title": "Demo Book",
             "job_id": self.job,
@@ -78,17 +84,17 @@ class DilonIdentityBuildTests(unittest.TestCase):
                 "master_manifest_sha256": sha256_file(self.master_manifest),
             },
             "opening_credit": {
-                "text": "Demo credit",
+                "text": OPENING_CREDIT_TEXT,
                 "audio_path": str(self.credit),
-                "audio_sha256": sha256_file(self.credit),
-                "path_identity": path_identity(self.credit),
+                "audio_sha256": credit_sha,
+                "path_identity": credit_path_identity,
                 "wav": inspect_pcm_wav(self.credit).to_dict(),
                 "synthesis_fingerprint": "credit-v1",
                 "automatic_status": "PASS",
                 "manual_state": "APPROVED",
                 "reviewed_identity": {
-                    "audio_sha256": sha256_file(self.credit),
-                    "path_identity": path_identity(self.credit),
+                    "audio_sha256": credit_sha,
+                    "path_identity": credit_path_identity,
                     "synthesis_fingerprint": "credit-v1",
                 },
             },
@@ -114,6 +120,20 @@ class DilonIdentityBuildTests(unittest.TestCase):
         with self.assertRaises(DilonIdentityBuildError) as caught:
             prepare_identity_build(with_signature, workspace_root=self.root, identities_root=self.identities_root)
         self.assertEqual(caught.exception.code, "signature_render_not_implemented")
+
+    def test_unreviewed_credit_cannot_be_smuggled_through_ready_flag(self) -> None:
+        forged = copy.deepcopy(self.preflight)
+        forged["opening_credit"]["manual_state"] = "UNREVIEWED"
+        with self.assertRaises(DilonIdentityBuildError) as caught:
+            prepare_identity_build(forged, workspace_root=self.root, identities_root=self.identities_root)
+        self.assertEqual(caught.exception.code, "opening_credit_not_approved")
+
+    def test_wrong_opening_credit_text_is_rejected(self) -> None:
+        forged = copy.deepcopy(self.preflight)
+        forged["opening_credit"]["text"] = "Wrong credit"
+        with self.assertRaises(DilonIdentityBuildError) as caught:
+            prepare_identity_build(forged, workspace_root=self.root, identities_root=self.identities_root)
+        self.assertEqual(caught.exception.code, "opening_credit_not_approved")
 
     def test_no_music_build_is_deterministic_and_preserves_sources(self) -> None:
         master_before = sha256_file(self.master)
@@ -210,6 +230,16 @@ class DilonIdentityBuildTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "noncanonical_identity_root")
         self.assertEqual(list(outside.iterdir()), [])
 
+    def test_symlinked_book_root_is_rejected_without_following(self) -> None:
+        self.identities_root.mkdir()
+        outside = self.root / "outside-book"
+        outside.mkdir()
+        (self.identities_root / self.book).symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(DilonIdentityBuildError) as caught:
+            build_identity_output(self.preflight, workspace_root=self.root, identities_root=self.identities_root)
+        self.assertEqual(caught.exception.code, "symlink_identity_path")
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_non_48k_opening_credit_fails_closed(self) -> None:
         with wave.open(str(self.credit), "wb") as output:
             output.setnchannels(1)
@@ -219,6 +249,8 @@ class DilonIdentityBuildTests(unittest.TestCase):
         changed = copy.deepcopy(self.preflight)
         changed["opening_credit"]["audio_sha256"] = sha256_file(self.credit)
         changed["opening_credit"]["path_identity"] = path_identity(self.credit)
+        changed["opening_credit"]["reviewed_identity"]["audio_sha256"] = sha256_file(self.credit)
+        changed["opening_credit"]["reviewed_identity"]["path_identity"] = path_identity(self.credit)
         with self.assertRaises(DilonIdentityBuildError) as caught:
             prepare_identity_build(changed, workspace_root=self.root, identities_root=self.identities_root)
         self.assertEqual(caught.exception.code, "unsupported_wav_format")
