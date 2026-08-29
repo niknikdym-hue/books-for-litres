@@ -4,7 +4,7 @@
 **Дата фиксации:** 2026-08-29  
 **Проект:** `audiobook-studio/`  
 **Repository:** `niknikdym-hue/books-for-litres`  
-**Accepted main after PR #35:** `f3620fb275ff86d98f5030436b0914c53b2f3cde`
+**Accepted main through PR #38:** `b6dcd7927d3a6df447ae6e4fc85177ddd642f5f0`
 
 ---
 
@@ -50,21 +50,9 @@ Global OpenAI safety: `paid_execution_enabled = false`.
 18. fail-closed native Swift Dilon card — PR #32;
 19. native Dilon flow orchestration / exact-listened approval controller — PR #33;
 20. mounted native Dilon flow in normal Studio form — PR #34;
-21. `DILON_IDENTITY_EXTERNAL_READINESS_V1` — PR #35.
-
-### PR #34 native-flow acceptance
-
-- feature HEAD `950f8b4526adca6761dcef06e54c72227b9d011e`;
-- Python full offline suite SUCCESS;
-- macOS ARM64 native contract/build/strict codesign SUCCESS;
-- review threads 0;
-- provider/network requests 0;
-- paid execution 0;
-- production deployment false.
-
-The normal `StudioView` now contains the accepted Dilon flow. It binds only to the exact selected production book/chapter, invalidates Dilon state/player on selection change, exposes exact review candidates without automatic selection, and permits approval only through exact fully-listened SHA/path/fingerprint binding.
-
-`DILON_IDENTITY_NATIVE_FLOW_V1 = ACCEPTED`.
+21. `DILON_IDENTITY_EXTERNAL_READINESS_V1` — PR #35;
+22. final exact-listened Dilon identity human-review authority + mounted native acceptance — PR #37;
+23. read-only executable `REAL_BOOK_E2E_ACCEPTANCE` preflight — PR #38.
 
 ### PR #35 external-readiness acceptance
 
@@ -72,15 +60,40 @@ The normal `StudioView` now contains the accepted Dilon flow. It binds only to t
 - merge commit `f3620fb275ff86d98f5030436b0914c53b2f3cde`;
 - exact-head workflow `Audiobook Studio Offline` run `#193`: SUCCESS;
 - Python full offline suite SUCCESS;
-- macOS ARM64 native contract SUCCESS;
-- native build + strict codesign SUCCESS;
+- macOS ARM64 native contract/build/strict codesign SUCCESS;
 - review threads 0;
 - real provider/network requests during implementation/CI: 0;
 - paid execution during implementation/CI: 0.
 
-The accepted future one-request executor requires exact persisted `plan_id + plan_digest`, fresh price/voice/route/segmentation/fingerprint revalidation, explicit owner authorization and a hard one-request cap. It reuses completed exact results with zero new requests, blocks AMBIGUOUS/unrecoverable IN_FLIGHT/sent-FAILED retries, validates remote DONE against the billing ledger, preserves provider WAV bytes, normalizes a review copy to PCM16 mono 48 kHz and may hand off only to immutable `PENDING_HUMAN_REVIEW`; it cannot auto-approve.
+The future one-request opening-credit executor requires exact persisted `plan_id + plan_digest`, fresh price/voice/route/segmentation/fingerprint revalidation, explicit owner authorization and a hard one-request cap. It reuses completed exact results with zero new requests, blocks AMBIGUOUS/unrecoverable IN_FLIGHT/sent-FAILED retries, validates remote DONE against the billing ledger, preserves provider WAV bytes, normalizes a review copy to PCM16 mono 48 kHz and may hand off only to immutable `PENDING_HUMAN_REVIEW`; it cannot auto-approve.
 
 `DILON_IDENTITY_EXTERNAL_READINESS_V1 = ACCEPTED`.
+
+### PR #37 final Dilon human-review acceptance primitive
+
+- feature HEAD `b8a69e066b16f29e7cb804195bcd884851847b3c`;
+- merge commit `7d354a5100c6ae7c5b6740f1a0dd098b5680e8c9`;
+- exact-head workflow run `#196`: SUCCESS;
+- Python full offline suite SUCCESS;
+- macOS native contract/build/strict codesign SUCCESS;
+- review threads 0.
+
+Final `identity.wav` now has a persisted exact-listened authority. Approval is possible only after full playback of the exact current Dilon identity and an independent rehash of live player binding (`build_identity + audio_sha256 + path_identity`). A changed/stale output returns to `PENDING_HUMAN_REVIEW`; no provider/paid action exists in this review path.
+
+`DILON_FINAL_IDENTITY_HUMAN_REVIEW_PRIMITIVE = ACCEPTED`.
+
+### PR #38 executable REAL_BOOK_E2E preflight
+
+- feature HEAD `19f652ccd963298ddc422f6fdebeb551268176cc`;
+- merge commit `b6dcd7927d3a6df447ae6e4fc85177ddd642f5f0`;
+- exact-head workflow run `#198`: SUCCESS;
+- Python full offline suite SUCCESS;
+- macOS native contract/build/strict codesign SUCCESS;
+- review threads 0.
+
+`real_book_e2e.py` / `real_book_e2e_runner.py` provide a read-only fail-closed verdict for the exact first-real-chapter chain. The preflight deliberately does not rescan/decide QA, assemble, master, export, reconcile release pointers, approve human review, call providers or mutate billing. It independently requires the accepted first Yandex SHA and explicitly rejects whole-book `ready=true` while progress is 1/16. Before real Dilon completion it reports the remaining Dilon blocker; after completion it can turn green without another code change.
+
+`REAL_BOOK_E2E_PREFLIGHT_V1 = ACCEPTED`.
 
 ---
 
@@ -140,7 +153,7 @@ Contract:
 
 LitRes profile: `litres_author_v1`.
 
-Release authority fails closed on stale/corrupt/noncanonical pointers, path/symlink violations and invalid immutable packages.
+Release authority fails closed on stale/corrupt/noncanonical pointers, path/symlink violations and invalid immutable packages. One chapter export may be valid while whole-book release remains correctly blocked by missing chapters.
 
 ---
 
@@ -178,29 +191,33 @@ exact reviewed opening credit
 → exact-current clean master
 → immutable identity.wav + MANIFEST.json
 → independent technical QA
-→ exact identity human listening
+→ full exact identity listening
+→ persisted exact-listened final identity approval
 ```
 
 Candidate signature/music `Lounge Vibes 05.7` is **NOT release-approved**. Missing rights never blocks the canonical no-music path.
 
 ---
 
-## 6. Current owner/provider gate
+## 6. Current owner/provider gate — the active production blocker
 
-Repository-side external readiness is complete. If no exact-current reviewed opening-credit WAV already exists locally, remaining external sequence is now genuinely bounded:
+Repository-side engineering and final read-only acceptance tooling are prepared. If no exact-current reviewed opening-credit WAV already exists locally, the next action must happen on the actual Mac/runtime:
 
 ```text
-fresh offline PREPARE + exact current plan_id/digest/cost
+fresh offline PREPARE
+→ report exact current plan_id + plan_digest + provider request cap + current cost/price verification
+→ STOP with provider requests = 0
 → explicit owner authorization
 → maximum 1 Yandex request
 → automatic candidate QA
 → immutable PENDING_HUMAN_REVIEW
 → exact candidate listening in mounted Studio UI
-→ explicit exact-listened approval
+→ explicit exact-listened opening-credit approval
 → no-music Dilon identity build
-→ technical QA
-→ exact identity listening
-→ DILON_IDENTITY_V1 ACCEPTED
+→ independent technical QA
+→ full exact identity listening
+→ persisted final identity approval
+→ rerun read-only REAL_BOOK_E2E preflight
 ```
 
 Historical PREPARE estimate:
@@ -216,24 +233,29 @@ The historical estimate does **not** authorize execution. Fresh PREPARE is manda
 
 ---
 
-## 7. Parallel final launch work
+## 7. Final launch sequence after fresh PREPARE
 
-While the owner/provider gate is pending, Central Brain must prepare the final `REAL_BOOK_E2E_ACCEPTANCE` / production-launch preflight so the short external action is followed immediately by final acceptance rather than another engineering cycle.
-
-The final E2E must prove the exact first-real-chapter chain:
+After the owner/provider/human-listening sequence completes, run `REAL_BOOK_E2E_PREFLIGHT_V1` against the actual Mac runtime. It must verify:
 
 ```text
 source/prepared authority
-→ accepted Yandex chapter identity
-→ QA/downstream approval
-→ chapter assembly
-→ clean master
-→ LitRes chapter export
-→ exact current Dilon identity + technical QA + human listening
-→ production app candidate build/codesign
+→ accepted Yandex chapter SHA unchanged
+→ persisted APPROVED QA
+→ exact chapter assembly
+→ exact clean master
+→ exact LitRes chapter export
+→ exact current Dilon identity + technical QA
+→ persisted exact-listened final identity approval
 ```
 
-It must continue to report whole-book release-ready false while only 1/16 chapters exist.
+Expected whole-book state remains:
+
+```text
+1 / 16
+WHOLE_BOOK_RELEASE_READY = FALSE
+```
+
+If and only if this first-real-chapter E2E verdict is green, the remaining Studio launch action is production native candidate verification and **explicit owner authorization for production Desktop deployment**.
 
 ---
 
@@ -258,12 +280,14 @@ DILON_NATIVE_FLOW_ORCHESTRATION_V1 = ACCEPTED
 DILON_NATIVE_MOUNTED_UI_V1 = ACCEPTED
 DILON_IDENTITY_NATIVE_FLOW_V1 = ACCEPTED
 DILON_IDENTITY_EXTERNAL_READINESS_V1 = ACCEPTED
+DILON_FINAL_IDENTITY_HUMAN_REVIEW_PRIMITIVE = ACCEPTED
+REAL_BOOK_E2E_PREFLIGHT_V1 = ACCEPTED
 DILON_IDENTITY_V1 = OWNER_PROVIDER_GATE
-REAL_BOOK_E2E_ACCEPTANCE = PREPARE_IN_PARALLEL
+REAL_BOOK_E2E_ACCEPTANCE = WAITING_FOR_REAL_DILON_OUTPUT
 REAL_BOOK_PROGRESS = 1/16
 WHOLE_BOOK_RELEASE_READY = FALSE
-PROVIDER_REQUESTS_DURING_PR35_OFFLINE_WORK = 0
-PAID_EXECUTION_DURING_PR35_OFFLINE_WORK = 0
+PROVIDER_REQUESTS_DURING_PR35_PR37_PR38_OFFLINE_WORK = 0
+PAID_EXECUTION_DURING_PR35_PR37_PR38_OFFLINE_WORK = 0
 PRODUCTION_DESKTOP_DEPLOYED = FALSE
 ```
 
