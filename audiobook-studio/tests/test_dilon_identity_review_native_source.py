@@ -15,6 +15,7 @@ class DilonIdentityReviewNativeSourceTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         for token in (
             "player.state == .finished",
+            "player.completedExactPlayback",
             "player.validateLoadedIdentity(rehash: true)",
             'binding.role == "dilon-identity-preview"',
             "binding.bookSlug == snapshot.bookSlug",
