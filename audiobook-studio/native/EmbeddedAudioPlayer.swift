@@ -174,10 +174,10 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
         guard validateLoadedIdentity(), let player = audioPlayer else { return }
         let current = player.currentTime
         let target = min(max(0, value), player.duration)
-        // Seeking is useful for operator review, but a forward skip cannot satisfy
-        // the exact-listening approval gate. A new playback from the beginning is
+        // Seeking is useful for operator review, but any forward skip invalidates
+        // the exact-listening approval pass. A new playback from the beginning is
         // required before `completedExactPlayback` can become true again.
-        if target > current + 0.05 {
+        if target > current {
             fullPlaybackEligible = false
         }
         completedExactPlayback = false
