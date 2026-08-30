@@ -43,17 +43,17 @@ private enum DilonIdentityReviewControllerError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidSelection:
-            return "Финальный Dilon identity пока не выбран."
+            return "Финальная версия Dilon Voices пока не выбрана."
         case .exactListenedIdentityRequired:
-            return "Подтверждение доступно только после полного прослушивания exact Dilon identity."
+            return "Подтверждение доступно только после полного прослушивания текущей финальной версии."
         case .offlineContractViolation:
-            return "Final Dilon identity review нарушил offline safety contract."
+            return "Финальная версия Dilon Voices временно недоступна: проверка безопасности не пройдена."
         case .staleSelection:
-            return "Dilon identity изменилась. Прослушайте текущий вариант заново."
+            return "Финальная версия изменилась. Прослушайте текущий вариант заново."
         case .approvalRejected:
-            return "Финальный Dilon identity не был принят как прослушанный."
+            return "Финальная версия не была сохранена как прослушанная и принятая."
         case let .bridgeFailed(message):
-            return message.isEmpty ? "Final Dilon identity review bridge завершился с ошибкой." : message
+            return message.isEmpty ? "Локальная проверка финальной версии завершилась с ошибкой." : message
         }
     }
 }
@@ -119,6 +119,7 @@ final class DilonIdentityReviewController: ObservableObject {
               preview.buildIdentity == activeBuildIdentity,
               snapshot.dilonStatus.technicalReady == true,
               player.state == .finished,
+              player.completedExactPlayback,
               player.validateLoadedIdentity(rehash: true),
               let binding = player.binding,
               binding.role == "dilon-identity-preview",
@@ -166,7 +167,7 @@ final class DilonIdentityReviewController: ObservableObject {
                 throw DilonIdentityReviewControllerError.staleSelection
             }
             result = approval
-            statusText = "Финальный Dilon identity принят по exact listened identity."
+            statusText = "Финальная версия Dilon Voices принята после полного прослушивания."
             errorMessage = nil
             isLoading = false
         } catch {
@@ -197,7 +198,7 @@ final class DilonIdentityReviewController: ObservableObject {
             }
             result = status
             if status.identityAccepted {
-                statusText = "Финальный Dilon identity уже принят после полного прослушивания."
+                statusText = "Финальная версия Dilon Voices уже принята после полного прослушивания."
             }
             errorMessage = nil
         } catch {
