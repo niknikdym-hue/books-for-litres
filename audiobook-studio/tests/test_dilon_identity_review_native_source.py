@@ -33,11 +33,12 @@ class DilonIdentityReviewNativeSourceTests(unittest.TestCase):
         source = CARD.read_text(encoding="utf-8")
         for token in (
             "private func fullyListenedIdentity",
+            "player.completedExactPlayback",
             'binding.role == "dilon-identity-preview"',
             "binding.audioSHA256 == preview.audioSHA256",
             "binding.pathIdentity == preview.pathIdentity",
             "binding.synthesisFingerprint == preview.buildIdentity",
-            'Button("Подтвердить прослушанный Dilon identity")',
+            'Button("Подтвердить финальную версию")',
             "snapshot.dilonStatus.technicalReady != true",
             "!fullyListenedIdentity(preview)",
             "identityReview.approveListenedIdentity",
