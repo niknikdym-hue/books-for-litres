@@ -94,12 +94,14 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
     @Published private(set) var machine = AudioPlaybackStateMachine()
     @Published private(set) var binding: AudioPlaybackBinding?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var completedExactPlayback = false
 
     var onIdentityInvalidated: (() -> Void)?
 
     private var audioPlayer: AVAudioPlayer?
     private var timer: Timer?
     private var fileSnapshot: AudioFileSnapshot?
+    private var fullPlaybackEligible = false
 
     var state: AudioPlaybackState { machine.state }
     var elapsed: TimeInterval { machine.elapsed }
@@ -125,12 +127,16 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
             binding = newBinding
             fileSnapshot = snapshot
             machine.load(duration: player.duration)
+            completedExactPlayback = false
+            fullPlaybackEligible = true
             errorMessage = nil
             player.play()
             machine.play()
             startTimer()
         } catch {
             machine.fail()
+            completedExactPlayback = false
+            fullPlaybackEligible = false
             errorMessage = playbackErrorLabel(error)
             invalidateIdentity()
         }
@@ -144,7 +150,11 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
             machine.pause()
             stopTimer()
         } else {
-            if machine.state == .finished { player.currentTime = 0 }
+            if machine.state == .finished || machine.state == .stopped {
+                player.currentTime = 0
+                completedExactPlayback = false
+                fullPlaybackEligible = true
+            }
             player.play()
             machine.play()
             startTimer()
@@ -154,13 +164,23 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
     func stop() {
         audioPlayer?.stop()
         audioPlayer?.currentTime = 0
+        completedExactPlayback = false
+        fullPlaybackEligible = false
         machine.stop()
         stopTimer()
     }
 
     func seek(to value: TimeInterval) {
         guard validateLoadedIdentity(), let player = audioPlayer else { return }
+        let current = player.currentTime
         let target = min(max(0, value), player.duration)
+        // Seeking is useful for operator review, but any forward skip invalidates
+        // the exact-listening approval pass. A new playback from the beginning is
+        // required before `completedExactPlayback` can become true again.
+        if target > current {
+            fullPlaybackEligible = false
+        }
+        completedExactPlayback = false
         player.currentTime = target
         machine.seek(to: target)
     }
@@ -170,6 +190,8 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
         audioPlayer = nil
         binding = nil
         fileSnapshot = nil
+        completedExactPlayback = false
+        fullPlaybackEligible = false
         stopTimer()
         errorMessage = nil
         if markStopped { machine.stop() }
@@ -191,6 +213,8 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
         } catch {
             audioPlayer?.stop()
             machine.fail()
+            completedExactPlayback = false
+            fullPlaybackEligible = false
             errorMessage = playbackErrorLabel(error)
             invalidateIdentity()
             return false
@@ -203,8 +227,11 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
             stopTimer()
             if flag {
                 machine.finish()
+                completedExactPlayback = fullPlaybackEligible
             } else {
                 machine.fail()
+                completedExactPlayback = false
+                fullPlaybackEligible = false
                 errorMessage = "Не удалось завершить воспроизведение WAV."
                 invalidateIdentity()
             }
@@ -232,6 +259,8 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
         stopTimer()
         binding = nil
         fileSnapshot = nil
+        completedExactPlayback = false
+        fullPlaybackEligible = false
         onIdentityInvalidated?()
     }
 
@@ -250,8 +279,7 @@ final class EmbeddedAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelega
     private nonisolated static func pathIdentity(_ url: URL) -> String {
         let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
         return SHA256.hash(data: Data(resolved.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
+            .map { String(format: "%02x", $0) }.joined()
     }
 }
 

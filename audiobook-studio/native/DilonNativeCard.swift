@@ -161,6 +161,11 @@ struct DilonNativeCard: View {
         return snapshot.reviewCandidates.first { $0.candidateID == selectedCandidateID }
     }
 
+    private var operatorCandidate: DilonReviewCandidate? {
+        if let selectedCandidate { return selectedCandidate }
+        return snapshot.reviewCandidates.count == 1 ? snapshot.reviewCandidates.first : nil
+    }
+
     private var identityReviewKey: String {
         [
             snapshot.bookSlug,
@@ -200,8 +205,15 @@ struct DilonNativeCard: View {
         )
     }
 
+    private func startCandidate(_ candidate: DilonReviewCandidate) {
+        selectedCandidateID = candidate.candidateID
+        player.loadAndPlay(candidateBinding(candidate))
+    }
+
     private func fullyListened(_ candidate: DilonReviewCandidate) -> Bool {
-        guard player.state == .finished, let binding = player.binding else { return false }
+        guard player.state == .finished,
+              player.completedExactPlayback,
+              let binding = player.binding else { return false }
         return binding.role == "dilon-opening-credit-review"
             && binding.bookSlug == snapshot.bookSlug
             && binding.jobID == snapshot.jobID
@@ -212,7 +224,9 @@ struct DilonNativeCard: View {
     }
 
     private func fullyListenedIdentity(_ preview: DilonIdentityPreview) -> Bool {
-        guard player.state == .finished, let binding = player.binding else { return false }
+        guard player.state == .finished,
+              player.completedExactPlayback,
+              let binding = player.binding else { return false }
         return binding.role == "dilon-identity-preview"
             && binding.bookSlug == snapshot.bookSlug
             && binding.jobID == snapshot.jobID
@@ -225,98 +239,106 @@ struct DilonNativeCard: View {
     var body: some View {
         Section("Dilon Voices") {
             if !snapshot.isOfflineSafe {
-                Label("Dilon snapshot нарушил offline safety contract", systemImage: "xmark.shield.fill")
+                Label("Dilon Voices временно недоступен: проверка безопасности не пройдена.", systemImage: "xmark.shield.fill")
                     .foregroundStyle(.red)
             } else {
-                LabeledContent("Статус", value: snapshot.dilonStatus.state)
-                if let identity = snapshot.dilonStatus.cleanMaster?.masterIdentity {
-                    LabeledContent("Clean master", value: String(identity.prefix(16)) + "…")
-                }
-                if let openingCreditText = snapshot.dilonStatus.openingCreditText {
-                    Text(openingCreditText)
-                        .textSelection(.enabled)
-                }
-                if let signatureState = snapshot.dilonStatus.signatureState {
-                    LabeledContent("Музыка / signature", value: signatureState)
-                }
-                if !snapshot.dilonStatus.blockers.isEmpty {
-                    ForEach(snapshot.dilonStatus.blockers, id: \.self) { blocker in
-                        Label(blocker, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                    }
-                }
-
-                if !snapshot.reviewCandidates.isEmpty {
-                    Picker("Opening credit для проверки", selection: $selectedCandidateID) {
-                        Text("Выберите явно").tag(String?.none)
-                        ForEach(snapshot.reviewCandidates) { candidate in
-                            Text(String(candidate.candidateID.prefix(12)) + "…")
-                                .tag(Optional(candidate.candidateID))
+                if snapshot.reviewCandidates.count > 1 {
+                    Picker("Вариант для проверки", selection: $selectedCandidateID) {
+                        Text("Выберите вариант").tag(String?.none)
+                        ForEach(Array(snapshot.reviewCandidates.enumerated()), id: \.element.id) { index, candidate in
+                            Text("Вариант \(index + 1)").tag(Optional(candidate.candidateID))
                         }
                     }
+                }
 
-                    if let candidate = selectedCandidate {
-                        HStack {
-                            Button("Прослушать opening credit") {
-                                player.loadAndPlay(candidateBinding(candidate))
-                            }
-                            .buttonStyle(.borderedProminent)
-
-                            Button("Одобрить прослушанный вариант") {
-                                guard fullyListened(candidate) else { return }
-                                onApproveListenedCandidate(candidate)
-                            }
-                            .disabled(!fullyListened(candidate) || candidate.automaticStatus == "FAIL")
+                if let candidate = operatorCandidate,
+                   candidate.manualState == "PENDING_HUMAN_REVIEW" {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Нужно ваше действие", systemImage: "ear.fill")
+                            .font(.headline)
+                            .foregroundStyle(.blue)
+                        Text("Прослушайте короткую заставку Dilon Voices")
+                            .font(.title3.weight(.semibold))
+                        if let openingCreditText = snapshot.dilonStatus.openingCreditText {
+                            Text(openingCreditText)
+                                .font(.body)
+                                .textSelection(.enabled)
                         }
-                        Text(
-                            fullyListened(candidate)
-                                ? "Полное прослушивание exact identity подтверждено."
-                                : "Одобрение разблокируется только после полного прослушивания этого exact SHA/path/fingerprint."
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        Text("Проверка качества уже пройдена автоматически. Ваше решение появится только после полного прослушивания.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                } else {
-                    Label("Нет подготовленного opening-credit candidate", systemImage: "waveform.badge.exclamationmark")
+
+                    DilonAudioTransportCard(
+                        player: player,
+                        binding: candidateBinding(candidate),
+                        playTitle: "Прослушать заставку",
+                        onLoad: { startCandidate(candidate) }
+                    )
+
+                    Button("Одобрить этот вариант") {
+                        guard fullyListened(candidate) else { return }
+                        onApproveListenedCandidate(candidate)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!fullyListened(candidate) || candidate.automaticStatus == "FAIL")
+
+                    Text(
+                        fullyListened(candidate)
+                            ? "Полное прослушивание подтверждено — можно одобрить этот вариант."
+                            : "Для одобрения прослушайте вариант полностью. Перемотка вперёд разрешена для проверки, но после неё нужен новый полный проход с начала."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else if snapshot.reviewCandidates.isEmpty && snapshot.identityPreview == nil {
+                    Label("Сейчас нет аудио, которое требует вашего решения.", systemImage: "checkmark.circle")
                         .foregroundStyle(.secondary)
                 }
 
                 if let preview = snapshot.identityPreview, preview.readOnly {
                     Divider()
-                    Text("Финальный Dilon identity")
-                        .font(.headline)
-                    HStack {
-                        Button("Прослушать текущий Dilon identity") {
-                            player.loadAndPlay(identityBinding(preview))
-                        }
-                        .buttonStyle(.bordered)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Финальная версия Dilon Voices")
+                            .font(.title3.weight(.semibold))
+                        Text("После технической проверки прослушайте финальную версию целиком перед подтверждением.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
-                        if identityReview.result?.identityAccepted == true {
-                            Label("Прослушан и принят", systemImage: "checkmark.shield.fill")
-                                .foregroundStyle(.green)
-                        } else {
-                            Button("Подтвердить прослушанный Dilon identity") {
-                                identityReview.approveListenedIdentity(
-                                    preview,
-                                    snapshot: snapshot,
-                                    player: player
-                                )
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(
-                                identityReview.isLoading
-                                    || snapshot.dilonStatus.technicalReady != true
-                                    || !fullyListenedIdentity(preview)
+                    DilonAudioTransportCard(
+                        player: player,
+                        binding: identityBinding(preview),
+                        playTitle: "Прослушать финальную версию",
+                        onLoad: { player.loadAndPlay(identityBinding(preview)) }
+                    )
+
+                    if identityReview.result?.identityAccepted == true {
+                        Label("Финальная версия прослушана и принята", systemImage: "checkmark.shield.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Button("Подтвердить финальную версию") {
+                            identityReview.approveListenedIdentity(
+                                preview,
+                                snapshot: snapshot,
+                                player: player
                             )
                         }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(
+                            identityReview.isLoading
+                                || snapshot.dilonStatus.technicalReady != true
+                                || !fullyListenedIdentity(preview)
+                        )
                     }
+
                     Text(
                         identityReview.result?.identityAccepted == true
-                            ? "Persisted human acceptance привязан к exact current build/SHA/path."
-                            : "Финальное принятие разблокируется только после полного прослушивания exact identity.wav."
+                            ? "Подтверждение сохранено для этой точной версии аудио."
+                            : "Подтверждение разблокируется только после полного прослушивания текущей финальной версии."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
                     if !identityReview.statusText.isEmpty {
                         Label(identityReview.statusText, systemImage: "checkmark.shield")
                             .font(.caption)
@@ -327,17 +349,39 @@ struct DilonNativeCard: View {
                             .font(.caption)
                             .foregroundStyle(.orange)
                     }
-                    Text("Identity preview доступен только для independently revalidated CURRENT output.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
-                if snapshot.dilonStatus.technicalReady == true {
-                    Label("Технический QA пройден", systemImage: "checkmark.shield.fill")
-                        .foregroundStyle(.green)
+                DisclosureGroup("Диагностика") {
+                    LabeledContent("Статус Dilon", value: snapshot.dilonStatus.state)
+                    if let identity = snapshot.dilonStatus.cleanMaster?.masterIdentity {
+                        LabeledContent("Clean master", value: String(identity.prefix(16)) + "…")
+                    }
+                    if let signatureState = snapshot.dilonStatus.signatureState {
+                        LabeledContent("Музыка / signature", value: signatureState)
+                    }
+                    if snapshot.dilonStatus.technicalReady == true {
+                        Label("Технический QA пройден", systemImage: "checkmark.shield.fill")
+                            .foregroundStyle(.green)
+                    }
+                    if !snapshot.dilonStatus.blockers.isEmpty {
+                        ForEach(snapshot.dilonStatus.blockers, id: \.self) { blocker in
+                            Text("Blocker: \(blocker)")
+                                .font(.caption.monospaced())
+                        }
+                    }
+                    ForEach(snapshot.reviewCandidates) { candidate in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Candidate \(String(candidate.candidateID.prefix(12)))…")
+                            Text("QA: \(candidate.automaticStatus) · manual: \(candidate.manualState)")
+                            Text("SHA: \(candidate.audioSHA256)")
+                            Text("Path identity: \(candidate.pathIdentity)")
+                            Text("Fingerprint: \(candidate.synthesisFingerprint)")
+                        }
+                        .font(.caption.monospaced())
+                    }
+                    Label("Полная книга ещё не готова к выпуску", systemImage: "lock.fill")
+                        .foregroundStyle(.secondary)
                 }
-                Label("Whole-book release остаётся заблокирован", systemImage: "lock.fill")
-                    .foregroundStyle(.secondary)
             }
         }
         .task(id: identityReviewKey) {
@@ -347,5 +391,96 @@ struct DilonNativeCard: View {
                 buildIdentity: snapshot.identityPreview?.buildIdentity
             )
         }
+    }
+}
+
+@MainActor
+private struct DilonAudioTransportCard: View {
+    @ObservedObject var player: EmbeddedAudioPlayer
+    let binding: AudioPlaybackBinding
+    let playTitle: String
+    let onLoad: () -> Void
+
+    private var isCurrent: Bool { player.binding == binding }
+
+    private var primaryTitle: String {
+        guard isCurrent else { return playTitle }
+        switch player.state {
+        case .playing: return "Пауза"
+        case .paused: return "Продолжить"
+        case .finished: return "Прослушать снова"
+        case .stopped, .ready: return "Воспроизвести"
+        case .error: return "Открыть заново"
+        }
+    }
+
+    private var primaryIcon: String {
+        isCurrent && player.state == .playing ? "pause.fill" : "play.fill"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Button {
+                    if isCurrent {
+                        player.togglePlayPause()
+                    } else {
+                        onLoad()
+                    }
+                } label: {
+                    Label(primaryTitle, systemImage: primaryIcon)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    player.stop()
+                } label: {
+                    Label("Стоп", systemImage: "stop.fill")
+                }
+                .disabled(!isCurrent || player.state == .stopped)
+                Spacer()
+            }
+
+            HStack(spacing: 10) {
+                Text(audioTimeLabel(isCurrent ? player.elapsed : 0))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .leading)
+                Slider(
+                    value: Binding(
+                        get: { isCurrent ? player.elapsed : 0 },
+                        set: { player.seek(to: $0) }
+                    ),
+                    in: 0...max(isCurrent ? player.duration : 0, 0.001)
+                )
+                .disabled(!isCurrent || player.duration <= 0)
+                Text(audioTimeLabel(isCurrent ? player.duration : 0))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+            }
+
+            HStack(spacing: 8) {
+                Text(isCurrent ? playbackStateLabel(player.state) : "Готово к воспроизведению")
+                    .font(.caption)
+                    .foregroundStyle(player.state == .error ? Color.red : Color.secondary)
+                if isCurrent, player.completedExactPlayback {
+                    Label("Полностью прослушано", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+
+            if isCurrent, player.state == .finished, !player.completedExactPlayback {
+                Text("После перемотки вперёд одобрение не разблокируется. Нажмите «Прослушать снова» и дайте записи дойти до конца без пропуска вперёд.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            if isCurrent, let error = player.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
     }
 }

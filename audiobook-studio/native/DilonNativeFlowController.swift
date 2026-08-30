@@ -34,17 +34,17 @@ private enum DilonNativeFlowError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidSelection:
-            return "Выберите каноническую книгу и главу для Dilon Voices."
+            return "Выберите книгу и главу для Dilon Voices."
         case .offlineContractViolation:
-            return "Dilon native flow нарушил offline safety contract."
+            return "Dilon Voices временно недоступен: проверка безопасности не пройдена."
         case .staleSelection:
             return "Выбор книги или главы изменился. Обновите Dilon Voices."
         case .exactListenedIdentityRequired:
-            return "Одобрение доступно только после полного прослушивания exact candidate identity."
+            return "Одобрение доступно только после полного прослушивания текущего варианта."
         case .approvalRejected:
-            return "Opening credit не был опубликован как одобренный."
+            return "Выбранный вариант не был сохранён как одобренный."
         case let .bridgeFailed(message):
-            return message.isEmpty ? "Dilon offline bridge завершился с ошибкой." : message
+            return message.isEmpty ? "Локальная проверка Dilon Voices завершилась с ошибкой." : message
         }
     }
 }
@@ -142,6 +142,7 @@ final class DilonNativeFlowController: ObservableObject {
               currentSnapshot.bookSlug.isEmpty == false,
               currentSnapshot.jobID == activeJobID,
               player.state == .finished,
+              player.completedExactPlayback,
               player.validateLoadedIdentity(rehash: true),
               let binding = player.binding,
               binding.role == "dilon-opening-credit-review",
@@ -208,7 +209,7 @@ final class DilonNativeFlowController: ObservableObject {
                     if selectionGeneration == expectedGeneration { isLoading = false }
                     return
                 }
-                statusText = "Opening credit одобрен по exact listened identity."
+                statusText = "Заставка Dilon Voices одобрена после полного прослушивания."
                 errorMessage = nil
                 isLoading = false
             }

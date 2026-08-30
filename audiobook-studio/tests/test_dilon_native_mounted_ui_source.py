@@ -54,7 +54,8 @@ class DilonNativeMountedUISourceTests(unittest.TestCase):
         self.assertNotIn("--execute-yandex-chapter-plan", controller_source)
         self.assertNotIn("--execute-paid-plan", controller_source)
         self.assertIn("wholeBookReleaseReady", card_source)
-        self.assertIn("Whole-book release остаётся заблокирован", card_source)
+        self.assertIn("Полная книга ещё не готова к выпуску", card_source)
+        self.assertIn('DisclosureGroup("Диагностика")', card_source)
 
 
 if __name__ == "__main__":
