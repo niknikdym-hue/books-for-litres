@@ -18,6 +18,7 @@ class DilonNativeFlowControllerSourceTests(unittest.TestCase):
         self.assertIn('"--listened-path-identity"', source)
         self.assertIn('"--listened-synthesis-fingerprint"', source)
         self.assertIn("player.state == .finished", source)
+        self.assertIn("player.completedExactPlayback", source)
         self.assertIn("player.validateLoadedIdentity(rehash: true)", source)
         self.assertIn('binding.role == "dilon-opening-credit-review"', source)
         self.assertIn("binding.audioSHA256 == candidate.audioSHA256", source)
