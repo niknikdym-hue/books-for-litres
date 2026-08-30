@@ -43,7 +43,8 @@ class DilonNativeCardSourceTests(unittest.TestCase):
     def test_forward_seek_cannot_forge_exact_listening_completion(self) -> None:
         player = (ROOT / "native" / "EmbeddedAudioPlayer.swift").read_text(encoding="utf-8")
         self.assertIn('@Published private(set) var completedExactPlayback = false', player)
-        self.assertIn('if target > current + 0.05', player)
+        self.assertIn('if target > current', player)
+        self.assertNotIn('if target > current +', player)
         self.assertIn('fullPlaybackEligible = false', player)
         self.assertIn('completedExactPlayback = fullPlaybackEligible', player)
         self.assertIn('completedExactPlayback = false', player)
