@@ -22,7 +22,8 @@ class DesktopLauncherSourceTests(unittest.TestCase):
         self.assertIn("builds/native-staging/Audiobook Studio.app", source)
         self.assertIn("NSWorkspace.shared.openApplication", source)
         self.assertIn("configuration.createsNewApplicationInstance = true", source)
-        self.assertIn("app.bundleURL?.standardizedFileURL == realApp", source)
+        self.assertIn("guard let url = app.bundleURL?.standardizedFileURL", source)
+        self.assertIn("return url == realApp", source)
         self.assertIn("launchedApp.bundleURL?.standardizedFileURL == realApp", source)
 
     def test_launcher_reports_failure_outside_workspace(self) -> None:
