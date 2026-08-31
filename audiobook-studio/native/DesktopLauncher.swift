@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 @main
@@ -99,6 +100,6 @@ enum AudiobookStudioDesktopLauncher {
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         _ = alert.runModal()
-        Foundation.exit(1)
+        Darwin.exit(1)
     }
 }
