@@ -3,7 +3,8 @@ set -euo pipefail
 
 script_dir="${0:A:h}"
 workspace_root="${AUDIOBOOK_STUDIO_HOME:-$HOME/Documents/New project/Audiobook-Studio}"
-output_app="${1:-$workspace_root/builds/native-staging/Audiobook Studio.app}"
+default_output_app="$workspace_root/builds/native-staging/Audiobook Studio.app"
+output_app="${1:-$default_output_app}"
 temporary_root="$(mktemp -d /tmp/audiobook-studio-native-build.XXXXXX)"
 staged_app="$temporary_root/Audiobook Studio.app"
 contents="$staged_app/Contents"
@@ -14,11 +15,26 @@ deployment_target="${AUDIOBOOK_STUDIO_MACOS_DEPLOYMENT_TARGET:-14.0}"
 target_arch="${AUDIOBOOK_STUDIO_ARCH:-$(uname -m)}"
 cache_key="${swift_build:-unknown}-macosx${sdk_version}"
 module_cache="${AUDIOBOOK_STUDIO_SWIFT_MODULE_CACHE:-/tmp/audiobook-studio-swift-module-cache/$cache_key}"
+archive_root="$HOME/Library/Application Support/Audiobook Studio/Archives"
 
 cleanup() {
   rm -rf "$temporary_root"
 }
 trap cleanup EXIT
+
+archive_staging_extras() {
+  local output_dir="${output_app:h}"
+  local timestamp archive_dir item
+  local -a items
+  items=("$output_dir"/*(DN))
+  timestamp="$(date +%Y%m%d-%H%M%S)"
+  archive_dir="$archive_root/native-staging/$timestamp"
+  for item in "${items[@]}"; do
+    [[ "$item" == "$output_app" ]] && continue
+    mkdir -p "$archive_dir"
+    mv "$item" "$archive_dir/"
+  done
+}
 
 mkdir -p "$contents/MacOS" "$contents/Resources" "$module_cache/clang" "$module_cache/swift"
 cp "$script_dir/Info.plist" "$contents/Info.plist"
@@ -72,4 +88,15 @@ if ! codesign --verify --deep --strict --verbose=2 "$output_app"; then
   fi
   exit 1
 fi
+
+# The local canonical staging directory is intentionally single-artifact.
+# Historical build debris is moved outside the workspace instead of being
+# deleted. CI/custom output builds are left untouched.
+if [[ "$output_app" == "$default_output_app" ]]; then
+  archive_staging_extras
+  if [[ "${CI:-}" != "true" && -d "$HOME/Desktop" ]]; then
+    /bin/zsh "$script_dir/install_desktop_launcher.sh" "$output_app"
+  fi
+fi
+
 echo "$output_app"
