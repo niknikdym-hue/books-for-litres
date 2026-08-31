@@ -1,0 +1,7 @@
+AUDIOBOOK_STUDIO_DESKTOP_LAUNCHER_HOTFIX_V1
+main=ec60c5dd93a7b378d54096b51805850dc14a190d
+native_launcher=DesktopLauncher.swift
+installer=install_desktop_launcher.sh
+ci_run=33439250624
+macos_native_launcher_compile=SUCCESS
+python_offline_suite=SUCCESS
