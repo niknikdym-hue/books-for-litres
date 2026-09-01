@@ -24,11 +24,13 @@ jobs:
 
           path = Path('audiobook-studio/native/AudiobookStudioApp.swift')
           text = path.read_text(encoding='utf-8')
-          needle = '''                        }
+          needle = '''                            }
+                        }
                     }
 
                     Section("Подготовка озвучки") {'''
-          replacement = '''                        }
+          replacement = '''                            }
+                        }
 
                         ContentQualitySettingsPanel(selectedBookID: book.id)
                     }
