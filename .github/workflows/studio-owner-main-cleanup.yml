@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install focused test dependency
+        run: python -m pip install 'numpy>=2,<3'
       - name: Simplify main recording flow
         run: |
           python - <<'PY'
@@ -74,11 +76,11 @@ jobs:
           panel = panel.replace(next_block, '')
           panel_path.write_text(panel, encoding='utf-8')
 
-          test_path = Path('audiobook-studio/tests/test_owner_production_flow_source.py')
-          test = test_path.read_text(encoding='utf-8')
-          if 'self.assertNotIn(\'Section("Подготовка текста")\', main_part)' not in test:
+          owner_test_path = Path('audiobook-studio/tests/test_owner_production_flow_source.py')
+          owner_test = owner_test_path.read_text(encoding='utf-8')
+          if 'self.assertNotIn(\'Section("Подготовка текста")\', main_part)' not in owner_test:
               marker = '        self.assertNotIn(\'Section("Расходы и лимиты")\', main_part)\n'
-              test = test.replace(marker, marker + '        self.assertNotIn(\'Section("Подготовка текста")\', main_part)\n', 1)
+              owner_test = owner_test.replace(marker, marker + '        self.assertNotIn(\'Section("Подготовка текста")\', main_part)\n', 1)
           for text_value in (
               'ownerStep(4, "Диктор"',
               'ownerStep(5, "Глава"',
@@ -86,10 +88,20 @@ jobs:
               'Смена звука не требует заново оплачивать TTS',
           ):
               assertion = f'        self.assertIn({text_value!r}, panel)\n'
-              if assertion not in test:
+              if assertion not in owner_test:
                   marker = '        self.assertIn(\'Section("Путь к готовой аудиокниге")\', panel)\n'
-                  test = test.replace(marker, marker + assertion, 1)
-          test_path.write_text(test, encoding='utf-8')
+                  owner_test = owner_test.replace(marker, marker + assertion, 1)
+          owner_test_path.write_text(owner_test, encoding='utf-8')
+
+          native_test_path = Path('audiobook-studio/tests/test_native_ui_bridge.py')
+          native_test = native_test_path.read_text(encoding='utf-8')
+          old = '''        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")\n        contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")\n        request = swift_function_body(source, "func requestBookTextPreparation()")\n        confirm = swift_function_body(source, "func confirmBookTextPreparation()")\n\n        self.assertIn('Button("Подготовить текст") { model.requestBookTextPreparation() }', source)\n        self.assertIn('Button("Подготовить заново") { model.requestBookTextPreparation() }', source)\n'''
+          new = '''        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")\n        owner_panel = (ROOT / "native" / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")\n        contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")\n        request = swift_function_body(source, "func requestBookTextPreparation()")\n        confirm = swift_function_body(source, "func confirmBookTextPreparation()")\n\n        self.assertIn('Button("Подготовить текст") { model.requestBookTextPreparation() }', owner_panel)\n        self.assertIn('Подготовить текст заново', owner_panel)\n'''
+          if old in native_test:
+              native_test = native_test.replace(old, new, 1)
+          elif new not in native_test:
+              raise SystemExit('native preparation test anchor missing')
+          native_test_path.write_text(native_test, encoding='utf-8')
           PY
       - name: Verify focused UI contracts
         working-directory: audiobook-studio
@@ -105,6 +117,6 @@ jobs:
           fi
           git config user.name "Audiobook Studio Central Brain"
           git config user.email "actions@users.noreply.github.com"
-          git add audiobook-studio/native/AudiobookStudioApp.swift audiobook-studio/native/OwnerProductionFlowPanel.swift audiobook-studio/tests/test_owner_production_flow_source.py
+          git add audiobook-studio/native/AudiobookStudioApp.swift audiobook-studio/native/OwnerProductionFlowPanel.swift audiobook-studio/tests/test_owner_production_flow_source.py audiobook-studio/tests/test_native_ui_bridge.py
           git commit -m "Simplify Studio main recording flow for authors"
           git push origin HEAD:brain/content-quality-lexicon-v1
