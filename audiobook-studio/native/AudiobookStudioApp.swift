@@ -1524,14 +1524,26 @@ struct StudioView: View {
                 Form {
                     if let book = model.selectedBook, book.kind == "production" {
                         Section("Книга") {
-                            LabeledContent("Название", value: book.title)
-                            LabeledContent("Автор", value: book.author)
-                            LabeledContent("Source filename", value: book.sourceFilename ?? "Недоступно")
-                            LabeledContent("Source SHA-256", value: book.sourceSHA256 ?? "Недоступно")
-                            LabeledContent("Source integrity", value: book.sourceIntegrity ?? "Недоступно")
-                            LabeledContent("TTS working copy", value: book.ttsWorkingCopyStatus == "CREATED" ? "Создана" : "Недоступно")
-                            LabeledContent("Backend", value: book.selectedBackend ?? "Не выбран")
-                            LabeledContent("Voice profile", value: book.selectedProfileID ?? "Не выбран")
+                            Text(book.title).font(.title2.weight(.semibold))
+                            Text(book.author).foregroundStyle(.secondary)
+                            HStack {
+                                Label(
+                                    book.sourceIntegrity == "OK" ? "Исходник защищён" : "Нужно проверить исходник",
+                                    systemImage: book.sourceIntegrity == "OK" ? "checkmark.shield.fill" : "exclamationmark.shield.fill"
+                                )
+                                .foregroundStyle(book.sourceIntegrity == "OK" ? Color.green : Color.red)
+                                Spacer()
+                                Text(bookPreparationSidebarLabel(book))
+                                    .foregroundStyle(book.preparationStatus == "STALE" ? Color.orange : Color.secondary)
+                            }
+                            DisclosureGroup("Технические сведения") {
+                                LabeledContent("Source filename", value: book.sourceFilename ?? "Недоступно")
+                                LabeledContent("Source SHA-256", value: book.sourceSHA256 ?? "Недоступно")
+                                LabeledContent("TTS working copy", value: book.ttsWorkingCopyStatus == "CREATED" ? "Создана" : "Недоступно")
+                                LabeledContent("Backend", value: book.selectedBackend ?? "Не выбран")
+                                LabeledContent("Voice profile", value: book.selectedProfileID ?? "Не выбран")
+                            }
+                            .font(.caption)
                         }
 
                         Section("Подготовка текста") {
@@ -1563,11 +1575,11 @@ struct StudioView: View {
                                     .disabled(model.isPreparingBookText)
                             }
                         }
-                        ContentQualitySettingsPanel(selectedBookID: book.id)
+                        OwnerProductionFlowPanel(model: model, selectedBookID: book.id)
 
                     }
 
-                    Section("Подготовка озвучки") {
+                    Section("4. Диктор") {
                         Picker("Движок", selection: $model.engine) {
                             ForEach(Engine.allCases) { engine in Text(engine.title).tag(engine) }
                         }
@@ -1604,7 +1616,7 @@ struct StudioView: View {
                         }
                     }
 
-                    Section("Что озвучить") {
+                    Section("5. Глава для записи") {
                         if model.selectedBook?.jobs.isEmpty ?? true {
                             Text("Подготовленных задач пока нет")
                                 .foregroundStyle(.secondary)
@@ -1735,54 +1747,6 @@ struct StudioView: View {
                         }
                     }
 
-                    if model.engine == .qwen {
-                        Section("Расходы и лимиты") {
-                            Label("Локальный движок · расходы API отсутствуют", systemImage: "laptopcomputer")
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if let billing = model.selectedBilling {
-                        Section("Расходы и лимиты") {
-                            BillingValueLine(
-                                title: "Израсходовано",
-                                value: formattedMoney(billing.spent, currency: billing.currency, source: billing.spentSource),
-                                detail: provenanceLabel(billing.spentSource)
-                            )
-                            BillingValueLine(
-                                title: "Остаток",
-                                value: formattedMoney(billing.remaining, currency: billing.currency, source: billing.remainingSource),
-                                detail: billingAvailabilityReason(billing) ?? provenanceLabel(billing.remainingSource)
-                            )
-                            BillingValueLine(
-                                title: "Текущая задача",
-                                value: formattedMoney(billing.currentJobEstimate, currency: billing.currency, source: billing.currentJobEstimateSource),
-                                detail: billing.provider == "openai" && billing.currentJobEstimate == nil
-                                    ? "Точная стоимость будущего аудио заранее неизвестна"
-                                    : provenanceLabel(billing.currentJobEstimateSource)
-                            )
-                            BillingValueLine(
-                                title: "После запуска",
-                                value: formattedMoney(billing.projectedRemaining, currency: billing.currency, source: billing.projectedRemainingSource),
-                                detail: provenanceLabel(billing.projectedRemainingSource)
-                            )
-                            BillingValueLine(
-                                title: "Лимит задачи",
-                                value: formattedMoney(billing.hardLimit, currency: billing.currency, source: "local_actual"),
-                                detail: "Локальный защитный лимит"
-                            )
-                            HStack {
-                                Text(freshnessLabel(billing))
-                                    .font(.caption)
-                                    .foregroundStyle(billing.freshness == "stale" ? .orange : .secondary)
-                                Spacer()
-                                Button("Обновить") { model.refreshBilling(model.engine) }
-                            }
-                            ForEach(billing.warnings.filter { $0 != "remaining_unavailable" }, id: \.self) { warning in
-                                Label(billingWarningLabel(warning), systemImage: "exclamationmark.triangle")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
                 }
                 .formStyle(.grouped)
                 .padding(.top, 8)
@@ -1933,7 +1897,7 @@ private struct AudioQAReviewSection: View {
                 }
             }
             if let qa = model.audioQA {
-                Section("Проверка готового аудио") {
+                Section("6. Прослушивание и приёмка") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: 4) {
@@ -2029,7 +1993,7 @@ private struct AudioQAReviewSection: View {
                     }
                 }
             } else if model.engine == .qwen || model.engine == .yandex || model.engine == .openai {
-                Section("Проверка готового аудио") {
+                Section("6. Прослушивание и приёмка") {
                     Button("Открыть готовое аудио для проверки") { model.openCurrentAudioForQA() }
                         .disabled(model.isRunning || model.selectedJob == nil || model.selectedProfile == nil)
                     Text("Команда только читает текущие production manifest и WAV; TTS-запросы не выполняются.")
@@ -2549,6 +2513,45 @@ struct SettingsView: View {
                         Text(model.billingRefreshText).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                Section("Расходы и лимиты") {
+                    if model.engine == .qwen {
+                        Label("Локальный движок · расходы API отсутствуют", systemImage: "laptopcomputer")
+                            .foregroundStyle(.secondary)
+                    } else if let billing = model.selectedBilling {
+                        BillingValueLine(
+                            title: "Израсходовано",
+                            value: formattedMoney(billing.spent, currency: billing.currency, source: billing.spentSource),
+                            detail: provenanceLabel(billing.spentSource)
+                        )
+                        BillingValueLine(
+                            title: "Остаток",
+                            value: formattedMoney(billing.remaining, currency: billing.currency, source: billing.remainingSource),
+                            detail: billingAvailabilityReason(billing) ?? provenanceLabel(billing.remainingSource)
+                        )
+                        BillingValueLine(
+                            title: "Текущая задача",
+                            value: formattedMoney(billing.currentJobEstimate, currency: billing.currency, source: billing.currentJobEstimateSource),
+                            detail: billing.provider == "openai" && billing.currentJobEstimate == nil
+                                ? "Точная стоимость будущего аудио заранее неизвестна"
+                                : provenanceLabel(billing.currentJobEstimateSource)
+                        )
+                        BillingValueLine(
+                            title: "После запуска",
+                            value: formattedMoney(billing.projectedRemaining, currency: billing.currency, source: billing.projectedRemainingSource),
+                            detail: provenanceLabel(billing.projectedRemainingSource)
+                        )
+                        BillingValueLine(
+                            title: "Лимит задачи",
+                            value: formattedMoney(billing.hardLimit, currency: billing.currency, source: "local_actual"),
+                            detail: "Локальный защитный лимит"
+                        )
+                        Button("Обновить данные") { model.refreshBilling(model.engine) }
+                    }
+                    Text("Расходы вынесены из рабочего экрана записи и находятся только в Настройках.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ContentQualitySettingsPanel(selectedBookID: model.selectedBookID)
             }
             .formStyle(.grouped)
             .task {

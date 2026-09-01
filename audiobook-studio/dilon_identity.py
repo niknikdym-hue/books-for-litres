@@ -27,7 +27,7 @@ DILON_DESCRIPTION = (
     "Dilon Voices — проект аудиокниг с профессионально подготовленной "
     "синтезированной озвучкой и авторской аудиообработкой."
 )
-OPENING_CREDIT_TEXT = "Елена Дилон. Хватит себя обесценивать. Читает Dilon Voices."
+OPENING_CREDIT_TEXT = "Елена Ди́лон. Хватит себя обесценивать. Читает Dilon Voices."
 
 IDENTITY_PRESET: dict[str, Any] = {
     "id": IDENTITY_PRESET_ID,
