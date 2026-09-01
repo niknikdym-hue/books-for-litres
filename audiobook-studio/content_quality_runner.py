@@ -16,6 +16,7 @@ from content_quality_lexicon import (
     DEFAULT_EDITORIAL_PROFILES,
     PROFILE_AUDIOBOOK_PRE_SYNTHESIS,
     PROFILE_AUDIOBOOK_TTS_TECHNICAL,
+    PROFILE_BOOK_PROSE,
     ContentQualityError,
     ContentQualityLexicon,
     ContentQualityResolutionStore,
@@ -33,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--remove-user-rule", action="store_true")
     mode.add_argument("--resolve-finding", action="store_true")
     parser.add_argument("--book", default="")
+    parser.add_argument("--include-editorial", action="store_true")
     parser.add_argument("--value", default="")
     parser.add_argument("--rule-id", default="")
     parser.add_argument("--action", choices=("BLOCK", "WARN"), default="BLOCK")
@@ -90,15 +92,37 @@ def _book_texts(book_name: str) -> tuple[str, str, str, Path, BookLibrary]:
     return profile.stem, working_text, normalized, paths.root, library
 
 
-def scan_book(book_name: str, *, lexicon: ContentQualityLexicon | None = None) -> dict[str, Any]:
+def _empty_editorial_scan(text: str) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "profile": PROFILE_BOOK_PROSE,
+        "state": "PASS",
+        "text_sha256": sha256_bytes(text.encode("utf-8")),
+        "findings": [],
+        "blocking_findings": [],
+        "warning_findings": [],
+        "resolved_findings": [],
+        "manual_scan_enabled": False,
+        **_offline_fields(),
+    }
+
+
+def scan_book(
+    book_name: str,
+    *,
+    lexicon: ContentQualityLexicon | None = None,
+    include_editorial: bool = False,
+) -> dict[str, Any]:
     slug, working_text, normalized, workspace_root, _ = _book_texts(book_name)
     engine = lexicon or ContentQualityLexicon()
-    editorial = engine.scan_for_book(
-        working_text,
-        profile=PROFILE_AUDIOBOOK_PRE_SYNTHESIS,
-        workspace_root=workspace_root,
-        book_slug=slug,
-    )
+    # Owner decision: editorial "junk" search in Audiobook Studio is opt-in.
+    # It never rewrites the literary text. The obligatory automatic gate here is
+    # only the Audiobook-specific TTS technical profile.
+    if include_editorial:
+        editorial = engine.scan(working_text, profile=PROFILE_BOOK_PROSE)
+        editorial["manual_scan_enabled"] = True
+    else:
+        editorial = _empty_editorial_scan(working_text)
     technical = engine.scan_for_book(
         normalized,
         profile=PROFILE_AUDIOBOOK_TTS_TECHNICAL,
@@ -179,7 +203,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.status:
             result = engine.status()
         elif args.scan_book:
-            result = scan_book(_require(args.book, "--book"), lexicon=engine)
+            result = scan_book(
+                _require(args.book, "--book"),
+                lexicon=engine,
+                include_editorial=args.include_editorial,
+            )
         elif args.add_user_rule:
             profiles = [value.strip() for value in args.profiles.split(",") if value.strip()]
             mutation = engine.user_store.add(
