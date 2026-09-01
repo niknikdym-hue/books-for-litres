@@ -51,6 +51,7 @@ xcrun swiftc \
   "$script_dir/DilonIdentityReviewController.swift" \
   "$script_dir/DilonNativeCard.swift" \
   "$script_dir/ContentQualityPanel.swift" \
+  "$script_dir/OwnerProductionFlowPanel.swift" \
   "$script_dir/AudiobookStudioApp.swift" \
   -parse-as-library \
   -target "$target_arch-apple-macosx$deployment_target" \
