@@ -731,7 +731,7 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertNotIn("--run-", add_book)
         self.assertIn("Подготовленных задач пока нет", source)
         self.assertIn("Source SHA-256", source)
-        self.assertIn("Source integrity", source)
+        self.assertIn("Исходник защищён", source)
         self.assertIn("TTS working copy", source)
         self.assertIn("struct BookImportResult", contracts)
         self.assertIn('case sourceSHA256 = "source_sha256"', contracts)

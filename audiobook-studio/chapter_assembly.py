@@ -358,7 +358,6 @@ class ChapterAssemblyService:
         conversion_required = any(rate != TARGET_SAMPLE_RATE_HZ for rate in input_rates)
         chapter_cue = chapter_cue_for_book(self.workspace_root, str(payload["book_slug"]))
         contract = {
-            "chapter_cue": chapter_cue,
             "schema_version": ASSEMBLY_SCHEMA_VERSION,
             "input": payload,
             "target": {
@@ -379,6 +378,11 @@ class ChapterAssemblyService:
                 "pause_contract": payload.get("pause_contract", "source_is_joined_chapter_v1"),
             },
         }
+        # Preserve the exact legacy assembly identity when the author leaves the
+        # optional chapter cue disabled. Enabling/changing a cue intentionally
+        # creates a new downstream assembly identity without re-synthesizing TTS.
+        if chapter_cue is not None:
+            contract["chapter_cue"] = chapter_cue
         return _canonical_hash(contract)
 
     @staticmethod

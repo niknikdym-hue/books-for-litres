@@ -38,6 +38,7 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
         self.assertIn('segment_id": "__chapter_cue__"', assembly)
         self.assertIn("chapter_cue_then_speech_v1", assembly)
         self.assertIn("chapter_cue_changed_during_assembly", assembly)
+        self.assertIn('if chapter_cue is not None:\n            contract["chapter_cue"] = chapter_cue', assembly)
 
     def test_opening_credit_has_first_syllable_stress(self) -> None:
         identity = (ROOT / "dilon_identity.py").read_text(encoding="utf-8")

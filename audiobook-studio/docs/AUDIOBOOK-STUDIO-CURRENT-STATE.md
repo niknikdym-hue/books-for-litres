@@ -174,7 +174,7 @@ Dilon Voices — проект аудиокниг с профессиональн
 Opening credit:
 
 ```text
-Елена Дилон. Хватит себя обесценивать. Читает Dilon Voices.
+Елена Ди́лон. Хватит себя обесценивать. Читает Dilon Voices.
 ```
 
 Production voice:

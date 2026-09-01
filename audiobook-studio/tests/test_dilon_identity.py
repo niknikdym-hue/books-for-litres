@@ -18,7 +18,7 @@ from dilon_identity import (
 )
 
 
-OPENING_CREDIT = "Елена Дилон. Хватит себя обесценивать. Читает Dilon Voices."
+OPENING_CREDIT = "Елена Ди́лон. Хватит себя обесценивать. Читает Dilon Voices."
 
 
 class DilonIdentityPreflightTests(unittest.TestCase):
