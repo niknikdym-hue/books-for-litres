@@ -61,15 +61,18 @@ class ContentQualityProviderWiringTests(unittest.TestCase):
         self.assertNotIn("ContentQuality", source)
         self.assertIn("production_authority_lock", source)
 
-    def test_execution_barrier_holds_shared_and_resolution_locks_during_validation(self) -> None:
+    def test_execution_barrier_freezes_working_copy_and_technical_resolution_during_validation(self) -> None:
         source = (ROOT / "content_quality_execution.py").read_text(encoding="utf-8")
-        user_lock = source.index("engine.user_store.lock_path")
+        working_lock = source.index("with working_copy_lock(")
         resolution_lock = source.index("resolution_store.lock_path")
         validation = source.index("validate_prepared_content_quality(")
         yielding = source.index("yield evidence")
-        self.assertLess(user_lock, resolution_lock)
+        self.assertLess(working_lock, resolution_lock)
         self.assertLess(resolution_lock, validation)
         self.assertLess(validation, yielding)
+        # Owner policy: shared editorial anti-junk is manual/advisory in Studio,
+        # so the mandatory provider barrier must not freeze or require that store.
+        self.assertNotIn("engine.user_store.lock_path", source)
 
 
 if __name__ == "__main__":
