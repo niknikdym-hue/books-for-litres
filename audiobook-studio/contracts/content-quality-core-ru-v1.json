@@ -1,0 +1,282 @@
+{
+  "schema_version": 1,
+  "revision": 1,
+  "updated_at": "2026-09-01T00:00:00+00:00",
+  "entries": [
+    {
+      "rule_id": "CQ-RU-NEGATIVE-FIRST-001",
+      "value": "\\bэта\\s+книга\\s+не\\s+(?:о|про)\\b",
+      "match_type": "REGEX",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Запрещённый нейросетевой приём: сначала искусственно объявлять, чем текст, книга, идея или явление не является, вместо того чтобы сразу сформулировать точную мысль.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-NEGATIVE-FIRST-002",
+      "value": "\\b(?:это|речь|дело)\\s+не\\b[^.!?\\n]{1,120}\\b(?:а|но)\\b",
+      "match_type": "REGEX",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Искусственный отрицательный заход и декоративный контраст вместо прямой формулировки мысли.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-NEGATIVE-FIRST-003",
+      "value": "\\bне\\b[^.!?\\n]{1,90}\\bа\\b",
+      "match_type": "REGEX",
+      "action": "WARN",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Проверить, является ли конструкция «не X, а Y» содержательно необходимой или декоративной нейросетевой антитезой.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-001",
+      "value": "это про",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Шаблонная метаформула вместо точного утверждения.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-002",
+      "value": "без ручного управления",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Рекламно-нейросетевая формула.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-003",
+      "value": "без хаоса",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Рекламно-нейросетевая формула.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-004",
+      "value": "без давления",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Рекламно-нейросетевая формула.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-005",
+      "value": "без суеты",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Шаблонная абстрактная формула.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-006",
+      "value": "без лишней суеты",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Шаблонная абстрактная формула.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-007",
+      "value": "без перегруза",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Шаблонная рекламная формула.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-008",
+      "value": "без лишней теории",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Шаблонное обещание вместо конкретного описания метода.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-009",
+      "value": "информационный шум",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Затёртая абстрактная метафора.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-010",
+      "value": "иллюзии контроля",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Шаблонная психологизирующая формула без конкретизации.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-011",
+      "value": "тихие смыслы",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Декоративная абстракция.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-012",
+      "value": "мир меняется",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Пустой вводный тезис без фактической конкретики.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-013",
+      "value": "скорость изменений",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Шаблонный абстрактный контекст.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-014",
+      "value": "погрузимся",
+      "match_type": "TERM",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Служебная нейросетевая риторика.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-PHRASE-015",
+      "value": "давайте разберёмся",
+      "match_type": "PHRASE",
+      "action": "BLOCK",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Служебная нейросетевая риторика.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-TERM-001",
+      "value": "не обязан",
+      "match_type": "PHRASE",
+      "action": "WARN",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Допустимо буквально, но требует проверки на шаблонную терапевтическую риторику.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-TERM-002",
+      "value": "шум",
+      "match_type": "TERM",
+      "action": "WARN",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Допустимо буквально; абстрактное употребление требует проверки.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-TERM-003",
+      "value": "иллюзия",
+      "match_type": "TERM",
+      "action": "WARN",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Допустимо в точном контексте; абстрактное психологизирование требует проверки.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-TERM-004",
+      "value": "магия",
+      "match_type": "TERM",
+      "action": "WARN",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Допустимо буквально; декоративная метафора требует проверки.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-TERM-005",
+      "value": "волшебство",
+      "match_type": "TERM",
+      "action": "WARN",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Допустимо буквально; декоративная метафора требует проверки.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-TERM-006",
+      "value": "звучать",
+      "match_type": "TERM",
+      "action": "WARN",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Нормальное слово, но часто используется как мета-комментарий «это может звучать…»; проверять контекст.",
+      "created_at": null,
+      "updated_at": null
+    },
+    {
+      "rule_id": "CQ-RU-TERM-007",
+      "value": "опора",
+      "match_type": "TERM",
+      "action": "WARN",
+      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "origin": "SYSTEM",
+      "rationale": "Нормальное слово, но в абстрактной self-help риторике часто становится пустой метафорой.",
+      "created_at": null,
+      "updated_at": null
+    }
+  ]
+}
