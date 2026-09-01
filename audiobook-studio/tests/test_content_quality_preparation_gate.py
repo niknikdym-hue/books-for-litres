@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import stat
 import sys
 import tempfile
 import unittest
@@ -13,13 +11,13 @@ sys.path.insert(0, str(ROOT))
 
 from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
+from content_quality_execution import hold_current_content_quality
 from content_quality_gate import ContentQualityGateError, validate_prepared_content_quality
 from content_quality_lexicon import (
     PROFILE_AUDIOBOOK_PRE_SYNTHESIS,
     ContentQualityLexicon,
     ContentQualityResolutionStore,
 )
-from production_authority_lock import ProductionAuthorityLockError, production_authority_lock
 
 
 class ContentQualityPreparationGateTests(unittest.TestCase):
@@ -168,40 +166,33 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
         persisted = json.loads(profile.read_text(encoding="utf-8"))
         self.assertEqual(persisted["preparation"]["identity_sha256"], ready["preparation_identity"])
 
-    def test_cloud_execution_lock_revalidates_gate_without_provider_call(self) -> None:
+    def test_execution_barrier_blocks_before_provider_or_model_callback(self) -> None:
         self.import_book("Глава 1. Начало\n\nОбычный текст.\n")
         self.service().prepare("quality-book")
-        # Stable gate yields normally.
-        with production_authority_lock(
-            self.root,
-            provider="yandex",
-            book_slug="quality-book",
-            job_id="chapter-ch001",
-            profile_id="yandex_lera",
-            exclusive=True,
-        ):
-            pass
-        # A shared rule change makes the already prepared gate stale. The lock
-        # fails before yielding to any provider request path.
+        callbacks = 0
+
+        with hold_current_content_quality(
+            library=self.library,
+            workspace_root=self.root,
+            book_name="quality-book",
+            lexicon=self.lexicon,
+        ) as evidence:
+            self.assertIn(evidence["state"], {"PASS", "WARN"})
+            callbacks += 1
+        self.assertEqual(callbacks, 1)
+
         self.lexicon.user_store.add("Обычный текст", action="BLOCK")
-        old = os.environ.get("CONTENT_QUALITY_LEXICON_PATH")
-        os.environ["CONTENT_QUALITY_LEXICON_PATH"] = str(self.user_store)
-        try:
-            with self.assertRaises(ProductionAuthorityLockError):
-                with production_authority_lock(
-                    self.root,
-                    provider="yandex",
-                    book_slug="quality-book",
-                    job_id="chapter-ch001",
-                    profile_id="yandex_lera",
-                    exclusive=True,
-                ):
-                    self.fail("provider lock yielded despite stale Content Quality gate")
-        finally:
-            if old is None:
-                os.environ.pop("CONTENT_QUALITY_LEXICON_PATH", None)
-            else:
-                os.environ["CONTENT_QUALITY_LEXICON_PATH"] = old
+        callbacks = 0
+        with self.assertRaises(ContentQualityGateError) as captured:
+            with hold_current_content_quality(
+                library=self.library,
+                workspace_root=self.root,
+                book_name="quality-book",
+                lexicon=self.lexicon,
+            ):
+                callbacks += 1  # represents the provider/model entry point
+        self.assertEqual(captured.exception.code, "content_quality_lexicon_changed")
+        self.assertEqual(callbacks, 0)
 
 
 if __name__ == "__main__":
