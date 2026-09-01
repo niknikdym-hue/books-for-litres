@@ -1,0 +1,56 @@
+name: Brain one-shot Content Quality UI mount
+
+on:
+  push:
+    branches:
+      - brain/content-quality-lexicon-v1
+
+permissions:
+  contents: write
+
+jobs:
+  mount:
+    if: github.actor != 'github-actions[bot]' || !contains(github.event.head_commit.message, 'Mount Content Quality panel in Studio flow')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: brain/content-quality-lexicon-v1
+          fetch-depth: 0
+      - name: Apply exact one-shot source mount
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('audiobook-studio/native/AudiobookStudioApp.swift')
+          text = path.read_text(encoding='utf-8')
+          needle = '''                        }
+                    }
+
+                    Section("Подготовка озвучки") {'''
+          replacement = '''                        }
+
+                        ContentQualitySettingsPanel(selectedBookID: book.id)
+                    }
+
+                    Section("Подготовка озвучки") {'''
+          if replacement in text:
+              print('Content Quality panel already mounted')
+          else:
+              count = text.count(needle)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one mount anchor, found {count}')
+              path.write_text(text.replace(needle, replacement, 1), encoding='utf-8')
+          PY
+      - name: Commit only the mounted source if changed
+        run: |
+          if git diff --quiet -- audiobook-studio/native/AudiobookStudioApp.swift; then
+            exit 0
+          fi
+          test "$(git diff --name-only | wc -l | tr -d ' ')" = "1"
+          test "$(git diff --name-only)" = "audiobook-studio/native/AudiobookStudioApp.swift"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add audiobook-studio/native/AudiobookStudioApp.swift
+          git commit -m "Mount Content Quality panel in Studio flow"
+          git push origin HEAD:brain/content-quality-lexicon-v1
