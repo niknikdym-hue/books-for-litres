@@ -194,7 +194,7 @@ private enum ContentQualityBridgeError: LocalizedError {
     }
 }
 
-private enum ContentQualityRuleAction: String, CaseIterable, Identifiable {
+enum ContentQualityRuleAction: String, CaseIterable, Identifiable {
     case block = "BLOCK"
     case warn = "WARN"
 
@@ -202,7 +202,7 @@ private enum ContentQualityRuleAction: String, CaseIterable, Identifiable {
     var label: String { self == .block ? "BLOCK — остановить" : "WARN — проверить" }
 }
 
-private enum ContentQualityRuleScope: String, CaseIterable, Identifiable {
+enum ContentQualityRuleScope: String, CaseIterable, Identifiable {
     case shared = "shared"
     case bookOnly = "book-only"
 
@@ -269,12 +269,13 @@ final class ContentQualityController: ObservableObject {
             isLoading = true
             defer { isLoading = false }
             do {
-                let _: ContentQualityMutationEnvelope = try await runJSON([
+                let result: ContentQualityMutationEnvelope = try await runJSON([
                     "--add-user-rule",
                     "--value", value,
                     "--action", newRuleAction.rawValue,
                     "--profiles", newRuleScope.bridgeValue,
                 ])
+                try assertOffline(result)
                 newRuleValue = ""
                 await reload(bookID: currentBookID)
             } catch {
@@ -289,9 +290,10 @@ final class ContentQualityController: ObservableObject {
             isLoading = true
             defer { isLoading = false }
             do {
-                let _: ContentQualityMutationEnvelope = try await runJSON([
+                let result: ContentQualityMutationEnvelope = try await runJSON([
                     "--remove-user-rule", "--rule-id", rule.ruleID,
                 ])
+                try assertOffline(result)
                 await reload(bookID: currentBookID)
             } catch {
                 errorMessage = error.localizedDescription
@@ -321,13 +323,14 @@ final class ContentQualityController: ObservableObject {
             isLoading = true
             defer { isLoading = false }
             do {
-                let _: ContentQualityResolutionEnvelope = try await runJSON([
+                let result: ContentQualityResolutionEnvelope = try await runJSON([
                     "--resolve-finding",
                     "--book", currentBookID,
                     "--rule-id", finding.ruleID,
                     "--profile", finding.profile,
                     "--reason", reason,
                 ])
+                try assertOffline(result)
                 findingForResolution = nil
                 resolutionReason = ""
                 await reload(bookID: currentBookID)
@@ -354,6 +357,26 @@ final class ContentQualityController: ObservableObject {
               !value.paidExecution,
               !value.billingChanged else {
             throw ContentQualityBridgeError.message("Проверка текста нарушила offline contract.")
+        }
+    }
+
+    private func assertOffline(_ value: ContentQualityMutationEnvelope) throws {
+        guard value.providerRequests == 0,
+              !value.remoteRequestSent,
+              value.modelCalls == 0,
+              !value.paidExecution,
+              !value.billingChanged else {
+            throw ContentQualityBridgeError.message("Изменение словаря нарушило offline contract.")
+        }
+    }
+
+    private func assertOffline(_ value: ContentQualityResolutionEnvelope) throws {
+        guard value.providerRequests == 0,
+              !value.remoteRequestSent,
+              value.modelCalls == 0,
+              !value.paidExecution,
+              !value.billingChanged else {
+            throw ContentQualityBridgeError.message("Человеческое исключение нарушило offline contract.")
         }
     }
 
@@ -399,7 +422,7 @@ final class ContentQualityController: ObservableObject {
     }
 }
 
-private struct ContentQualityMutationEnvelope: Codable {
+struct ContentQualityMutationEnvelope: Codable {
     let providerRequests: Int
     let remoteRequestSent: Bool
     let modelCalls: Int
@@ -415,7 +438,7 @@ private struct ContentQualityMutationEnvelope: Codable {
     }
 }
 
-private struct ContentQualityResolutionEnvelope: Codable {
+struct ContentQualityResolutionEnvelope: Codable {
     let state: String
     let providerRequests: Int
     let remoteRequestSent: Bool
