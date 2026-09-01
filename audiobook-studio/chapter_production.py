@@ -90,6 +90,7 @@ class YandexChapterProductionService:
         plans_dir: Path,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
         now: Callable[[], datetime] | None = None,
+        content_quality_guard: Callable[[str], Any] | None = None,
     ) -> None:
         if ttl_seconds <= 0:
             raise ValueError("Chapter plan TTL must be positive.")
@@ -101,6 +102,36 @@ class YandexChapterProductionService:
         self.store = PaidRunPlanStore(plans_dir)
         self.ttl_seconds = ttl_seconds
         self._now = now or (lambda: datetime.now(timezone.utc))
+        self.content_quality_guard = content_quality_guard
+
+    def _content_quality_status(self, book_name: str) -> tuple[dict[str, Any] | None, list[str]]:
+        if self.content_quality_guard is None:
+            return None, []
+        try:
+            with self.content_quality_guard(book_name) as evidence:
+                result = dict(evidence)
+        except Exception as error:
+            code = str(getattr(error, "code", "content_quality_blocked"))
+            return {
+                "schema_version": 1,
+                "state": "BLOCKED",
+                "blockers": [code],
+                "provider_requests": 0,
+                "remote_request_sent": False,
+                "model_calls": 0,
+                "paid_execution": False,
+                "billing_changed": False,
+            }, [code]
+        if (
+            result.get("state") not in {"PASS", "WARN"}
+            or result.get("provider_requests") != 0
+            or result.get("remote_request_sent") is not False
+            or result.get("model_calls") != 0
+            or result.get("paid_execution") is not False
+            or result.get("billing_changed") is not False
+        ):
+            return result, ["content_quality_offline_contract_violation"]
+        return result, []
 
     def _load_chapter(self, book_name: str, job_id: str) -> tuple[Path, dict[str, Any], dict[str, Any], str]:
         try:
@@ -234,6 +265,7 @@ class YandexChapterProductionService:
         if profile_id != PROFILE_ID:
             raise ChapterProductionError("Yandex chapter production V1 supports only yandex_lera.", category="invalid_profile")
         profile_path, book, job, text = self._load_chapter(book_name, job_id)
+        content_quality, quality_blockers = self._content_quality_status(profile_path.name)
         configured_profile = (
             self.backend.profile.voice,
             self.backend.profile.role,
@@ -254,7 +286,7 @@ class YandexChapterProductionService:
         total_segments = int(estimate.get("segments") or 0)
         cached_segments = int(estimate.get("cached_segments") or 0)
         request_cap = max(0, int(estimate.get("estimated_network_requests") or 0))
-        blockers = self._manifest_blockers(job_dir, job_id=job_id, text=text)
+        blockers = [*quality_blockers, *self._manifest_blockers(job_dir, job_id=job_id, text=text)]
         blocked_reason = estimate.get("blocked_reason")
         if request_cap and not estimate.get("allowed_to_start"):
             blockers.append(str(blocked_reason or "pricing_blocked"))
@@ -262,7 +294,7 @@ class YandexChapterProductionService:
             blockers.append("chapter_request_cap_exceeded")
 
         credential_available = False
-        if request_cap:
+        if request_cap and not quality_blockers:
             try:
                 credential_available = bool(self.backend.validate_config(resolve_credentials=True).get("credentials_present"))
             except YandexSpeechKitError:
@@ -338,6 +370,13 @@ class YandexChapterProductionService:
                 "warnings": billing.get("warnings"),
             },
         }
+        if content_quality is not None:
+            critical["content_quality_gate"] = {
+                "gate_version": content_quality.get("gate_version"),
+                "gate_fingerprint": content_quality.get("gate_fingerprint"),
+                "evidence_sha256": content_quality.get("evidence_sha256"),
+                "state": content_quality.get("state"),
+            }
         return {
             "profile_path": profile_path,
             "book": book,
@@ -346,6 +385,7 @@ class YandexChapterProductionService:
             "job_dir": job_dir,
             "estimate": estimate,
             "billing": billing,
+            "content_quality": content_quality,
             "blockers": blockers,
             "warnings": list(dict.fromkeys(warnings)),
             "credential_available": credential_available,
@@ -392,6 +432,7 @@ class YandexChapterProductionService:
             "pricing_verified_at": critical["pricing_verified_at"],
             "pricing_stale": bool(analysis["estimate"].get("price_stale")),
             "credential_available": analysis["credential_available"],
+            "content_quality": analysis["content_quality"],
             "warnings": analysis["warnings"],
             "blockers": analysis["blockers"],
             "decision": analysis["decision"],
@@ -463,14 +504,21 @@ class YandexChapterProductionService:
 
             self.backend._request = capped_request
             try:
-                output_path = self.backend.run_text_job(
-                    analysis["text"],
-                    analysis["job_dir"],
-                    job_id=str(plan["job_id"]),
-                    pricing=self.pricing,
-                    scope="book",
-                    cache_only=request_cap == 0,
-                )
+                def run_provider_job() -> Path:
+                    return self.backend.run_text_job(
+                        analysis["text"],
+                        analysis["job_dir"],
+                        job_id=str(plan["job_id"]),
+                        pricing=self.pricing,
+                        scope="book",
+                        cache_only=request_cap == 0,
+                    )
+
+                if self.content_quality_guard is None:
+                    output_path = run_provider_job()
+                else:
+                    with self.content_quality_guard(str(plan["book_file"])):
+                        output_path = run_provider_job()
                 if network_requests > request_cap:
                     raise ChapterProductionError("Chapter request cap was exceeded.", category="request_cap_exceeded")
                 result = {

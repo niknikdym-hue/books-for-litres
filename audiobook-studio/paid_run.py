@@ -134,6 +134,7 @@ class PaidRunService:
         plans_dir: Path,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
         now: Callable[[], datetime] | None = None,
+        content_quality_guard: Callable[[str], Any] | None = None,
     ) -> None:
         self.backend = backend
         self.pricing = pricing
@@ -144,6 +145,7 @@ class PaidRunService:
         self.store = PaidRunPlanStore(plans_dir)
         self.ttl_seconds = ttl_seconds
         self._now = now or (lambda: datetime.now(timezone.utc))
+        self.content_quality_guard = content_quality_guard
         if ttl_seconds <= 0:
             raise ValueError("Paid run plan TTL must be positive.")
 
@@ -157,6 +159,35 @@ class PaidRunService:
             }
             for summary in self.book_library.list_book_summaries()
         ]
+
+    def _content_quality_status(self, book_name: str) -> tuple[dict[str, Any] | None, list[str]]:
+        if self.content_quality_guard is None:
+            return None, []
+        try:
+            with self.content_quality_guard(book_name) as evidence:
+                result = dict(evidence)
+        except Exception as error:
+            code = str(getattr(error, "code", "content_quality_blocked"))
+            return {
+                "schema_version": 1,
+                "state": "BLOCKED",
+                "blockers": [code],
+                "provider_requests": 0,
+                "remote_request_sent": False,
+                "model_calls": 0,
+                "paid_execution": False,
+                "billing_changed": False,
+            }, [code]
+        if (
+            result.get("state") not in {"PASS", "WARN"}
+            or result.get("provider_requests") != 0
+            or result.get("remote_request_sent") is not False
+            or result.get("model_calls") != 0
+            or result.get("paid_execution") is not False
+            or result.get("billing_changed") is not False
+        ):
+            return result, ["content_quality_offline_contract_violation"]
+        return result, []
 
     def _load_source(self, book_name: str, job_id: str) -> tuple[Path, dict[str, Any], dict[str, Any], str]:
         try:
@@ -208,6 +239,7 @@ class PaidRunService:
 
     def _analyze(self, book_name: str, job_id: str, profile_id: str) -> dict[str, Any]:
         source_path, book, job, text = self._load_source(book_name, job_id)
+        content_quality, quality_blockers = self._content_quality_status(source_path.name)
         profile = load_approved_profile(profile_id)
         segments = self.backend.segment(text)
         if not segments:
@@ -220,6 +252,7 @@ class PaidRunService:
             canonical_book_slug=canonical_book_slug,
         )
         entries, blockers = self._manifest_entries(job_dir, job_id=job_id, profile_id=profile_id)
+        blockers = [*quality_blockers, *blockers]
         counts = {"succeeded": 0, "cached": 0, "pending": 0, "ambiguous": 0, "failed": 0}
         eligible: list[tuple[Any, str]] = []
 
@@ -279,8 +312,8 @@ class PaidRunService:
             blockers.append("missing_hard_limit")
         elif hard_limit <= Decimal("0"):
             blockers.append("hard_limit_not_positive")
-        credential_available = self.backend.credential_available() if eligible else False
-        if eligible and not credential_available:
+        credential_available = self.backend.credential_available() if eligible and not quality_blockers else False
+        if eligible and not quality_blockers and not credential_available:
             blockers.append("missing_credential")
         if len(eligible) > counts["pending"]:
             blockers.append("execution_segment_not_unique")
@@ -328,6 +361,13 @@ class PaidRunService:
             },
             "max_network_requests": MAX_NETWORK_REQUESTS,
         }
+        if content_quality is not None:
+            critical["content_quality_gate"] = {
+                "gate_version": content_quality.get("gate_version"),
+                "gate_fingerprint": content_quality.get("gate_fingerprint"),
+                "evidence_sha256": content_quality.get("evidence_sha256"),
+                "state": content_quality.get("state"),
+            }
         return {
             "critical": critical,
             "book": book,
@@ -340,6 +380,7 @@ class PaidRunService:
             "pricing_stale": pricing_stale,
             "credential_available": credential_available,
             "billing": billing_snapshot,
+            "content_quality": content_quality,
             "warnings": list(dict.fromkeys([
                 *billing_snapshot.get("warnings", []),
                 "exact_future_audio_cost_unavailable",
@@ -396,6 +437,7 @@ class PaidRunService:
             "pricing_verified_at": self.pricing.verified_at.isoformat(),
             "pricing_stale": analysis["pricing_stale"],
             "credential_available": analysis["credential_available"],
+            "content_quality": analysis["content_quality"],
             "cost_estimate": None,
             "cost_estimate_source": "unavailable",
             "warnings": analysis["warnings"],
@@ -455,14 +497,21 @@ class PaidRunService:
                 profile_id=str(plan["profile_id"]),
                 exclusive=True,
             ):
-                manifest_path, result = temporary_backend.run_approved_segment(
-                    analysis["text"],
-                    analysis["job_dir"],
-                    job_id=str(plan["job_id"]),
-                    profile_id=str(plan["profile_id"]),
-                    pricing=self.pricing,
-                    selected_segment_id=plan.get("selected_segment_id"),
-                )
+                def run_provider_segment():
+                    return temporary_backend.run_approved_segment(
+                        analysis["text"],
+                        analysis["job_dir"],
+                        job_id=str(plan["job_id"]),
+                        profile_id=str(plan["profile_id"]),
+                        pricing=self.pricing,
+                        selected_segment_id=plan.get("selected_segment_id"),
+                    )
+
+                if self.content_quality_guard is None:
+                    manifest_path, result = run_provider_segment()
+                else:
+                    with self.content_quality_guard(str(plan["book_file"])):
+                        manifest_path, result = run_provider_segment()
             if int(result["network_requests"]) != network_requests or network_requests > MAX_NETWORK_REQUESTS:
                 raise PaidRunError("Paid run exceeded its request cap.", category="request_cap_exceeded")
             return_value = {

@@ -21,6 +21,7 @@ from workspace_paths import load_workspace_paths
 from cloud_billing import CloudBillingService, decimal_text, decimal_value, save_settings
 from book_library import BookLibrary, BookLibraryError, normalize_slug
 from book_text_preparation import BookTextPreparationService
+from content_quality_execution import hold_current_content_quality
 from chapter_production import YandexChapterProductionService
 from chapter_assembly import (
     ChapterAssemblyService,
@@ -158,6 +159,14 @@ def _require(value: str, option: str) -> str:
     return value
 
 
+def _content_quality_execution(book_name: str):
+    return hold_current_content_quality(
+        library=BOOK_LIBRARY,
+        workspace_root=WORKSPACE_PATHS.root,
+        book_name=book_name,
+    )
+
+
 def _billing_service() -> CloudBillingService:
     return CloudBillingService(
         settings_path=WORKSPACE_PATHS.cloud_billing_settings,
@@ -182,6 +191,7 @@ def _paid_run_service() -> PaidRunService:
         billing=billing,
         books_dir=WORKSPACE_PATHS.books_root,
         plans_dir=WORKSPACE_PATHS.paid_run_plans,
+        content_quality_guard=_content_quality_execution,
     )
 
 
@@ -200,6 +210,7 @@ def _yandex_chapter_service() -> YandexChapterProductionService:
         billing=billing,
         books_dir=WORKSPACE_PATHS.books_root,
         plans_dir=WORKSPACE_PATHS.paid_run_plans,
+        content_quality_guard=_content_quality_execution,
     )
 
 
@@ -1331,13 +1342,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.run_qwen:
-        return _delegate(
-            QWEN_RUNNER,
-            "--run",
-            "--book", _require(args.book, "--book"),
-            "--job", _require(args.job, "--job"),
-            "--speaker", _require(args.speaker, "--speaker"),
-        )
+        book_name = _require(args.book, "--book")
+        with _content_quality_execution(book_name):
+            return _delegate(
+                QWEN_RUNNER,
+                "--run",
+                "--book", book_name,
+                "--job", _require(args.job, "--job"),
+                "--speaker", _require(args.speaker, "--speaker"),
+            )
 
     if args.run_yandex_demo:
         # Legacy bounded diagnostic smoke; the production chapter route below
@@ -1475,13 +1488,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     if args.run_openai:
-        return _delegate(
-            OPENAI_RUNNER,
-            "--run",
-            "--book", _require(args.book, "--book"),
-            "--job", _require(args.job, "--job"),
-            "--profile-id", _require(args.profile_id, "--profile-id"),
-        )
+        book_name = _require(args.book, "--book")
+        with _content_quality_execution(book_name):
+            return _delegate(
+                OPENAI_RUNNER,
+                "--run",
+                "--book", book_name,
+                "--job", _require(args.job, "--job"),
+                "--profile-id", _require(args.profile_id, "--profile-id"),
+            )
 
     if args.prepare_paid_run:
         if _require(args.provider, "--provider") != "openai":
