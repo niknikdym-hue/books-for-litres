@@ -21,11 +21,9 @@ class ContentQualityProviderWiringTests(unittest.TestCase):
         self.assertIn("content_quality, quality_blockers = self._content_quality_status(profile_path.name)", source)
         self.assertIn('critical["content_quality_gate"]', source)
         self.assertIn('"content_quality": analysis["content_quality"]', source)
-        self.assertIn('with self.content_quality_guard(str(plan["book_file"])):', source)
-        self.assertLess(
-            source.index('with self.content_quality_guard(str(plan["book_file"])):'),
-            source.index('output_path = run_provider_job()'),
-        )
+        barrier = source.index('with self.content_quality_guard(str(plan["book_file"])):')
+        provider = source.index('output_path = run_provider_job()', barrier)
+        self.assertLess(barrier, provider)
 
     def test_openai_service_binds_gate_into_plan_and_rechecks_inside_provider_lock(self) -> None:
         source = (ROOT / "paid_run.py").read_text(encoding="utf-8")
