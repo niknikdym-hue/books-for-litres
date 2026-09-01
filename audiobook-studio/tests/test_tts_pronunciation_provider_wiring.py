@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest
@@ -16,7 +15,6 @@ from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
 from content_quality_lexicon import ContentQualityLexicon
 from tts_pronunciation_apply import apply_book_stress
-from tts_text_review import working_copy_status
 
 
 class TTSPronunciationProviderWiringTests(unittest.TestCase):
@@ -72,6 +70,30 @@ class TTSPronunciationProviderWiringTests(unittest.TestCase):
         self.assertFalse(result["manual_review"]["accepted"])
         self.assertEqual(result["provider_requests"], 0)
         self.assertFalse(result["remote_request_sent"])
+
+    def test_owner_can_correct_existing_stress_after_listening(self) -> None:
+        self.import_book()
+        first = apply_book_stress(
+            self.library,
+            "stress-book",
+            word="замок",
+            vowel_number=2,
+        )
+        self.assertEqual(first["text"].count("замо́к"), 2)
+        override_id = first["pronunciation_entry"]["override_id"]
+        revision = first["pronunciation_revision"]
+
+        corrected = apply_book_stress(
+            self.library,
+            "stress-book",
+            word="замок",
+            vowel_number=1,
+        )
+        self.assertEqual(corrected["text"].count("за́мок"), 2)
+        self.assertNotIn("замо́к", corrected["text"])
+        self.assertEqual(corrected["pronunciation_entry"]["override_id"], override_id)
+        self.assertEqual(corrected["pronunciation_entry"]["vowel_number"], 1)
+        self.assertGreater(corrected["pronunciation_revision"], revision)
 
     def test_yandex_adapter_translates_human_stress_to_speechkit_markup(self) -> None:
         text = "Старый замо́к стоял на холме."
