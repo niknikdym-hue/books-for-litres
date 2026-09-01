@@ -1,0 +1,110 @@
+name: Apply final Studio owner main cleanup
+
+on:
+  push:
+    branches:
+      - brain/content-quality-lexicon-v1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: studio-owner-main-cleanup
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Simplify main recording flow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app_path = Path('audiobook-studio/native/AudiobookStudioApp.swift')
+          app = app_path.read_text(encoding='utf-8')
+          start_marker = '                        Section("Подготовка текста") {\n'
+          end_marker = '                        OwnerProductionFlowPanel(model: model, selectedBookID: book.id)\n'
+          if start_marker in app:
+              start = app.index(start_marker)
+              end = app.index(end_marker, start)
+              app = app[:start] + end_marker + app[end + len(end_marker):]
+          elif 'OwnerProductionFlowPanel(model: model, selectedBookID: book.id)' not in app:
+              raise SystemExit('owner panel mount missing')
+          app_path.write_text(app, encoding='utf-8')
+
+          panel_path = Path('audiobook-studio/native/OwnerProductionFlowPanel.swift')
+          panel = panel_path.read_text(encoding='utf-8')
+          replacements = {
+              'ownerStep(4, "Диктор и глава", detail: "Ниже выберите движок, голос и конкретную главу.", done: model.selectedJob != nil)':
+                  'ownerStep(4, "Диктор", detail: "Выберите движок и голос.", done: model.selectedProfile != nil)',
+              'ownerStep(5, "Озвучка", detail: "Сначала Studio покажет план. Платная запись запускается только после вашего подтверждения.", done: model.completedOutput != nil)':
+                  'ownerStep(5, "Глава", detail: "Выберите конкретную главу для записи.", done: model.selectedJob != nil)',
+              'ownerStep(6, "Прослушивание", detail: "Прослушайте готовый WAV и одобрите или отправьте на перезапись.", done: model.audioQA?.record.manualState == "APPROVED")':
+                  'ownerStep(6, "Запись и прослушивание", detail: "Запустите запись, затем прослушайте WAV и примите или отправьте на перезапись.", done: model.audioQA?.record.manualState == "APPROVED")',
+          }
+          for old, new in replacements.items():
+              if old in panel:
+                  panel = panel.replace(old, new, 1)
+              elif new not in panel:
+                  raise SystemExit(f'missing owner step anchor: {old}')
+
+          old_after_accept = '''                    if review.manualReview.required {\n                        Button(\n                            review.manualReview.ready ? "Текст принят" : "Принять текущий текст"\n                        ) {\n                            textController.acceptCurrentWorkingCopy()\n                        }\n                        .disabled(\n                            review.manualReview.ready\n                            || textController.workingTextHasUnsavedChanges\n                            || textController.isLoading\n                        )\n                    }\n                } else if textController.isLoading {\n                    ProgressView("Открывается текст…")\n                } else {\n                    Text("Подготовьте текст книги, чтобы открыть редактор.")\n                        .foregroundStyle(.secondary)\n                }\n'''
+          new_after_accept = '''                    if review.manualReview.required {\n                        Button(\n                            review.manualReview.ready ? "Текст принят" : "Принять текущий текст"\n                        ) {\n                            textController.acceptCurrentWorkingCopy()\n                        }\n                        .disabled(\n                            review.manualReview.ready\n                            || textController.workingTextHasUnsavedChanges\n                            || textController.isLoading\n                        )\n                    }\n                    if review.preparationStatus != "READY" {\n                        Button(review.preparationStatus == "STALE" ? "Подготовить текст заново" : "Подготовить текст") {\n                            model.requestBookTextPreparation()\n                        }\n                        .buttonStyle(.borderedProminent)\n                        .disabled(model.isPreparingBookText || textController.workingTextHasUnsavedChanges)\n                        Text("После правок сначала сохраните текст, затем подготовьте главы заново. Старое аудио автоматически не запускается.")\n                            .font(.caption)\n                            .foregroundStyle(.secondary)\n                    }\n                } else if textController.isLoading {\n                    ProgressView("Открывается текст…")\n                } else if book?.sourceIntegrity != "OK" {\n                    Label("Сначала нужно восстановить целостность исходного текста", systemImage: "exclamationmark.shield.fill")\n                        .foregroundStyle(.red)\n                } else {\n                    Text("Первый шаг — подготовить рабочую копию текста для диктора.")\n                        .foregroundStyle(.secondary)\n                    Button("Подготовить текст") { model.requestBookTextPreparation() }\n                        .buttonStyle(.borderedProminent)\n                        .disabled(model.isPreparingBookText)\n                }\n'''
+          if old_after_accept in panel:
+              panel = panel.replace(old_after_accept, new_after_accept, 1)
+          elif new_after_accept not in panel:
+              raise SystemExit('text preparation owner flow anchor missing')
+
+          sound_anchor = '''                    Text("Выбор хранится отдельно для каждой книги: у другой книги можно выбрать другой звук или полностью отключить эту опцию.")\n                        .font(.caption)\n                        .foregroundStyle(.secondary)\n'''
+          sound_new = sound_anchor + '''                    Text("Звук добавляется только на этапе сборки готовой главы — после озвучки и проверки речи. Смена звука не требует заново оплачивать TTS.")\n                        .font(.caption)\n                        .foregroundStyle(.secondary)\n'''
+          if sound_new not in panel:
+              if sound_anchor not in panel:
+                  raise SystemExit('sound explanation anchor missing')
+              panel = panel.replace(sound_anchor, sound_new, 1)
+
+          next_block = '''\n            Section("Дальше") {\n                Text("4. Выберите диктора и главу ниже → 5. подготовьте запуск → 6. прослушайте результат → 7. одобрите, соберите и подготовьте выпуск.")\n                    .font(.callout.weight(.medium))\n            }\n'''
+          panel = panel.replace(next_block, '')
+          panel_path.write_text(panel, encoding='utf-8')
+
+          test_path = Path('audiobook-studio/tests/test_owner_production_flow_source.py')
+          test = test_path.read_text(encoding='utf-8')
+          if 'self.assertNotIn(\'Section("Подготовка текста")\', main_part)' not in test:
+              marker = '        self.assertNotIn(\'Section("Расходы и лимиты")\', main_part)\n'
+              test = test.replace(marker, marker + '        self.assertNotIn(\'Section("Подготовка текста")\', main_part)\n', 1)
+          for text_value in (
+              'ownerStep(4, "Диктор"',
+              'ownerStep(5, "Глава"',
+              'ownerStep(6, "Запись и прослушивание"',
+              'Смена звука не требует заново оплачивать TTS',
+          ):
+              assertion = f'        self.assertIn({text_value!r}, panel)\n'
+              if assertion not in test:
+                  marker = '        self.assertIn(\'Section("Путь к готовой аудиокниге")\', panel)\n'
+                  test = test.replace(marker, marker + assertion, 1)
+          test_path.write_text(test, encoding='utf-8')
+          PY
+      - name: Verify focused UI contracts
+        working-directory: audiobook-studio
+        run: |
+          python -m unittest tests.test_owner_production_flow_source -v
+          python -m unittest tests.test_native_ui_bridge -v
+          git diff --check
+      - name: Commit final main-flow cleanup
+        run: |
+          if git diff --quiet; then
+            echo "Already clean"
+            exit 0
+          fi
+          git config user.name "Audiobook Studio Central Brain"
+          git config user.email "actions@users.noreply.github.com"
+          git add audiobook-studio/native/AudiobookStudioApp.swift audiobook-studio/native/OwnerProductionFlowPanel.swift audiobook-studio/tests/test_owner_production_flow_source.py
+          git commit -m "Simplify Studio main recording flow for authors"
+          git push origin HEAD:brain/content-quality-lexicon-v1
