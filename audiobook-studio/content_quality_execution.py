@@ -84,13 +84,11 @@ def hold_current_content_quality(
             # returns ready=True and is non-blocking; when on, any working-copy edit
             # invalidates the previous acceptance before a paid/provider call.
             manual_review = assert_manual_review_ready(library, profile_path.name)
-            evidence = validate_prepared_content_quality(
+            evidence = dict(validate_prepared_content_quality(
                 library=library,
                 workspace_root=Path(workspace_root),
                 book_name=profile_path.name,
                 lexicon=engine,
-            )
-            yield {
-                **evidence,
-                "manual_text_review": manual_review["manual_review"],
-            }
+            ))
+            evidence["manual_text_review"] = manual_review["manual_review"]
+            yield evidence
