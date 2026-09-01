@@ -12,7 +12,7 @@ set -euo pipefail
 #   and are never deleted by this updater.
 
 readonly repository_url="https://github.com/niknikdym-hue/books-for-litres.git"
-readonly source_sha="109ade8174b491002269d7a1b3fad3c5a041f772"
+readonly source_sha="9874a722cb1cbf236054899f3c574b16368dcb4e"
 readonly workspace_root="${AUDIOBOOK_STUDIO_HOME:-$HOME/Documents/New project/Audiobook-Studio}"
 readonly runtime_root="$workspace_root/runtime/studio-workspace"
 readonly python_executable="${AUDIOBOOK_STUDIO_PYTHON:-$workspace_root/engines/qwen-mlx/.venv/bin/python}"
