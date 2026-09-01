@@ -86,6 +86,15 @@ jobs:
       - name: Swift native contract
         run: python -m unittest discover -s tests -p 'test_native_contracts.py' -v
 
+      - name: Validate owner local updater
+        run: |
+          /bin/zsh -n native/update_desktop_from_github.sh
+          test -x /usr/bin/git
+          test -x /usr/bin/xcrun
+          test -x /usr/bin/codesign
+          test -x /usr/bin/ditto
+          test -x /usr/bin/open
+
       - name: Build and strictly codesign native app
         run: native/build_native_app.sh "$RUNNER_TEMP/Audiobook Studio.app"
 
@@ -99,17 +108,3 @@ jobs:
           test "$(plutil -extract CFBundleIdentifier raw -o - "$DESKTOP_APP/Contents/Info.plist")" = "ru.elena.audiobookstudio"
           codesign --verify --deep --strict "$DESKTOP_APP"
           file "$DESKTOP_APP/Contents/MacOS/Audiobook Studio" | grep -q 'Mach-O'
-
-      - name: Package owner-visible Studio preview
-        working-directory: ${{ runner.temp }}
-        run: |
-          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "Audiobook Studio.app" "Audiobook-Studio-preview.zip"
-          test -s "Audiobook-Studio-preview.zip"
-
-      - name: Upload owner-visible Studio preview
-        uses: actions/upload-artifact@v4
-        with:
-          name: Audiobook-Studio-PR45-preview
-          path: ${{ runner.temp }}/Audiobook-Studio-preview.zip
-          if-no-files-found: error
-          retention-days: 7
