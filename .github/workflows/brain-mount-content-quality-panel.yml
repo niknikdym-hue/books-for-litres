@@ -24,25 +24,28 @@ jobs:
 
           path = Path('audiobook-studio/native/AudiobookStudioApp.swift')
           text = path.read_text(encoding='utf-8')
-          needle = '''                            }
-                        }
-                    }
-
-                    Section("Подготовка озвучки") {'''
-          replacement = '''                            }
-                        }
-
-                        ContentQualitySettingsPanel(selectedBookID: book.id)
-                    }
-
-                    Section("Подготовка озвучки") {'''
-          if replacement in text:
+          mounted = '                        ContentQualitySettingsPanel(selectedBookID: book.id)'
+          if mounted in text:
               print('Content Quality panel already mounted')
           else:
-              count = text.count(needle)
-              if count != 1:
-                  raise SystemExit(f'expected exactly one mount anchor, found {count}')
-              path.write_text(text.replace(needle, replacement, 1), encoding='utf-8')
+              lines = text.splitlines()
+              target = '                    Section("Подготовка озвучки") {'
+              positions = [index for index, line in enumerate(lines) if line == target]
+              if len(positions) != 1:
+                  raise SystemExit(f'expected exactly one voice-preparation section, found {len(positions)}')
+              section_index = positions[0]
+              if section_index < 5 or lines[section_index - 1] != '':
+                  raise SystemExit('unexpected source shape before voice-preparation section')
+              if lines[section_index - 2] != '                    }':
+                  raise SystemExit('production-book scope closing brace not found')
+              if lines[section_index - 3] != '                        }':
+                  raise SystemExit('text-preparation section closing brace not found')
+              insert_at = section_index - 2
+              lines[insert_at:insert_at] = [mounted, '']
+              updated = '\n'.join(lines) + ('\n' if text.endswith('\n') else '')
+              if updated.count(mounted) != 1:
+                  raise SystemExit('mount did not produce exactly one panel')
+              path.write_text(updated, encoding='utf-8')
           PY
       - name: Commit only the mounted source if changed
         run: |
