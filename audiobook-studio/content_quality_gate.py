@@ -1,8 +1,10 @@
-"""Exact pre-synthesis Content Quality gate for prepared Audiobook Studio books.
+"""Exact pre-synthesis technical Content Quality gate for Audiobook Studio.
 
-This module is intentionally independent of provider implementations. It verifies
-that a READY preparation was produced under the current shared lexicon/user rules
-and exact human-resolution state before any synthesis plan may become eligible.
+Shared editorial anti-junk rules are an owner-invoked advisory review in Studio.
+They must not silently become a provider blocker just because the shared BOOK OS
+user lexicon changed. The mandatory execution gate therefore revalidates only
+exact prepared text identity, the vendored TTS-technical contract, and any exact
+technical human resolutions that were relied upon during preparation.
 """
 
 from __future__ import annotations
@@ -12,8 +14,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from content_quality_lexicon import (
+    PROFILE_AUDIOBOOK_TTS_TECHNICAL,
     ContentQualityError,
     ContentQualityLexicon,
+    ContentQualityResolutionStore,
     sha256_file,
 )
 from preparation_contract import CONTENT_QUALITY_GATE_VERSION
@@ -30,6 +34,73 @@ def _blocked(code: str, message: str) -> ContentQualityGateError:
     return ContentQualityGateError(code, message)
 
 
+def _technical_evidence(evidence: Mapping[str, Any], normalized_sha: str) -> Mapping[str, Any]:
+    technical = evidence.get("technical")
+    if not isinstance(technical, Mapping):
+        raise _blocked("content_quality_technical_evidence_missing", "Prepared TTS technical evidence is missing.")
+    if (
+        technical.get("profile") != PROFILE_AUDIOBOOK_TTS_TECHNICAL
+        or technical.get("text_sha256") != normalized_sha
+        or technical.get("state") not in {"PASS", "WARN"}
+    ):
+        raise _blocked(
+            "content_quality_technical_evidence_invalid",
+            "Prepared TTS technical evidence is not safe for provider execution.",
+        )
+    return technical
+
+
+def _revalidate_technical_contract(
+    *,
+    engine: ContentQualityLexicon,
+    technical: Mapping[str, Any],
+    workspace_root: Path,
+    book_slug: str,
+    normalized_sha: str,
+) -> None:
+    embedded = technical.get("evidence")
+    if not isinstance(embedded, Mapping):
+        raise _blocked("content_quality_technical_evidence_invalid", "TTS technical contract evidence is missing.")
+    expected_schema = embedded.get("schema_sha256")
+    expected_pack = embedded.get("technical_pack_sha256")
+    if not isinstance(expected_schema, str) or not isinstance(expected_pack, str):
+        raise _blocked("content_quality_technical_evidence_invalid", "TTS technical contract hashes are missing.")
+    if sha256_file(engine.schema_path) != expected_schema or sha256_file(engine.technical_path) != expected_pack:
+        raise _blocked(
+            "content_quality_technical_contract_changed",
+            "TTS technical rules changed after preparation; prepare the text again.",
+        )
+
+    resolved = technical.get("resolved_findings")
+    if not isinstance(resolved, list):
+        raise _blocked("content_quality_technical_evidence_invalid", "TTS technical resolution evidence is malformed.")
+    if not resolved:
+        return
+    try:
+        current = ContentQualityResolutionStore(workspace_root, book_slug).applicable(
+            profile=PROFILE_AUDIOBOOK_TTS_TECHNICAL,
+            text_sha256=normalized_sha,
+        )
+    except ContentQualityError as error:
+        raise _blocked(error.code, error.message) from error
+    for finding in resolved:
+        if not isinstance(finding, Mapping):
+            raise _blocked("content_quality_technical_evidence_invalid", "Resolved TTS finding is malformed.")
+        rule_id = finding.get("rule_id")
+        resolution_id = finding.get("resolution_id")
+        current_resolution = current.get(str(rule_id)) if isinstance(rule_id, str) else None
+        if (
+            not isinstance(current_resolution, Mapping)
+            or current_resolution.get("resolution_id") != resolution_id
+            or current_resolution.get("text_sha256") != normalized_sha
+            or current_resolution.get("actor") != "OWNER"
+        ):
+            raise _blocked(
+                "content_quality_technical_resolution_stale",
+                "A TTS technical exception used during preparation is no longer current.",
+            )
+
+
 def validate_prepared_content_quality(
     *,
     library: Any,
@@ -37,7 +108,7 @@ def validate_prepared_content_quality(
     book_name: str,
     lexicon: ContentQualityLexicon | None = None,
 ) -> dict[str, Any]:
-    """Fail closed unless the exact prepared text is current under the lexicon.
+    """Fail closed on exact text/TTS technical drift, never on editorial lexicon drift.
 
     The function performs no provider/model/billing operation. Existing historical
     audio remains untouched; this gate controls only eligibility for a new
@@ -104,30 +175,29 @@ def validate_prepared_content_quality(
         or evidence.get("state") not in {"PASS", "WARN"}
     ):
         raise _blocked("content_quality_evidence_invalid", "Prepared Content Quality evidence is not current/canonical.")
-    try:
-        current_fingerprint = engine.gate_fingerprint(
-            workspace_root=Path(workspace_root),
-            book_slug=profile_path.stem,
-            working_copy_sha256=working_sha,
-            normalized_sha256=normalized_sha,
-        )
-    except ContentQualityError as error:
-        raise _blocked(error.code, error.message) from error
-    if current_fingerprint != expected_fingerprint:
-        raise _blocked(
-            "content_quality_lexicon_changed",
-            "Content Quality lexicon or exact human resolutions changed after preparation; prepare text again.",
-        )
+
+    technical = _technical_evidence(evidence, normalized_sha)
+    _revalidate_technical_contract(
+        engine=engine,
+        technical=technical,
+        workspace_root=Path(workspace_root),
+        book_slug=profile_path.stem,
+        normalized_sha=normalized_sha,
+    )
+
     return {
         "schema_version": 1,
-        "state": str(evidence["state"]),
+        "state": str(technical["state"]),
         "book_slug": profile_path.stem,
         "working_copy_sha256": working_sha,
         "normalized_sha256": normalized_sha,
         "gate_version": CONTENT_QUALITY_GATE_VERSION,
-        "gate_fingerprint": current_fingerprint,
+        # Keep the preparation-bound identity stable; editorial user-store changes
+        # are intentionally not re-bound into the mandatory provider gate.
+        "gate_fingerprint": expected_fingerprint,
         "evidence_path": str(evidence_path),
         "evidence_sha256": expected_sha,
+        "editorial_policy": "MANUAL_ADVISORY",
         "provider_requests": 0,
         "remote_request_sent": False,
         "model_calls": 0,
