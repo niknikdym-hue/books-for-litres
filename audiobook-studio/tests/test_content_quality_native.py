@@ -8,12 +8,18 @@ NATIVE = ROOT / "native"
 
 
 class ContentQualityNativeContractTests(unittest.TestCase):
-    def test_native_panel_is_compiled_and_mounted_in_main_production_flow(self) -> None:
+    def test_advanced_panel_is_compiled_in_settings_while_author_panel_owns_main_flow(self) -> None:
         build = (NATIVE / "build_native_app.sh").read_text(encoding="utf-8")
         panel = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
+        owner_panel = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
         app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        main_part, settings_part = app.split("struct SettingsView: View", maxsplit=1)
         self.assertIn('"$script_dir/ContentQualityPanel.swift"', build)
-        self.assertIn("ContentQualitySettingsPanel(selectedBookID: book.id)", app)
+        self.assertIn('"$script_dir/OwnerProductionFlowPanel.swift"', build)
+        self.assertIn("OwnerProductionFlowPanel(model: model, selectedBookID: book.id)", main_part)
+        self.assertNotIn("ContentQualitySettingsPanel(selectedBookID: book.id)", main_part)
+        self.assertIn("ContentQualitySettingsPanel(selectedBookID: model.selectedBookID)", settings_part)
+        self.assertIn('Section("Путь к готовой аудиокниге")', owner_panel)
         self.assertIn('Section("Текст перед озвучкой")', panel)
         self.assertIn('Section("Ударения и произношение")', panel)
         self.assertIn('Section("Словарь мусора")', panel)
