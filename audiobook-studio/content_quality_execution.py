@@ -18,6 +18,7 @@ from typing import Any, Iterator, Mapping
 
 from content_quality_gate import validate_prepared_content_quality
 from content_quality_lexicon import ContentQualityLexicon, ContentQualityResolutionStore
+from tts_text_review import assert_manual_review_ready
 
 
 def _delegated_openai_child_owns_gate() -> bool:
@@ -58,7 +59,7 @@ def hold_current_content_quality(
     book_name: str,
     lexicon: ContentQualityLexicon | None = None,
 ) -> Iterator[Mapping[str, Any]]:
-    """Freeze shared rules/resolutions and yield validated prepared evidence."""
+    """Freeze rules/resolutions and yield exact manual-review + prepared evidence."""
     if _delegated_openai_child_owns_gate():
         yield {
             "schema_version": 1,
@@ -79,10 +80,17 @@ def hold_current_content_quality(
     # Fixed lock order prevents Audiobook Studio processes from deadlocking.
     with _exclusive_advisory_lock(engine.user_store.lock_path):
         with _exclusive_advisory_lock(resolution_store.lock_path):
+            # Optional owner acceptance is exact-SHA. When the switch is off this
+            # returns ready=True and is non-blocking; when on, any working-copy edit
+            # invalidates the previous acceptance before a paid/provider call.
+            manual_review = assert_manual_review_ready(library, profile_path.name)
             evidence = validate_prepared_content_quality(
                 library=library,
                 workspace_root=Path(workspace_root),
                 book_name=profile_path.name,
                 lexicon=engine,
             )
-            yield evidence
+            yield {
+                **evidence,
+                "manual_text_review": manual_review["manual_review"],
+            }
