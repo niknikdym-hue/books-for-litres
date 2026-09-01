@@ -89,15 +89,13 @@ jobs:
       - name: Build and strictly codesign native app
         run: native/build_native_app.sh "$RUNNER_TEMP/Audiobook Studio.app"
 
-      - name: Compile native Desktop launcher
+      - name: Install real Studio directly on isolated Desktop
         run: |
-          xcrun swiftc \
-            native/DesktopLauncher.swift \
-            -parse-as-library \
-            -target arm64-apple-macosx14.0 \
-            -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
-            -o "$RUNNER_TEMP/Audiobook Studio Launcher" \
-            -framework AppKit
-          file "$RUNNER_TEMP/Audiobook Studio Launcher" | grep -q 'Mach-O'
-          codesign --force --sign - --timestamp=none "$RUNNER_TEMP/Audiobook Studio Launcher"
-          codesign --verify --strict "$RUNNER_TEMP/Audiobook Studio Launcher"
+          mkdir -p "$RUNNER_TEMP/home/Desktop"
+          HOME="$RUNNER_TEMP/home" /bin/zsh native/install_desktop_launcher.sh "$RUNNER_TEMP/Audiobook Studio.app"
+          DESKTOP_APP="$RUNNER_TEMP/home/Desktop/Audiobook Studio.app"
+          test -d "$DESKTOP_APP"
+          test ! -L "$DESKTOP_APP"
+          test "$(plutil -extract CFBundleIdentifier raw -o - "$DESKTOP_APP/Contents/Info.plist")" = "ru.elena.audiobookstudio"
+          codesign --verify --deep --strict "$DESKTOP_APP"
+          file "$DESKTOP_APP/Contents/MacOS/Audiobook Studio" | grep -q 'Mach-O'
