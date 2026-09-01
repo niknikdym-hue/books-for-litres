@@ -1563,6 +1563,8 @@ struct StudioView: View {
                                     .disabled(model.isPreparingBookText)
                             }
                         }
+                        ContentQualitySettingsPanel(selectedBookID: book.id)
+
                     }
 
                     Section("Подготовка озвучки") {
