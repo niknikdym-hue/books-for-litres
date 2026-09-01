@@ -20,6 +20,7 @@ from cloud_billing import BillingLedger
 from book_library import BookLibrary, BookLibraryError
 from workspace_paths import load_workspace_paths
 from production_authority_lock import production_authority_lock
+from content_quality_execution import hold_current_content_quality
 
 
 STUDIO_DIR = Path(__file__).resolve().parent
@@ -132,8 +133,8 @@ def main(argv: list[str] | None = None) -> int:
             ))
             return 0
         if args.run:
-            # Fail before creating a manifest or resolving a credential while
-            # the production Cloud Billing gate is intentionally absent.
+            # Preserve the established machine-readable paid gate before any
+            # Content Quality lock or provider credential/network path.
             if not backend.config.paid_execution_enabled:
                 raise PaidExecutionBlocked()
             with production_authority_lock(
@@ -144,13 +145,22 @@ def main(argv: list[str] | None = None) -> int:
                 profile_id=profile_id,
                 exclusive=True,
             ):
-                manifest = backend.run_text_job(
-                    text,
-                    job_dir,
-                    job_id=args.job,
-                    profile_id=profile_id,
-                    pricing=pricing,
-                )
+                # Canonical execution lock order is production authority first,
+                # then shared/user Content Quality locks. The exact prepared
+                # evidence is revalidated while both remain held, immediately
+                # before the backend can perform provider execution.
+                with hold_current_content_quality(
+                    library=library,
+                    workspace_root=workspace.root,
+                    book_name=book_name,
+                ):
+                    manifest = backend.run_text_job(
+                        text,
+                        job_dir,
+                        job_id=args.job,
+                        profile_id=profile_id,
+                        pricing=pricing,
+                    )
             print(json.dumps({"manifest": str(manifest), "remote_request_sent": True}))
             return 0
         return 0
