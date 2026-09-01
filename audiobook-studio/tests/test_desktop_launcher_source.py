@@ -47,7 +47,7 @@ class DesktopInstallSourceTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertIn('repository_url="https://github.com/niknikdym-hue/books-for-litres.git"', updater)
-        self.assertIn('source_sha="c61c87f4858b8999131e080aeeaf581d9b3bce48"', updater)
+        self.assertIn('source_sha="109ade8174b491002269d7a1b3fad3c5a041f772"', updater)
         self.assertIn('/usr/bin/git -C "$checkout_root" fetch -q --depth 1 origin "$source_sha"', updater)
         self.assertIn('/bin/zsh "$source_root/native/build_native_app.sh" "$candidate_app"', updater)
         self.assertIn('/bin/zsh "$source_root/native/install_desktop_launcher.sh" "$candidate_app"', updater)
@@ -68,6 +68,8 @@ class DesktopInstallSourceTests(unittest.TestCase):
         self.assertIn('assert value.get("model_calls") == 0', updater)
         self.assertIn('assert value.get("paid_execution") is False', updater)
         self.assertIn('assert value.get("billing_changed") is False', updater)
+        self.assertIn('book_sound_design.py', updater)
+        self.assertIn('book_sound_runner.py', updater)
         self.assertIn('for directory in backends contracts', updater)
         self.assertNotIn('rm -rf "$runtime_root/books"', updater)
         self.assertNotIn('rm -rf "$runtime_root/renders"', updater)
