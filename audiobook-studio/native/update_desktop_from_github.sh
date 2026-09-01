@@ -12,7 +12,7 @@ set -euo pipefail
 #   and are never deleted by this updater.
 
 readonly repository_url="https://github.com/niknikdym-hue/books-for-litres.git"
-readonly source_sha="c61c87f4858b8999131e080aeeaf581d9b3bce48"
+readonly source_sha="109ade8174b491002269d7a1b3fad3c5a041f772"
 readonly workspace_root="${AUDIOBOOK_STUDIO_HOME:-$HOME/Documents/New project/Audiobook-Studio}"
 readonly runtime_root="$workspace_root/runtime/studio-workspace"
 readonly python_executable="${AUDIOBOOK_STUDIO_PYTHON:-$workspace_root/engines/qwen-mlx/.venv/bin/python}"
@@ -140,7 +140,9 @@ done
     tts_text_review_runner.py \
     tts_text_review.py \
     tts_pronunciation_apply.py \
-    book_text_preparation.py
+    book_text_preparation.py \
+    book_sound_design.py \
+    book_sound_runner.py
   status_json="$(OPENAI_API_KEY='' YANDEX_API_KEY='' YANDEX_CLOUD_API_KEY='' \
     "$python_executable" content_quality_runner.py --status)"
   STATUS_JSON="$status_json" "$python_executable" - <<'PY'
