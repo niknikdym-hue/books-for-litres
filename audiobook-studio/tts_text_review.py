@@ -7,6 +7,7 @@ No provider/model/billing call is performed here.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -14,12 +15,13 @@ import stat
 import tempfile
 import unicodedata
 import uuid
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
-from book_library import BookLibrary, BookLibraryError, sha256_bytes, sha256_file
+from book_library import BookLibrary, BookLibraryError, sha256_bytes
 
 
 SCHEMA_VERSION = 1
@@ -97,6 +99,32 @@ def _atomic_write_bytes(path: Path, payload: bytes) -> None:
             os.unlink(temporary)
 
 
+def working_copy_lock_path(library: BookLibrary, book_name: str) -> Path:
+    profile = library.resolve_book_profile(book_name)
+    book = library.load_book_profile(profile.name)
+    tts = book.get("tts_working_copy") if isinstance(book.get("tts_working_copy"), dict) else None
+    if not isinstance(tts, dict):
+        raise TTSTextReviewError("working_copy_missing", "TTS working copy metadata is missing.")
+    working_path = library.resolve_book_asset(profile.name, tts.get("path"))
+    return working_path.with_name(f"{working_path.name}.lock")
+
+
+@contextmanager
+def working_copy_lock(library: BookLibrary, book_name: str) -> Iterator[None]:
+    """Serialize owner edits/pronunciation changes with exact provider execution."""
+    path = working_copy_lock_path(library, book_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise TTSTextReviewError("unsafe_working_copy_lock", "TTS working-copy lock must not be a symlink.")
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(descriptor, "a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def _working_context(
     library: BookLibrary, book_name: str
 ) -> tuple[str, dict[str, Any], dict[str, Any], Path, str, str]:
@@ -157,6 +185,7 @@ def working_copy_status(library: BookLibrary, book_name: str) -> dict[str, Any]:
         "manual_review": _manual_review_state(tts, working_sha),
         "pronunciation_revision": pronunciation["revision"],
         "pronunciation_entries": pronunciation["entries"],
+        "pronunciation_fingerprint": _canonical_hash(pronunciation),
         "preparation_status": library.book_details(profile_name).get("preparation_status"),
         **_offline_fields(),
     }
@@ -171,70 +200,72 @@ def save_working_copy(
 ) -> dict[str, Any]:
     if not isinstance(text, str) or not text.strip():
         raise TTSTextReviewError("working_copy_empty", "TTS working copy cannot be empty.")
-    profile_name, book, tts, working_path, old_text, current_sha = _working_context(
-        library, book_name
-    )
-    if expected_sha256 != current_sha:
-        raise TTSTextReviewError(
-            "working_copy_conflict",
-            "TTS working copy changed since it was opened. Reload before saving.",
+    with working_copy_lock(library, book_name):
+        profile_name, book, tts, working_path, old_text, current_sha = _working_context(
+            library, book_name
         )
-    normalized_text = unicodedata.normalize("NFC", text)
-    new_bytes = normalized_text.encode("utf-8")
-    new_sha = sha256_bytes(new_bytes)
-    if new_sha == current_sha:
-        return {"changed": False, **working_copy_status(library, profile_name)}
+        if expected_sha256 != current_sha:
+            raise TTSTextReviewError(
+                "working_copy_conflict",
+                "TTS working copy changed since it was opened. Reload before saving.",
+            )
+        normalized_text = unicodedata.normalize("NFC", text)
+        new_bytes = normalized_text.encode("utf-8")
+        new_sha = sha256_bytes(new_bytes)
+        if new_sha == current_sha:
+            return {"changed": False, **working_copy_status(library, profile_name)}
 
-    old_bytes = old_text.encode("utf-8")
-    next_book = deepcopy(book)
-    next_tts = next_book.setdefault("tts_working_copy", {})
-    next_tts["sha256"] = new_sha
-    next_tts["revision"] = int(tts.get("revision") or 0) + 1
-    next_tts["edited_at"] = _utc_now()
-    next_tts["edited_by"] = "OWNER"
-    # Any textual edit invalidates a previous exact-SHA acceptance.
-    next_tts["manual_review"] = None
+        old_bytes = old_text.encode("utf-8")
+        next_book = deepcopy(book)
+        next_tts = next_book.setdefault("tts_working_copy", {})
+        next_tts["sha256"] = new_sha
+        next_tts["revision"] = int(tts.get("revision") or 0) + 1
+        next_tts["edited_at"] = _utc_now()
+        next_tts["edited_by"] = "OWNER"
+        # Any textual edit invalidates a previous exact-SHA acceptance.
+        next_tts["manual_review"] = None
 
-    _atomic_write_bytes(working_path, new_bytes)
-    try:
-        library.replace_book_profile(profile_name, next_book)
-    except Exception as error:
-        # Keep profile and bytes coherent if publishing metadata fails.
-        _atomic_write_bytes(working_path, old_bytes)
-        raise TTSTextReviewError(
-            "working_copy_publish_failed",
-            "Could not publish TTS working copy metadata; previous text was restored.",
-        ) from error
+        _atomic_write_bytes(working_path, new_bytes)
+        try:
+            library.replace_book_profile(profile_name, next_book)
+        except Exception as error:
+            _atomic_write_bytes(working_path, old_bytes)
+            raise TTSTextReviewError(
+                "working_copy_publish_failed",
+                "Could not publish TTS working copy metadata; previous text was restored.",
+            ) from error
 
-    return {"changed": True, **working_copy_status(library, profile_name)}
+        return {"changed": True, **working_copy_status(library, profile_name)}
 
 
 def set_manual_review_required(
     library: BookLibrary, book_name: str, *, required: bool
 ) -> dict[str, Any]:
-    profile_name, book, tts, _, _, working_sha = _working_context(library, book_name)
-    next_book = deepcopy(book)
-    next_tts = next_book.setdefault("tts_working_copy", {})
-    next_tts["manual_review_required"] = bool(required)
-    if required:
-        review = next_tts.get("manual_review")
-        if not isinstance(review, dict) or review.get("accepted_sha256") != working_sha:
-            next_tts["manual_review"] = None
-    library.replace_book_profile(profile_name, next_book)
-    return working_copy_status(library, profile_name)
+    with working_copy_lock(library, book_name):
+        profile_name, book, _, _, _, working_sha = _working_context(library, book_name)
+        next_book = deepcopy(book)
+        next_tts = next_book.setdefault("tts_working_copy", {})
+        next_tts["manual_review_required"] = bool(required)
+        if required:
+            review = next_tts.get("manual_review")
+            if not isinstance(review, dict) or review.get("accepted_sha256") != working_sha:
+                next_tts["manual_review"] = None
+        library.replace_book_profile(profile_name, next_book)
+        return working_copy_status(library, profile_name)
 
 
 def accept_current_working_copy(library: BookLibrary, book_name: str) -> dict[str, Any]:
-    profile_name, book, _, _, _, working_sha = _working_context(library, book_name)
-    next_book = deepcopy(book)
-    next_tts = next_book.setdefault("tts_working_copy", {})
-    next_tts["manual_review"] = {
-        "actor": "OWNER",
-        "accepted_sha256": working_sha,
-        "accepted_at": _utc_now(),
-    }
-    library.replace_book_profile(profile_name, next_book)
-    return working_copy_status(library, profile_name)
+    with working_copy_lock(library, book_name):
+        profile_name, book, _, _, _, working_sha = _working_context(library, book_name)
+        next_book = deepcopy(book)
+        next_tts = next_book.setdefault("tts_working_copy", {})
+        next_tts["manual_review"] = {
+            "actor": "OWNER",
+            "accepted_sha256": working_sha,
+            "accepted_at": _utc_now(),
+        }
+        library.replace_book_profile(profile_name, next_book)
+        return working_copy_status(library, profile_name)
 
 
 def assert_manual_review_ready(library: BookLibrary, book_name: str) -> dict[str, Any]:
@@ -306,7 +337,7 @@ def provider_stress_preview(word: str, *, vowel_number: int, engine: str) -> dic
             f"Произнеси слово «{word.strip()}» с ударением как «{candidate['display']}». "
             "Не меняй остальные слова фрагмента."
         )
-        explanation = "OpenAI TTS: keep the canonical stress decision provider-neutral and render it as a pronunciation instruction."
+        explanation = "OpenAI TTS: use the canonical stress decision as a pronunciation instruction."
     else:
         provider_mode = "CANONICAL_STRESS"
         provider_value = candidate["display"]
@@ -334,55 +365,62 @@ def add_pronunciation_override(
     start: int | None = None,
     end: int | None = None,
 ) -> dict[str, Any]:
-    profile_name, book, _, _, working_text, working_sha = _working_context(library, book_name)
-    normalized_scope = scope.strip().upper()
-    if normalized_scope not in _ALLOWED_SCOPES:
-        raise TTSTextReviewError("invalid_pronunciation_scope", "Pronunciation scope must be BOOK or OCCURRENCE.")
-    preview = provider_stress_preview(word, vowel_number=vowel_number, engine="canonical")
-    if normalized_scope == "OCCURRENCE":
-        if isinstance(start, bool) or isinstance(end, bool) or not isinstance(start, int) or not isinstance(end, int):
-            raise TTSTextReviewError("invalid_pronunciation_offsets", "Occurrence scope requires start/end offsets.")
-        if start < 0 or end <= start or end > len(working_text) or working_text[start:end] != word:
-            raise TTSTextReviewError("pronunciation_text_mismatch", "Selected occurrence does not match the exact current text.")
-    else:
-        start = None
-        end = None
+    with working_copy_lock(library, book_name):
+        profile_name, book, _, _, working_text, working_sha = _working_context(library, book_name)
+        normalized_scope = scope.strip().upper()
+        if normalized_scope not in _ALLOWED_SCOPES:
+            raise TTSTextReviewError("invalid_pronunciation_scope", "Pronunciation scope must be BOOK or OCCURRENCE.")
+        preview = provider_stress_preview(word, vowel_number=vowel_number, engine="canonical")
+        if normalized_scope == "OCCURRENCE":
+            if isinstance(start, bool) or isinstance(end, bool) or not isinstance(start, int) or not isinstance(end, int):
+                raise TTSTextReviewError("invalid_pronunciation_offsets", "Occurrence scope requires start/end offsets.")
+            if start < 0 or end <= start or end > len(working_text) or working_text[start:end] != word:
+                raise TTSTextReviewError("pronunciation_text_mismatch", "Selected occurrence does not match the exact current text.")
+        else:
+            start = None
+            end = None
 
-    pronunciation = _pronunciation_document(book)
-    normalized_word = unicodedata.normalize("NFKC", word).casefold()
-    dedup_key = (normalized_scope, normalized_word, start, end, working_sha if normalized_scope == "OCCURRENCE" else None)
-    for entry in pronunciation["entries"]:
-        existing_key = (
-            entry.get("scope"),
-            unicodedata.normalize("NFKC", str(entry.get("word") or "")).casefold(),
-            entry.get("start"),
-            entry.get("end"),
-            entry.get("text_sha256") if entry.get("scope") == "OCCURRENCE" else None,
+        pronunciation = _pronunciation_document(book)
+        normalized_word = unicodedata.normalize("NFKC", word).casefold()
+        dedup_key = (
+            normalized_scope,
+            normalized_word,
+            start,
+            end,
+            working_sha if normalized_scope == "OCCURRENCE" else None,
         )
-        if existing_key == dedup_key:
-            return {"changed": False, "entry": entry, **working_copy_status(library, profile_name)}
+        for entry in pronunciation["entries"]:
+            existing_key = (
+                entry.get("scope"),
+                unicodedata.normalize("NFKC", str(entry.get("word") or "")).casefold(),
+                entry.get("start"),
+                entry.get("end"),
+                entry.get("text_sha256") if entry.get("scope") == "OCCURRENCE" else None,
+            )
+            if existing_key == dedup_key:
+                return {"changed": False, "entry": entry, **working_copy_status(library, profile_name)}
 
-    entry = {
-        "override_id": f"PRON-{uuid.uuid4().hex[:20].upper()}",
-        "scope": normalized_scope,
-        "word": word,
-        "vowel_number": vowel_number,
-        "display": preview["display"],
-        "start": start,
-        "end": end,
-        "text_sha256": working_sha if normalized_scope == "OCCURRENCE" else None,
-        "created_at": _utc_now(),
-        "actor": "OWNER",
-    }
-    next_book = deepcopy(book)
-    next_book["pronunciation_overrides"] = {
-        "schema_version": PRONUNCIATION_SCHEMA_VERSION,
-        "revision": pronunciation["revision"] + 1,
-        "entries": [*pronunciation["entries"], entry],
-    }
-    library.replace_book_profile(profile_name, next_book)
-    result = working_copy_status(library, profile_name)
-    return {"changed": True, "entry": entry, **result}
+        entry = {
+            "override_id": f"PRON-{uuid.uuid4().hex[:20].upper()}",
+            "scope": normalized_scope,
+            "word": word,
+            "vowel_number": vowel_number,
+            "display": preview["display"],
+            "start": start,
+            "end": end,
+            "text_sha256": working_sha if normalized_scope == "OCCURRENCE" else None,
+            "created_at": _utc_now(),
+            "actor": "OWNER",
+        }
+        next_book = deepcopy(book)
+        next_book["pronunciation_overrides"] = {
+            "schema_version": PRONUNCIATION_SCHEMA_VERSION,
+            "revision": pronunciation["revision"] + 1,
+            "entries": [*pronunciation["entries"], entry],
+        }
+        library.replace_book_profile(profile_name, next_book)
+        result = working_copy_status(library, profile_name)
+        return {"changed": True, "entry": entry, **result}
 
 
 def pronunciation_fingerprint(book: Mapping[str, Any]) -> str:
