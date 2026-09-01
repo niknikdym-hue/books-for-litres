@@ -77,13 +77,28 @@ def _load_input_file(value: str) -> str:
         raise TTSTextReviewError("invalid_input_file", "Input file must contain strict UTF-8 text.") from error
 
 
+def _with_selection_context(library: BookLibrary, book_name: str, result: dict[str, Any]) -> dict[str, Any]:
+    profile = library.resolve_book_profile(book_name)
+    book = library.load_book_profile(profile.name)
+    return {
+        **result,
+        "selected_backend": str(book.get("selected_backend") or ""),
+        "selected_profile_id": str(book.get("selected_profile_id") or ""),
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     paths = load_workspace_paths()
     library = BookLibrary(paths.books_root)
     try:
         if args.status:
-            result = working_copy_status(library, _require(args.book, "--book"))
+            book_name = _require(args.book, "--book")
+            result = _with_selection_context(
+                library,
+                book_name,
+                working_copy_status(library, book_name),
+            )
         elif args.save_working_copy:
             result = save_working_copy(
                 library,
