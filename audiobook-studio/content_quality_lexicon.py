@@ -792,9 +792,25 @@ class ContentQualityLexicon:
 
 
 def combined_gate_state(scans: Iterable[Mapping[str, Any]]) -> str:
-    states = [str(scan.get("state")) for scan in scans]
-    if "BLOCKED" in states:
+    """Combine Studio findings without turning editorial junk into an auto-stop.
+
+    Owner policy: shared editorial/BOOK_PROSE findings in Audiobook Studio are
+    advisory and are searched only when requested. AUDIOBOOK_PRE_SYNTHESIS may
+    still be present in historical/preparation evidence, but its BLOCK/WARN
+    findings must never stop preparation or synthesis. Only the Studio-specific
+    AUDIOBOOK_TTS_TECHNICAL profile can make the combined state BLOCKED.
+    """
+    technical_states: list[str] = []
+    editorial_attention = False
+    for scan in scans:
+        state = str(scan.get("state"))
+        profile = str(scan.get("profile") or "")
+        if profile == PROFILE_AUDIOBOOK_TTS_TECHNICAL:
+            technical_states.append(state)
+        elif state in {"BLOCKED", "WARN"}:
+            editorial_attention = True
+    if "BLOCKED" in technical_states:
         return "BLOCKED"
-    if "WARN" in states:
+    if "WARN" in technical_states or editorial_attention:
         return "WARN"
     return "PASS"
