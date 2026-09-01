@@ -51,6 +51,12 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
             now=lambda: "2026-09-01T00:00:00+00:00",
         )
 
+    def _prepared_evidence(self, profile: Path) -> tuple[dict, dict]:
+        persisted = json.loads(profile.read_text(encoding="utf-8"))
+        preparation = persisted["preparation"]
+        evidence_path = self.books / "quality-book" / preparation["content_quality_evidence_path"]
+        return preparation, json.loads(evidence_path.read_text(encoding="utf-8"))
+
     def test_editorial_block_is_visible_but_does_not_stop_audiobook_preparation(self) -> None:
         profile = self.import_book("Эта книга не про контроль, а про точный выбор.\n")
         working = self.books / "quality-book" / "tts/working.txt"
@@ -58,15 +64,15 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
         result = self.service().prepare("quality-book")
         self.assertEqual(result["preparation_status"], "READY")
         self.assertEqual(result["content_quality_state"], "WARN")
-        self.assertTrue(result["content_quality_evidence"]["editorial"]["blocking_findings"])
-        finding = result["content_quality_evidence"]["editorial"]["blocking_findings"][0]
+        preparation, evidence = self._prepared_evidence(profile)
+        self.assertTrue(evidence["editorial"]["blocking_findings"])
+        finding = evidence["editorial"]["blocking_findings"][0]
         self.assertIn("rule_id", finding)
         self.assertIn("matched_text", finding)
         self.assertIn("line", finding)
         self.assertIn("column", finding)
         self.assertEqual(working.read_bytes(), before)
-        persisted = json.loads(profile.read_text(encoding="utf-8"))
-        self.assertEqual(persisted["preparation"]["status"], "READY")
+        self.assertEqual(preparation["status"], "READY")
         self.assertTrue((self.books / "quality-book" / "prepared").is_dir())
         self.assertEqual(result["provider_requests"], 0)
         self.assertEqual(result["model_calls"], 0)
@@ -80,10 +86,7 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
         self.assertEqual(result["preparation_status"], "READY")
         self.assertEqual(result["content_quality_state"], "WARN")
         self.assertEqual(working.read_bytes(), before)
-        persisted = json.loads(profile.read_text(encoding="utf-8"))
-        preparation = persisted["preparation"]
-        evidence_path = self.books / "quality-book" / preparation["content_quality_evidence_path"]
-        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        preparation, evidence = self._prepared_evidence(profile)
         self.assertEqual(evidence["state"], "WARN")
         self.assertTrue(evidence["editorial"]["warning_findings"])
         self.assertEqual(evidence["working_copy_sha256"], preparation["working_copy_sha256"])
@@ -112,22 +115,25 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
         )
         self.assertEqual(gate["state"], "PASS")
         self.assertEqual(gate["gate_fingerprint"], result["content_quality_gate_fingerprint"])
+        self.assertEqual(gate["editorial_policy"], "MANUAL_ADVISORY")
         self.assertEqual(gate["provider_requests"], 0)
         self.assertEqual(gate["model_calls"], 0)
         self.assertFalse(gate["paid_execution"])
 
-    def test_user_lexicon_change_invalidates_prepared_gate_before_new_synthesis(self) -> None:
+    def test_user_editorial_lexicon_change_does_not_block_prepared_synthesis(self) -> None:
         self.import_book("Глава 1. Начало\n\nОбычный точный текст.\n")
-        self.service().prepare("quality-book")
+        prepared = self.service().prepare("quality-book")
         self.lexicon.user_store.add("точный текст", action="BLOCK")
-        with self.assertRaises(ContentQualityGateError) as captured:
-            validate_prepared_content_quality(
-                library=self.library,
-                workspace_root=self.root,
-                book_name="quality-book",
-                lexicon=self.lexicon,
-            )
-        self.assertEqual(captured.exception.code, "content_quality_lexicon_changed")
+        gate = validate_prepared_content_quality(
+            library=self.library,
+            workspace_root=self.root,
+            book_name="quality-book",
+            lexicon=self.lexicon,
+        )
+        self.assertEqual(gate["state"], "PASS")
+        self.assertEqual(gate["editorial_policy"], "MANUAL_ADVISORY")
+        self.assertEqual(gate["gate_fingerprint"], prepared["content_quality_gate_fingerprint"])
+        self.assertEqual(gate["provider_requests"], 0)
 
     def test_editorial_resolution_is_exact_sha_but_not_required_for_audiobook_run(self) -> None:
         self.import_book("Эта книга не про запреты, а про выбор.\n")
@@ -177,6 +183,15 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
         self.assertEqual(self.user_store.read_bytes(), original)
         persisted = json.loads(profile.read_text(encoding="utf-8"))
         self.assertEqual(persisted["preparation"]["identity_sha256"], ready["preparation_identity"])
+        # The already-prepared exact text remains provider-eligible because the
+        # corrupt shared editorial dictionary is manual/advisory in Studio.
+        gate = validate_prepared_content_quality(
+            library=self.library,
+            workspace_root=self.root,
+            book_name="quality-book",
+            lexicon=self.lexicon,
+        )
+        self.assertEqual(gate["state"], "PASS")
 
     def test_execution_barrier_blocks_before_provider_or_model_callback(self) -> None:
         self.import_book("Глава 1. Начало\n\nОбычный текст.\n")
@@ -196,16 +211,15 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
 
         self.lexicon.user_store.add("Обычный текст", action="BLOCK")
         callbacks = 0
-        with self.assertRaises(ContentQualityGateError) as captured:
-            with hold_current_content_quality(
-                library=self.library,
-                workspace_root=self.root,
-                book_name="quality-book",
-                lexicon=self.lexicon,
-            ):
-                callbacks += 1
-        self.assertEqual(captured.exception.code, "content_quality_lexicon_changed")
-        self.assertEqual(callbacks, 0)
+        with hold_current_content_quality(
+            library=self.library,
+            workspace_root=self.root,
+            book_name="quality-book",
+            lexicon=self.lexicon,
+        ) as evidence:
+            self.assertEqual(evidence["editorial_policy"], "MANUAL_ADVISORY")
+            callbacks += 1
+        self.assertEqual(callbacks, 1)
 
 
 if __name__ == "__main__":
