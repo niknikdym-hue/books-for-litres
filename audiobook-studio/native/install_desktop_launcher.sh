@@ -1,23 +1,25 @@
 #!/bin/zsh
 set -euo pipefail
 
-script_dir="${0:A:h}"
+# Historical filename kept only to avoid breaking callers.
+# This script no longer installs a launcher. It installs the real, signed
+# Audiobook Studio bundle directly on Desktop.
 workspace_root="${AUDIOBOOK_STUDIO_HOME:-$HOME/Documents/New project/Audiobook-Studio}"
 real_app="${1:-$workspace_root/builds/native-staging/Audiobook Studio.app}"
 desktop_app="$HOME/Desktop/Audiobook Studio.app"
-launcher_tmp="$(mktemp -d /tmp/audiobook-studio-launcher.XXXXXX)"
-launcher_app="$launcher_tmp/Audiobook Studio.app"
-contents="$launcher_app/Contents"
 real_exec="$real_app/Contents/MacOS/Audiobook Studio"
 archive_root="$HOME/Library/Application Support/Audiobook Studio/Archives"
 timestamp="$(date +%Y%m%d-%H%M%S)"
-sdk_path="${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}"
-deployment_target="${AUDIOBOOK_STUDIO_MACOS_DEPLOYMENT_TARGET:-14.0}"
-target_arch="${AUDIOBOOK_STUDIO_ARCH:-$(uname -m)}"
-module_cache="${AUDIOBOOK_STUDIO_LAUNCHER_MODULE_CACHE:-/tmp/audiobook-studio-launcher-module-cache}"
-launcher_bundle_id="ru.elena.audiobookstudio.launcher"
+staging_name=".Audiobook Studio.installing.$$.app"
+desktop_staging="$HOME/Desktop/$staging_name"
+archive_dir="$archive_root/desktop/$timestamp"
+archive_previous="$archive_dir/Audiobook Studio.app"
 
-cleanup() { rm -rf "$launcher_tmp"; }
+cleanup() {
+  if [[ -e "$desktop_staging" || -L "$desktop_staging" ]]; then
+    rm -rf "$desktop_staging"
+  fi
+}
 trap cleanup EXIT
 
 [[ -d "$real_app" ]] || { print -u2 -- "Missing real app: $real_app"; exit 2; }
@@ -30,68 +32,59 @@ real_bundle_id="$(plutil -extract CFBundleIdentifier raw -o - "$real_app/Content
   exit 2
 }
 
-mkdir -p "$contents/MacOS" "$HOME/Desktop" "$module_cache/clang" "$module_cache/swift"
-cat > "$contents/Info.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>CFBundleDevelopmentRegion</key><string>ru</string>
-<key>CFBundleDisplayName</key><string>Audiobook Studio</string>
-<key>CFBundleExecutable</key><string>Audiobook Studio Launcher</string>
-<key>CFBundleIdentifier</key><string>ru.elena.audiobookstudio.launcher</string>
-<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-<key>CFBundleName</key><string>Audiobook Studio</string>
-<key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.1</string>
-<key>CFBundleVersion</key><string>2</string>
-<key>LSMinimumSystemVersion</key><string>14.0</string>
-<key>LSUIElement</key><true/>
-<key>NSHighResolutionCapable</key><true/>
-</dict></plist>
-PLIST
+mkdir -p "$HOME/Desktop"
+rm -rf "$desktop_staging"
 
-CLANG_MODULE_CACHE_PATH="$module_cache/clang" \
-SWIFT_MODULECACHE_PATH="$module_cache/swift" \
-xcrun swiftc \
-  "$script_dir/DesktopLauncher.swift" \
-  -parse-as-library \
-  -target "$target_arch-apple-macosx$deployment_target" \
-  -sdk "$sdk_path" \
-  -module-cache-path "$module_cache/swift" \
-  -o "$contents/MacOS/Audiobook Studio Launcher" \
-  -framework AppKit
+# Stage the real bundle on the Desktop filesystem first so the final rename is
+# local and the owner never launches a partially copied app.
+ditto --norsrc --noextattr "$real_app" "$desktop_staging"
+xattr -cr "$desktop_staging"
+codesign --verify --deep --strict "$desktop_staging"
 
-plutil -lint "$contents/Info.plist"
-xattr -cr "$launcher_app"
-codesign --force --sign - --timestamp=none "$launcher_app"
-codesign --verify --deep --strict "$launcher_app"
+staged_id="$(plutil -extract CFBundleIdentifier raw -o - "$desktop_staging/Contents/Info.plist")"
+[[ "$staged_id" == "ru.elena.audiobookstudio" ]] || {
+  print -u2 -- "Unexpected staged Desktop app bundle id: $staged_id"
+  exit 1
+}
 
+previous_archived=0
 if [[ -e "$desktop_app" || -L "$desktop_app" ]]; then
-  existing_id=""
-  if [[ ! -L "$desktop_app" && -f "$desktop_app/Contents/Info.plist" ]]; then
-    existing_id="$(plutil -extract CFBundleIdentifier raw -o - "$desktop_app/Contents/Info.plist" 2>/dev/null || true)"
-  fi
-  if [[ "$existing_id" == "$launcher_bundle_id" ]]; then
-    rm -rf "$desktop_app"
-  else
-    mkdir -p "$archive_root/desktop/$timestamp"
-    mv "$desktop_app" "$archive_root/desktop/$timestamp/Audiobook Studio.app"
-  fi
+  mkdir -p "$archive_dir"
+  mv "$desktop_app" "$archive_previous"
+  previous_archived=1
 fi
 
-if ! ditto --norsrc --noextattr "$launcher_app" "$desktop_app"; then
-  rm -rf "$desktop_app"
+if ! mv "$desktop_staging" "$desktop_app"; then
+  if [[ "$previous_archived" -eq 1 && -e "$archive_previous" ]]; then
+    mv "$archive_previous" "$desktop_app" || true
+  fi
   exit 1
 fi
+
+# Finder/File Provider may attach metadata immediately at the final path.
 xattr -cr "$desktop_app"
-codesign --verify --deep --strict "$desktop_app"
+if ! codesign --verify --deep --strict "$desktop_app"; then
+  rm -rf "$desktop_app"
+  if [[ "$previous_archived" -eq 1 && -e "$archive_previous" ]]; then
+    mv "$archive_previous" "$desktop_app" || true
+  fi
+  exit 1
+fi
+
 installed_id="$(plutil -extract CFBundleIdentifier raw -o - "$desktop_app/Contents/Info.plist")"
-[[ "$installed_id" == "$launcher_bundle_id" ]] || {
-  print -u2 -- "Unexpected installed launcher bundle id: $installed_id"
+[[ "$installed_id" == "ru.elena.audiobookstudio" ]] || {
+  print -u2 -- "Unexpected installed Desktop app bundle id: $installed_id"
   exit 1
 }
-file "$desktop_app/Contents/MacOS/Audiobook Studio Launcher" | grep -q 'Mach-O' || {
-  print -u2 -- "Desktop launcher executable is not native Mach-O"
+
+installed_exec="$desktop_app/Contents/MacOS/Audiobook Studio"
+[[ -x "$installed_exec" ]] || {
+  print -u2 -- "Installed Desktop executable missing: $installed_exec"
   exit 1
 }
+file "$installed_exec" | grep -q 'Mach-O' || {
+  print -u2 -- "Installed Desktop executable is not native Mach-O"
+  exit 1
+}
+
 print -- "$desktop_app"
