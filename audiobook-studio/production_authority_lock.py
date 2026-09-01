@@ -33,6 +33,9 @@ def _pre_synthesis_quality_guard(
 
     Only actual cloud synthesis writers are guarded here. Read-only QA/mastering
     authorities and historical audio remain usable even if the lexicon changes.
+    Ordinary working-copy drift is deliberately left to the provider service's
+    existing exact-facts revalidation so the established error contract stays
+    unchanged; the guard owns lexicon/schema/evidence/resolution drift.
     """
     if not exclusive or provider not in {"yandex", "openai"}:
         return
@@ -47,10 +50,17 @@ def _pre_synthesis_quality_guard(
             workspace_root=workspace_root,
             book_name=f"{normalize_slug(book_slug)}.json",
         )
-    except (BookLibraryError, ContentQualityGateError) as error:
-        code = getattr(error, "code", "content_quality_blocked")
+    except ContentQualityGateError as error:
+        if error.code == "content_quality_text_identity_stale":
+            # Existing Yandex/OpenAI revalidation immediately after the lock
+            # detects changed source/preparation facts before any request.
+            return
         raise ProductionAuthorityLockError(
-            f"Pre-synthesis Content Quality gate blocked provider execution: {code}."
+            f"Pre-synthesis Content Quality gate blocked provider execution: {error.code}."
+        ) from error
+    except BookLibraryError as error:
+        raise ProductionAuthorityLockError(
+            "Pre-synthesis Content Quality gate could not resolve the canonical book."
         ) from error
 
 
