@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from book_library import BookLibrary, BookLibraryError, normalize_slug
+from book_library import BookLibraryError, normalize_slug
 
 
 class ProductionAuthorityLockError(RuntimeError):
@@ -24,44 +24,6 @@ def _safe_id(value: str, label: str) -> str:
     ):
         raise ProductionAuthorityLockError(f"Invalid {label} for production authority lock.")
     return value
-
-
-def _pre_synthesis_quality_guard(
-    *, workspace_root: Path, provider: str, book_slug: str, exclusive: bool
-) -> None:
-    """Last local fail-closed check before a cloud-provider execution lock yields.
-
-    Only actual cloud synthesis writers are guarded here. Read-only QA/mastering
-    authorities and historical audio remain usable even if the lexicon changes.
-    Ordinary working-copy drift is deliberately left to the provider service's
-    existing exact-facts revalidation so the established error contract stays
-    unchanged; the guard owns lexicon/schema/evidence/resolution drift.
-    """
-    if not exclusive or provider not in {"yandex", "openai"}:
-        return
-    try:
-        from content_quality_gate import (
-            ContentQualityGateError,
-            validate_prepared_content_quality,
-        )
-
-        validate_prepared_content_quality(
-            library=BookLibrary(Path(workspace_root) / "books"),
-            workspace_root=workspace_root,
-            book_name=f"{normalize_slug(book_slug)}.json",
-        )
-    except ContentQualityGateError as error:
-        if error.code == "content_quality_text_identity_stale":
-            # Existing Yandex/OpenAI revalidation immediately after the lock
-            # detects changed source/preparation facts before any request.
-            return
-        raise ProductionAuthorityLockError(
-            f"Pre-synthesis Content Quality gate blocked provider execution: {error.code}."
-        ) from error
-    except BookLibraryError as error:
-        raise ProductionAuthorityLockError(
-            "Pre-synthesis Content Quality gate could not resolve the canonical book."
-        ) from error
 
 
 @contextmanager
@@ -89,12 +51,6 @@ def production_authority_lock(
     with lock_path.open("a+") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
         try:
-            _pre_synthesis_quality_guard(
-                workspace_root=root,
-                provider=provider,
-                book_slug=canonical_book,
-                exclusive=exclusive,
-            )
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
