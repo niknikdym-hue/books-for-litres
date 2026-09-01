@@ -14,12 +14,17 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
         self.assertIn("OwnerProductionFlowPanel(model: model, selectedBookID: book.id)", main_part)
         self.assertNotIn("ContentQualitySettingsPanel(selectedBookID: book.id)", main_part)
         self.assertNotIn('Section("Расходы и лимиты")', main_part)
+        self.assertNotIn('Section("Подготовка текста")', main_part)
         self.assertIn('Section("Расходы и лимиты")', settings_part)
         self.assertIn("ContentQualitySettingsPanel(selectedBookID: model.selectedBookID)", settings_part)
         self.assertIn('Section("4. Диктор")', app)
         self.assertIn('Section("5. Глава для записи")', app)
         self.assertIn('Section("6. Прослушивание и приёмка")', app)
         self.assertIn('Section("Путь к готовой аудиокниге")', panel)
+        self.assertIn('Смена звука не требует заново оплачивать TTS', panel)
+        self.assertIn('ownerStep(6, "Запись и прослушивание"', panel)
+        self.assertIn('ownerStep(5, "Глава"', panel)
+        self.assertIn('ownerStep(4, "Диктор"', panel)
         for label in (
             "1. Текст для озвучки",
             "2. Ударения и произношение",

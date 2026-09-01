@@ -738,12 +738,13 @@ class NativeUIBridgeTests(unittest.TestCase):
 
     def test_native_book_text_preparation_has_local_gate_and_offline_bridge_only(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        owner_panel = (ROOT / "native" / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
         request = swift_function_body(source, "func requestBookTextPreparation()")
         confirm = swift_function_body(source, "func confirmBookTextPreparation()")
 
-        self.assertIn('Button("Подготовить текст") { model.requestBookTextPreparation() }', source)
-        self.assertIn('Button("Подготовить заново") { model.requestBookTextPreparation() }', source)
+        self.assertIn('Button("Подготовить текст") { model.requestBookTextPreparation() }', owner_panel)
+        self.assertIn('Подготовить текст заново', owner_panel)
         self.assertIn('"Подготовить текст книги?"', source)
         self.assertIn("Исходный файл не изменится", source)
         self.assertIn("только TTS working copy", source)

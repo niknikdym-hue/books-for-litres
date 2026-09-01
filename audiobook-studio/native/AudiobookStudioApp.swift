@@ -1546,35 +1546,6 @@ struct StudioView: View {
                             .font(.caption)
                         }
 
-                        Section("Подготовка текста") {
-                            if book.sourceIntegrity != "OK" {
-                                Label("Целостность исходного файла не подтверждена", systemImage: "exclamationmark.shield")
-                                    .foregroundStyle(.red)
-                                Text("Подготовка заблокирована; сохранённый SHA исходника не изменяется автоматически.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            } else if book.preparationStatus == "READY" {
-                                Label("Текст подготовлен", systemImage: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                LabeledContent("Глав", value: String(book.chapterCount ?? 0))
-                                LabeledContent("Сегментов", value: String(book.preparedSegmentCount ?? 0))
-                                LabeledContent("Ревизия", value: String(book.preparationRevision ?? 0))
-                                LabeledContent("TTS working copy", value: "Актуальна")
-                            } else if book.preparationStatus == "STALE" {
-                                Label("Подготовка устарела", systemImage: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                                Text("TTS working copy изменилась. Старые задачи скрыты и не могут быть запущены.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Button("Подготовить заново") { model.requestBookTextPreparation() }
-                                    .disabled(model.isPreparingBookText)
-                            } else {
-                                Text("Текст ещё не подготовлен")
-                                    .foregroundStyle(.secondary)
-                                Button("Подготовить текст") { model.requestBookTextPreparation() }
-                                    .disabled(model.isPreparingBookText)
-                            }
-                        }
                         OwnerProductionFlowPanel(model: model, selectedBookID: book.id)
 
                     }

@@ -225,9 +225,9 @@ struct OwnerProductionFlowPanel: View {
                     ownerStep(1, "Текст", detail: textStepDetail, done: textStepDone)
                     ownerStep(2, "Ударения", detail: "Проверьте имена и слова, которые диктор может произнести неверно.", done: false)
                     ownerStep(3, "Звук глав", detail: soundStepDetail, done: !(soundController.status?.enabled ?? false) || soundController.status != nil)
-                    ownerStep(4, "Диктор и глава", detail: "Ниже выберите движок, голос и конкретную главу.", done: model.selectedJob != nil)
-                    ownerStep(5, "Озвучка", detail: "Сначала Studio покажет план. Платная запись запускается только после вашего подтверждения.", done: model.completedOutput != nil)
-                    ownerStep(6, "Прослушивание", detail: "Прослушайте готовый WAV и одобрите или отправьте на перезапись.", done: model.audioQA?.record.manualState == "APPROVED")
+                    ownerStep(4, "Диктор", detail: "Выберите движок и голос.", done: model.selectedProfile != nil)
+                    ownerStep(5, "Глава", detail: "Выберите конкретную главу для записи.", done: model.selectedJob != nil)
+                    ownerStep(6, "Запись и прослушивание", detail: "Запустите запись, затем прослушайте WAV и примите или отправьте на перезапись.", done: model.audioQA?.record.manualState == "APPROVED")
                     ownerStep(7, "Сборка и выпуск", detail: "После приёмки Studio собирает главу, делает мастеринг и пакет для ЛитРес.", done: model.litresExport?.chapterExport != nil)
                 }
                 .padding(.vertical, 4)
@@ -279,11 +279,27 @@ struct OwnerProductionFlowPanel: View {
                             || textController.isLoading
                         )
                     }
+                    if review.preparationStatus != "READY" {
+                        Button(review.preparationStatus == "STALE" ? "Подготовить текст заново" : "Подготовить текст") {
+                            model.requestBookTextPreparation()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isPreparingBookText || textController.workingTextHasUnsavedChanges)
+                        Text("После правок сначала сохраните текст, затем подготовьте главы заново. Старое аудио автоматически не запускается.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 } else if textController.isLoading {
                     ProgressView("Открывается текст…")
+                } else if book?.sourceIntegrity != "OK" {
+                    Label("Сначала нужно восстановить целостность исходного текста", systemImage: "exclamationmark.shield.fill")
+                        .foregroundStyle(.red)
                 } else {
-                    Text("Подготовьте текст книги, чтобы открыть редактор.")
+                    Text("Первый шаг — подготовить рабочую копию текста для диктора.")
                         .foregroundStyle(.secondary)
+                    Button("Подготовить текст") { model.requestBookTextPreparation() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isPreparingBookText)
                 }
             }
 
@@ -367,6 +383,9 @@ struct OwnerProductionFlowPanel: View {
                     Text("Выбор хранится отдельно для каждой книги: у другой книги можно выбрать другой звук или полностью отключить эту опцию.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Text("Звук добавляется только на этапе сборки готовой главы — после озвучки и проверки речи. Смена звука не требует заново оплачивать TTS.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else if soundController.isLoading {
                     ProgressView("Готовятся варианты звука…")
                 }
@@ -374,11 +393,6 @@ struct OwnerProductionFlowPanel: View {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                 }
-            }
-
-            Section("Дальше") {
-                Text("4. Выберите диктора и главу ниже → 5. подготовьте запуск → 6. прослушайте результат → 7. одобрите, соберите и подготовьте выпуск.")
-                    .font(.callout.weight(.medium))
             }
         }
         .task(id: selectedBookID) {
