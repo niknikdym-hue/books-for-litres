@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://book-os.local/contracts/content-quality-lexicon-v1.schema.json",
+  "title": "Content Quality Lexicon v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "revision", "entries"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "revision": {"type": "integer", "minimum": 0},
+    "updated_at": {"type": ["string", "null"]},
+    "entries": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "value", "match_type", "action", "profiles", "origin"],
+      "properties": {
+        "rule_id": {"type": "string", "minLength": 1, "maxLength": 96},
+        "value": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "match_type": {"enum": ["PHRASE", "TERM", "REGEX"]},
+        "action": {"enum": ["BLOCK", "WARN", "ALLOW"]},
+        "profiles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "BOOK_PROSE",
+              "AUDIOBOOK_PRE_SYNTHESIS",
+              "AUDIOBOOK_TTS_TECHNICAL"
+            ]
+          }
+        },
+        "origin": {"enum": ["SYSTEM", "USER"]},
+        "rationale": {"type": ["string", "null"], "maxLength": 2000},
+        "created_at": {"type": ["string", "null"]},
+        "updated_at": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
