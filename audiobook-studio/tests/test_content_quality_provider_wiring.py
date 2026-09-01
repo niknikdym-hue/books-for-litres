@@ -35,6 +35,26 @@ class ContentQualityProviderWiringTests(unittest.TestCase):
         provider = source.index("manifest_path, result = run_provider_segment()", barrier)
         self.assertLess(barrier, provider)
 
+    def test_direct_openai_runner_preserves_paid_gate_and_canonical_lock_order(self) -> None:
+        source = (ROOT / "openai_backend_runner.py").read_text(encoding="utf-8")
+        self.assertIn("from content_quality_execution import hold_current_content_quality", source)
+        paid_gate = source.index("if not backend.config.paid_execution_enabled:")
+        production_lock = source.index("with production_authority_lock(", paid_gate)
+        quality_lock = source.index("with hold_current_content_quality(", production_lock)
+        provider = source.index("manifest = backend.run_text_job(", quality_lock)
+        self.assertLess(paid_gate, production_lock)
+        self.assertLess(production_lock, quality_lock)
+        self.assertLess(quality_lock, provider)
+
+    def test_universal_openai_delegation_is_not_a_content_quality_bypass(self) -> None:
+        source = (ROOT / "content_quality_execution.py").read_text(encoding="utf-8")
+        self.assertIn("_delegated_openai_child_owns_gate", source)
+        self.assertIn('Path(sys.argv[0]).name == "audiobook_studio_app_runner.py"', source)
+        self.assertIn('and "--run-openai" in sys.argv[1:]', source)
+        self.assertIn('"state": "DEFERRED_TO_OPENAI_PROVIDER_RUNNER"', source)
+        child = (ROOT / "openai_backend_runner.py").read_text(encoding="utf-8")
+        self.assertIn("with hold_current_content_quality(", child)
+
     def test_shared_production_authority_lock_has_no_content_quality_policy_regression(self) -> None:
         source = (ROOT / "production_authority_lock.py").read_text(encoding="utf-8")
         self.assertNotIn("content_quality", source)
