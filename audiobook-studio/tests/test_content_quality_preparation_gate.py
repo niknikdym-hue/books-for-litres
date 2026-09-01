@@ -51,13 +51,13 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
             now=lambda: "2026-09-01T00:00:00+00:00",
         )
 
-    def test_block_stops_preparation_without_mutating_literary_text_or_publishing_jobs(self) -> None:
+    def test_editorial_block_is_visible_but_does_not_stop_audiobook_preparation(self) -> None:
         profile = self.import_book("Эта книга не про контроль, а про точный выбор.\n")
         working = self.books / "quality-book" / "tts/working.txt"
         before = working.read_bytes()
         result = self.service().prepare("quality-book")
-        self.assertEqual(result["preparation_status"], "BLOCKED_CONTENT_QUALITY")
-        self.assertEqual(result["content_quality_state"], "BLOCKED")
+        self.assertEqual(result["preparation_status"], "READY")
+        self.assertEqual(result["content_quality_state"], "WARN")
         self.assertTrue(result["content_quality_evidence"]["editorial"]["blocking_findings"])
         finding = result["content_quality_evidence"]["editorial"]["blocking_findings"][0]
         self.assertIn("rule_id", finding)
@@ -66,9 +66,8 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
         self.assertIn("column", finding)
         self.assertEqual(working.read_bytes(), before)
         persisted = json.loads(profile.read_text(encoding="utf-8"))
-        self.assertEqual(persisted["jobs"], {})
-        self.assertNotIn("preparation", persisted)
-        self.assertFalse((self.books / "quality-book" / "prepared").exists())
+        self.assertEqual(persisted["preparation"]["status"], "READY")
+        self.assertTrue((self.books / "quality-book" / "prepared").is_dir())
         self.assertEqual(result["provider_requests"], 0)
         self.assertEqual(result["model_calls"], 0)
         self.assertFalse(result["paid_execution"])
@@ -130,28 +129,41 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
             )
         self.assertEqual(captured.exception.code, "content_quality_lexicon_changed")
 
-    def test_human_resolution_is_exact_sha_and_reprepare_rebinds_evidence(self) -> None:
-        profile = self.import_book("Эта книга не про запреты, а про выбор.\n")
-        first = self.service().prepare("quality-book")
-        self.assertEqual(first["preparation_status"], "BLOCKED_CONTENT_QUALITY")
-        editorial = first["content_quality_evidence"]["editorial"]
-        rule_id = editorial["blocking_findings"][0]["rule_id"]
+    def test_editorial_resolution_is_exact_sha_but_not_required_for_audiobook_run(self) -> None:
+        self.import_book("Эта книга не про запреты, а про выбор.\n")
+        text = (self.books / "quality-book" / "tts/working.txt").read_text(encoding="utf-8")
+        initial = self.lexicon.scan_for_book(
+            text,
+            profile=PROFILE_AUDIOBOOK_PRE_SYNTHESIS,
+            workspace_root=self.root,
+            book_slug="quality-book",
+        )
+        self.assertEqual(initial["state"], "BLOCKED")
+        rule_id = initial["blocking_findings"][0]["rule_id"]
         ContentQualityResolutionStore(self.root, "quality-book").add(
             rule_id=rule_id,
             profile=PROFILE_AUDIOBOOK_PRE_SYNTHESIS,
-            text_sha256=editorial["text_sha256"],
+            text_sha256=initial["text_sha256"],
             reason="Владелец подтвердил содержательную необходимость этого точного фрагмента.",
         )
-        second = self.service().prepare("quality-book")
-        self.assertIn(second["content_quality_state"], {"PASS", "WARN"})
-        self.assertEqual(second["preparation_status"], "READY")
-        working = self.books / "quality-book" / "tts/working.txt"
-        working.write_text(working.read_text(encoding="utf-8") + "Новая редакция.\n", encoding="utf-8")
-        third = self.service().prepare("quality-book")
-        self.assertEqual(third["preparation_status"], "BLOCKED_CONTENT_QUALITY")
-        self.assertTrue(third["content_quality_evidence"]["editorial"]["blocking_findings"])
-        persisted = json.loads(profile.read_text(encoding="utf-8"))
-        self.assertEqual(persisted["preparation"]["working_copy_sha256"], second["working_copy_sha256"])
+        resolved = self.lexicon.scan_for_book(
+            text,
+            profile=PROFILE_AUDIOBOOK_PRE_SYNTHESIS,
+            workspace_root=self.root,
+            book_slug="quality-book",
+        )
+        self.assertFalse(any(item["rule_id"] == rule_id for item in resolved["blocking_findings"]))
+        prepared = self.service().prepare("quality-book")
+        self.assertEqual(prepared["preparation_status"], "READY")
+
+        changed_text = text + "Новая редакция.\n"
+        changed = self.lexicon.scan_for_book(
+            changed_text,
+            profile=PROFILE_AUDIOBOOK_PRE_SYNTHESIS,
+            workspace_root=self.root,
+            book_slug="quality-book",
+        )
+        self.assertTrue(any(item["rule_id"] == rule_id for item in changed["blocking_findings"]))
 
     def test_corrupt_shared_store_fails_closed_without_destroying_existing_preparation(self) -> None:
         profile = self.import_book("Глава 1. Начало\n\nОбычный текст.\n")
@@ -178,6 +190,7 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
             lexicon=self.lexicon,
         ) as evidence:
             self.assertIn(evidence["state"], {"PASS", "WARN"})
+            self.assertTrue(evidence["manual_text_review"]["ready"])
             callbacks += 1
         self.assertEqual(callbacks, 1)
 
@@ -190,7 +203,7 @@ class ContentQualityPreparationGateTests(unittest.TestCase):
                 book_name="quality-book",
                 lexicon=self.lexicon,
             ):
-                callbacks += 1  # represents the provider/model entry point
+                callbacks += 1
         self.assertEqual(captured.exception.code, "content_quality_lexicon_changed")
         self.assertEqual(callbacks, 0)
 
