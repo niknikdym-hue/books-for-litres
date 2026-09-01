@@ -1,10 +1,9 @@
-"""Cross-process Content Quality barrier for exact provider/model execution.
+"""Exact pre-provider barrier for Audiobook Studio production execution.
 
-The barrier shares the same advisory user-store lock defined by the BOOK OS
-interoperability contract and also freezes Audiobook Studio's exact-SHA human
-resolution store while an execution is in progress. Validation happens after
-both locks are acquired, so a provider/model cannot begin on a lexicon identity
-that changes between the final check and the execution call.
+Provider execution freezes the mutable TTS working copy/pronunciation overlay and
+any exact TTS-technical human resolutions for the complete execution context.
+The shared editorial anti-junk store is intentionally not part of this mandatory
+barrier because Studio editorial review is owner-invoked and advisory.
 """
 
 from __future__ import annotations
@@ -18,18 +17,15 @@ from typing import Any, Iterator, Mapping
 
 from content_quality_gate import validate_prepared_content_quality
 from content_quality_lexicon import ContentQualityLexicon, ContentQualityResolutionStore
-from tts_text_review import assert_manual_review_ready
+from tts_text_review import assert_manual_review_ready, working_copy_lock
 
 
 def _delegated_openai_child_owns_gate() -> bool:
     """Keep the legacy universal CLI's paid-gate precedence and lock order.
 
     ``audiobook_studio_app_runner.py --run-openai`` is only a subprocess
-    delegator. The actual provider runner owns the Content Quality barrier so
-    it can preserve the established paid-execution gate and acquire locks in
-    the canonical order ``production authority -> content quality``. This is
-    not a bypass: ``openai_backend_runner.py --run`` revalidates the exact
-    prepared Content Quality evidence immediately before backend execution.
+    delegator. The actual provider runner owns this barrier so the established
+    order remains ``production authority -> working text -> technical quality``.
     """
     return bool(
         Path(sys.argv[0]).name == "audiobook_studio_app_runner.py"
@@ -59,7 +55,7 @@ def hold_current_content_quality(
     book_name: str,
     lexicon: ContentQualityLexicon | None = None,
 ) -> Iterator[Mapping[str, Any]]:
-    """Freeze rules/resolutions and yield exact manual-review + prepared evidence."""
+    """Freeze exact text/pronunciation/technical state through provider execution."""
     if _delegated_openai_child_owns_gate():
         yield {
             "schema_version": 1,
@@ -77,12 +73,11 @@ def hold_current_content_quality(
     resolution_store = ContentQualityResolutionStore(
         Path(workspace_root), profile_path.stem
     )
-    # Fixed lock order prevents Audiobook Studio processes from deadlocking.
-    with _exclusive_advisory_lock(engine.user_store.lock_path):
+    # The caller's production-authority lock is outermost. Owner text/stress
+    # mutations acquire only working_copy_lock, while technical resolutions
+    # acquire only their resolution lock, so this order is deadlock-safe.
+    with working_copy_lock(library, profile_path.name):
         with _exclusive_advisory_lock(resolution_store.lock_path):
-            # Optional owner acceptance is exact-SHA. When the switch is off this
-            # returns ready=True and is non-blocking; when on, any working-copy edit
-            # invalidates the previous acceptance before a paid/provider call.
             manual_review = assert_manual_review_ready(library, profile_path.name)
             evidence = dict(validate_prepared_content_quality(
                 library=library,
