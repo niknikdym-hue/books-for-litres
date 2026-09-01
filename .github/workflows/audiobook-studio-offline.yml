@@ -99,3 +99,17 @@ jobs:
           test "$(plutil -extract CFBundleIdentifier raw -o - "$DESKTOP_APP/Contents/Info.plist")" = "ru.elena.audiobookstudio"
           codesign --verify --deep --strict "$DESKTOP_APP"
           file "$DESKTOP_APP/Contents/MacOS/Audiobook Studio" | grep -q 'Mach-O'
+
+      - name: Package owner-visible Studio preview
+        working-directory: ${{ runner.temp }}
+        run: |
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "Audiobook Studio.app" "Audiobook-Studio-preview.zip"
+          test -s "Audiobook-Studio-preview.zip"
+
+      - name: Upload owner-visible Studio preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: Audiobook-Studio-PR45-preview
+          path: ${{ runner.temp }}/Audiobook-Studio-preview.zip
+          if-no-files-found: error
+          retention-days: 7
