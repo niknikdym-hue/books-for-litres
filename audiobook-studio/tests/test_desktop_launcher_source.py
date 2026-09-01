@@ -4,33 +4,41 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "native" / "install_desktop_launcher.sh"
-LAUNCHER = ROOT / "native" / "DesktopLauncher.swift"
+OBSOLETE_LAUNCHER = ROOT / "native" / "DesktopLauncher.swift"
 
 
-class DesktopLauncherSourceTests(unittest.TestCase):
-    def test_launcher_is_native_and_path_bound(self) -> None:
+class DesktopInstallSourceTests(unittest.TestCase):
+    def test_desktop_installs_real_signed_studio_bundle_directly(self) -> None:
         installer = INSTALLER.read_text(encoding="utf-8")
-        source = LAUNCHER.read_text(encoding="utf-8")
 
-        self.assertIn("xcrun swiftc", installer)
-        self.assertIn("DesktopLauncher.swift", installer)
-        self.assertIn("Mach-O", installer)
+        self.assertFalse(OBSOLETE_LAUNCHER.exists())
+        self.assertIn('desktop_app="$HOME/Desktop/Audiobook Studio.app"', installer)
+        self.assertIn('real_bundle_id', installer)
+        self.assertIn('ru.elena.audiobookstudio', installer)
+        self.assertIn('ditto --norsrc --noextattr "$real_app" "$desktop_staging"', installer)
+        self.assertIn('codesign --verify --deep --strict "$real_app"', installer)
+        self.assertIn('codesign --verify --deep --strict "$desktop_staging"', installer)
+        self.assertIn('codesign --verify --deep --strict "$desktop_app"', installer)
+        self.assertIn('installed_exec="$desktop_app/Contents/MacOS/Audiobook Studio"', installer)
+        self.assertIn("Installed Desktop executable is not native Mach-O", installer)
+
+    def test_no_desktop_launcher_indirection_remains(self) -> None:
+        installer = INSTALLER.read_text(encoding="utf-8")
+
+        self.assertNotIn("DesktopLauncher.swift", installer)
+        self.assertNotIn("ru.elena.audiobookstudio.launcher", installer)
+        self.assertNotIn("NSWorkspace", installer)
         self.assertNotIn("open -na", installer)
-        self.assertNotIn("#!/bin/zsh\nset -euo pipefail\nreal_app=", installer)
+        self.assertNotIn("openApplication", installer)
+        self.assertNotIn("Audiobook Studio Launcher", installer)
 
-        self.assertIn('private static let realBundleID = "ru.elena.audiobookstudio"', source)
-        self.assertIn("builds/native-staging/Audiobook Studio.app", source)
-        self.assertIn("NSWorkspace.shared.openApplication", source)
-        self.assertIn("configuration.createsNewApplicationInstance = true", source)
-        self.assertIn("guard let url = app.bundleURL?.standardizedFileURL", source)
-        self.assertIn("return url == realApp", source)
-        self.assertIn("launchedApp.bundleURL?.standardizedFileURL == realApp", source)
+    def test_existing_desktop_item_is_archived_before_atomic_replacement(self) -> None:
+        installer = INSTALLER.read_text(encoding="utf-8")
 
-    def test_launcher_reports_failure_outside_workspace(self) -> None:
-        source = LAUNCHER.read_text(encoding="utf-8")
-        self.assertIn("Library/Logs/Audiobook Studio", source)
-        self.assertIn("Не удалось запустить Audiobook Studio", source)
-        self.assertIn("NSAlert()", source)
+        self.assertIn('archive_root="$HOME/Library/Application Support/Audiobook Studio/Archives"', installer)
+        self.assertIn('mv "$desktop_app" "$archive_previous"', installer)
+        self.assertIn('mv "$desktop_staging" "$desktop_app"', installer)
+        self.assertIn('mv "$archive_previous" "$desktop_app" || true', installer)
 
 
 if __name__ == "__main__":
