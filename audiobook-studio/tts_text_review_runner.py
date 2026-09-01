@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from book_library import BookLibrary, BookLibraryError
+from tts_pronunciation_apply import apply_book_stress
 from tts_text_review import (
     TTSTextReviewError,
     accept_current_working_copy,
@@ -131,7 +132,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 vowel_number=args.vowel_number,
                 engine=args.engine,
             )
+        elif args.scope == "BOOK":
+            result = apply_book_stress(
+                library,
+                _require(args.book, "--book"),
+                word=_require(args.word, "--word"),
+                vowel_number=args.vowel_number,
+            )
         else:
+            # Kept for backend/test compatibility; native V1 intentionally exposes
+            # BOOK-scoped materialization only until selected-text offsets are
+            # captured directly by the Swift editor.
             result = add_pronunciation_override(
                 library,
                 _require(args.book, "--book"),
