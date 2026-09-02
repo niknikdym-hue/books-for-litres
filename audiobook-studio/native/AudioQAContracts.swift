@@ -586,6 +586,100 @@ struct LitresReleaseAuthoritySweep: Codable {
     }
 }
 
+struct BookDeliveryProfile: Codable, Identifiable, Equatable {
+    let id: String
+    let title: String
+    let description: String
+    let detail: String
+    let kind: String
+    let extensionName: String?
+    let requiresCompleteBook: Bool
+    let recommended: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, description, detail, kind, recommended
+        case extensionName = "extension"
+        case requiresCompleteBook = "requires_complete_book"
+    }
+}
+
+struct BookDeliveryOutput: Codable, Equatable {
+    let path: String
+    let pathIdentity: String
+    let sha256: String
+    let sizeBytes: Int
+
+    enum CodingKeys: String, CodingKey {
+        case path, sha256
+        case pathIdentity = "path_identity"
+        case sizeBytes = "size_bytes"
+    }
+}
+
+struct BookDeliveryArtifact: Codable, Equatable {
+    let status: String
+    let deliveryIdentity: String
+    let profileID: String
+    let output: BookDeliveryOutput
+    let manifestPath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status, output
+        case deliveryIdentity = "delivery_identity"
+        case profileID = "profile_id"
+        case manifestPath = "manifest_path"
+    }
+}
+
+struct BookDeliveryStatus: Codable {
+    let schemaVersion: Int
+    let bookSlug: String
+    let selectedProfileID: String?
+    let profiles: [BookDeliveryProfile]
+    let decision: String
+    let expectedChapters: Int
+    let readyChapters: Int
+    let bookReady: Bool
+    let blockers: [String]
+    let delivery: BookDeliveryArtifact?
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let paidExecution: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case profiles, decision, blockers, delivery
+        case schemaVersion = "schema_version"
+        case bookSlug = "book_slug"
+        case selectedProfileID = "selected_profile_id"
+        case expectedChapters = "expected_chapters"
+        case readyChapters = "ready_chapters"
+        case bookReady = "book_ready"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case paidExecution = "paid_execution"
+        case billingChanged = "billing_changed"
+    }
+}
+
+struct BookDeliveryEnvelope: Codable {
+    let schemaVersion: Int
+    let delivery: BookDeliveryStatus
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let paidExecution: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case delivery
+        case schemaVersion = "schema_version"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case paidExecution = "paid_execution"
+        case billingChanged = "billing_changed"
+    }
+}
+
 func masteringStateLabel(_ state: String, decision: String) -> String {
     if decision == "ALREADY_MASTERED" { return "Мастер-файл готов" }
     if decision == "READY_TO_REPAIR" { return "Мастер-файл нужно восстановить" }

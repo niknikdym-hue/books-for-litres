@@ -36,6 +36,7 @@ from mastering_export import (
     resolve_current_assembly,
     resolve_current_master,
 )
+from book_delivery import BookDeliveryError, BookDeliveryService
 from paid_run import PaidRunService
 from audio_qa_authority import (
     AudioQAAuthority,
@@ -115,6 +116,9 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--create-litres-export", action="store_true")
     mode.add_argument("--reconcile-litres-release-authority", action="store_true")
     mode.add_argument("--reconcile-all-litres-release-authorities", action="store_true")
+    mode.add_argument("--delivery-selection-status", action="store_true")
+    mode.add_argument("--set-delivery-profile", action="store_true")
+    mode.add_argument("--create-book-delivery", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--source-file", default="")
@@ -133,6 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plan-digest", default="")
     parser.add_argument("--audio-path", default="")
     parser.add_argument("--manifest-path", default="")
+    parser.add_argument("--delivery-profile-id", choices=("chapters", "m4b", "mp3", "hq_archive"), default="")
     parser.add_argument("--reviewed-audio-sha256", default="")
     parser.add_argument("--reviewed-path-identity", default="")
     parser.add_argument("--reviewed-fingerprint", default="")
@@ -278,6 +283,45 @@ def _litres_export_service() -> LitresExportService:
         workspace_root=WORKSPACE_PATHS.root,
         exports_root=WORKSPACE_PATHS.exports_root,
     )
+
+
+def _book_delivery_service() -> BookDeliveryService:
+    return BookDeliveryService(
+        workspace_root=WORKSPACE_PATHS.root,
+        exports_root=WORKSPACE_PATHS.exports_root,
+        masters_root=WORKSPACE_PATHS.masters_root,
+    )
+
+
+def book_delivery_current(
+    *, action: str, book_name: str, delivery_profile_id: str = "",
+) -> dict[str, Any]:
+    """Read, select, or build an offline book delivery format."""
+    profile_path = BOOK_LIBRARY.resolve_book_profile(book_name)
+    book_slug = profile_path.stem
+    book = BOOK_LIBRARY.load_book_for_execution(book_name)
+    service = _book_delivery_service()
+    if action == "set":
+        service.set_selected_profile(book_slug, delivery_profile_id or None)
+    release_service = _litres_export_service()
+    release_manifest = release_service.current_book_release(book)
+    release_progress = release_manifest or release_service.book_release_progress(book)
+    if action == "export":
+        if release_manifest is None:
+            raise BookDeliveryError(
+                "book_not_ready",
+                "Сборка станет доступна, когда все главы будут приняты и подготовлены.",
+            )
+        service.export(book_slug, release_manifest)
+    result = service.status(book_slug, release_progress)
+    return {
+        "schema_version": 1,
+        "delivery": result,
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "paid_execution": False,
+        "billing_changed": False,
+    }
 
 
 def reconcile_litres_release_authority(*, book_name: str) -> dict[str, Any]:
@@ -1539,6 +1583,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.reconcile_all_litres_release_authorities:
         print(json.dumps(reconcile_all_litres_release_authorities(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.delivery_selection_status or args.set_delivery_profile or args.create_book_delivery:
+        action = (
+            "status" if args.delivery_selection_status else
+            "set" if args.set_delivery_profile else
+            "export"
+        )
+        print(json.dumps(book_delivery_current(
+            action=action,
+            book_name=_require(args.book, "--book"),
+            delivery_profile_id=args.delivery_profile_id,
+        ), ensure_ascii=False, indent=2))
         return 0
 
     if args.openai_status:

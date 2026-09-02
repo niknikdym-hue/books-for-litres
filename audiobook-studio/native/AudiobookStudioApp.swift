@@ -89,6 +89,7 @@ final class StudioModel: ObservableObject {
     @Published private(set) var chapterAssembly: ChapterAssemblyStatus?
     @Published private(set) var mastering: MasteringStatus?
     @Published private(set) var litresExport: LitresExportStatus?
+    @Published private(set) var bookDelivery: BookDeliveryStatus?
     let audioPlayer = EmbeddedAudioPlayer()
     @Published var audioQAStatusText = ""
     @Published private(set) var openAIQATargets: [OpenAIQATarget] = []
@@ -154,6 +155,7 @@ final class StudioModel: ObservableObject {
         chapterAssembly = nil
         mastering = nil
         litresExport = nil
+        bookDelivery = nil
         completedOutput = nil
         audioPlayer.clear()
         do {
@@ -191,6 +193,7 @@ final class StudioModel: ObservableObject {
             }
             hardLimitText = snapshot.yandexSettings.hardLimitRub ?? ""
             openAIHardLimitText = snapshot.cloudBilling.providers.openai.hardLimit ?? "1.00"
+            await refreshBookDeliveryStatus()
             errorMessage = nil
         } catch {
             showError(error)
@@ -1344,6 +1347,7 @@ final class StudioModel: ObservableObject {
             guard executionSelectionGeneration == expectedSelectionGeneration,
                   audioQA?.authority == authority else { return }
             litresExport = result.export
+            await refreshBookDeliveryStatus()
         } catch {
             guard executionSelectionGeneration == expectedSelectionGeneration else { return }
             litresExport = nil
@@ -1374,6 +1378,7 @@ final class StudioModel: ObservableObject {
                 guard executionSelectionGeneration == expectedSelectionGeneration,
                       audioQA?.authority == authority else { return }
                 litresExport = result.export
+                await refreshBookDeliveryStatus()
                 errorMessage = nil
             } catch {
                 guard executionSelectionGeneration == expectedSelectionGeneration else { return }
@@ -1430,6 +1435,114 @@ final class StudioModel: ObservableObject {
     func revealLitresMP3InFinder() {
         guard let path = litresExport?.chapterExport?.path else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    func refreshBookDeliveryStatus() async {
+        guard let book = selectedBook, book.kind == "production" else {
+            bookDelivery = nil
+            return
+        }
+        let expectedBookID = book.id
+        do {
+            let result: BookDeliveryEnvelope = try await runBridgeJSON([
+                "--delivery-selection-status", "--book", expectedBookID,
+            ])
+            guard !result.remoteRequestSent,
+                  result.providerRequests == 0,
+                  !result.paidExecution,
+                  !result.billingChanged,
+                  !result.delivery.remoteRequestSent,
+                  result.delivery.providerRequests == 0,
+                  !result.delivery.paidExecution,
+                  !result.delivery.billingChanged else {
+                throw BridgeError.message("Проверка формата выпуска нарушила offline contract.")
+            }
+            guard selectedBookID == expectedBookID else { return }
+            bookDelivery = result.delivery
+        } catch {
+            guard selectedBookID == expectedBookID else { return }
+            bookDelivery = nil
+            technicalDetails = error.localizedDescription
+        }
+    }
+
+    func selectBookDeliveryProfile(_ profileID: String) {
+        guard let book = selectedBook,
+              book.kind == "production",
+              bookDelivery?.profiles.contains(where: { $0.id == profileID }) == true else {
+            errorMessage = "Выбранный формат выпуска недоступен."
+            return
+        }
+        let expectedBookID = book.id
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let result: BookDeliveryEnvelope = try await runBridgeJSON([
+                    "--set-delivery-profile", "--book", expectedBookID,
+                    "--delivery-profile-id", profileID,
+                ])
+                guard !result.remoteRequestSent,
+                      result.providerRequests == 0,
+                      !result.paidExecution,
+                      !result.billingChanged,
+                      result.delivery.selectedProfileID == profileID else {
+                    throw BridgeError.message("Studio не подтвердила безопасное сохранение формата.")
+                }
+                guard selectedBookID == expectedBookID else { return }
+                bookDelivery = result.delivery
+                errorMessage = nil
+            } catch {
+                guard selectedBookID == expectedBookID else { return }
+                showError(error)
+            }
+        }
+    }
+
+    func createBookDelivery() {
+        guard let book = selectedBook,
+              let delivery = bookDelivery,
+              delivery.selectedProfileID != nil else {
+            errorMessage = "Сначала выберите формат выпуска."
+            return
+        }
+        guard delivery.bookReady else {
+            errorMessage = "Сборка станет доступна, когда все главы будут приняты и подготовлены."
+            return
+        }
+        let expectedBookID = book.id
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let result: BookDeliveryEnvelope = try await runBridgeJSON([
+                    "--create-book-delivery", "--book", expectedBookID,
+                ])
+                guard !result.remoteRequestSent,
+                      result.providerRequests == 0,
+                      !result.paidExecution,
+                      !result.billingChanged,
+                      result.delivery.delivery != nil else {
+                    throw BridgeError.message("Готовый выпуск не удалось безопасно сохранить.")
+                }
+                guard selectedBookID == expectedBookID else { return }
+                bookDelivery = result.delivery
+                errorMessage = nil
+            } catch {
+                guard selectedBookID == expectedBookID else { return }
+                showError(error)
+            }
+        }
+    }
+
+    func revealBookDeliveryInFinder() {
+        guard let path = bookDelivery?.delivery?.output.path else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    func openBookDelivery() {
+        guard let path = bookDelivery?.delivery?.output.path else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
     private func invalidateOpenAIIntent() {
@@ -1502,10 +1615,12 @@ private enum BridgeError: LocalizedError { case message(String); var errorDescri
 struct AudiobookStudioApp: App {
     @StateObject private var model = StudioModel()
 
-    private var diagnosticDefaultSize: CGSize {
-        ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_DIAGNOSTIC_WINDOW_SIZE"] == "minimum"
-            ? CGSize(width: 900, height: 620)
-            : CGSize(width: 1060, height: 720)
+    private var diagnosticWindowSize: CGSize? {
+        switch ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_DIAGNOSTIC_WINDOW_SIZE"] {
+        case "minimum": return CGSize(width: 900, height: 620)
+        case "standard": return CGSize(width: 1060, height: 720)
+        default: return nil
+        }
     }
 
     var body: some Scene {
@@ -1513,21 +1628,22 @@ struct AudiobookStudioApp: App {
             StudioView(model: model)
                 .frame(minWidth: 900, minHeight: 620)
                 .task {
-                    guard ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_DIAGNOSTIC_WINDOW_SIZE"] == "minimum" else {
-                        return
-                    }
+                    guard let diagnosticWindowSize else { return }
                     // SwiftUI restores saved window bounds after `defaultSize`. The
-                    // diagnostic render contract must exercise the real minimum.
+                    // diagnostic render contract must exercise both accepted sizes.
                     for _ in 0..<12 {
                         try? await Task.sleep(for: .milliseconds(100))
                         if let window = NSApplication.shared.windows.first(where: { $0.title == "Audiobook Studio" }) {
-                            window.setContentSize(CGSize(width: 900, height: 620))
+                            window.setContentSize(diagnosticWindowSize)
                             break
                         }
                     }
                 }
         }
-        .defaultSize(width: diagnosticDefaultSize.width, height: diagnosticDefaultSize.height)
+        .defaultSize(
+            width: diagnosticWindowSize?.width ?? 1060,
+            height: diagnosticWindowSize?.height ?? 720
+        )
         Settings {
             SettingsView(model: model)
                 .frame(width: 520)
@@ -2130,6 +2246,7 @@ struct StudioView: View {
                 model.cancelBookTextPreparation()
                 model.selectDefaultJob()
                 model.selectDefaultProfile()
+                Task { await model.refreshBookDeliveryStatus() }
                 acknowledgedOwnerSteps = []
                 if !applyDiagnosticInitialSectionIfRequested() {
                     showingHelp = false
@@ -2353,18 +2470,16 @@ private struct OwnerReleaseSection: View {
 
     var body: some View {
         Section("7. Соберите готовую аудиокнигу") {
-            Text("Здесь Studio собирает принятую главу, выравнивает звук и готовит файл для публикации. Остальные главы можно добавлять по мере готовности.")
+            Text("Сначала подготовьте принятые главы, затем выберите, как сохранить готовую книгу.")
                 .foregroundStyle(.secondary)
+            BookDeliveryCard(model: model)
             if let qa = model.audioQA {
                 ChapterAssemblyCard(model: model, qa: qa)
                 if model.chapterAssembly?.assembly != nil {
                     MasteringCard(model: model)
                 }
-                if model.mastering?.master != nil {
-                    LitresExportCard(model: model)
-                }
             } else {
-                Label("Сначала запишите и примите главу на шаге 6", systemImage: "lock.fill")
+                Label("Для подготовки файлов глав сначала запишите и примите главу на шаге 6", systemImage: "lock.fill")
                     .foregroundStyle(.secondary)
             }
         }
@@ -2580,7 +2695,7 @@ private struct MasteringCard: View {
     }
 }
 
-private struct LitresExportCard: View {
+private struct BookDeliveryCard: View {
     @ObservedObject var model: StudioModel
 
     private func blockerLabel(_ code: String) -> String {
@@ -2591,85 +2706,164 @@ private struct LitresExportCard: View {
         case "unknown_extra_chapters": return "Есть главы вне текущей структуры книги"
         case "unproven_third_party_assets": return "Не подтверждены права на сторонние материалы"
         case "chapter_cue_rights_unverified": return "Подтвердите право использовать выбранный звук перед главами"
-        default: return "Пакет книги пока не готов"
+        default: return "Книга пока не готова к выпуску"
+        }
+    }
+
+    private func profileIcon(_ id: String) -> String {
+        switch id {
+        case "chapters": return "list.number"
+        case "m4b": return "book.closed.fill"
+        case "mp3": return "waveform"
+        default: return "archivebox.fill"
+        }
+    }
+
+    @ViewBuilder
+    private func chapterFiles(_ export: LitresExportStatus?) -> some View {
+        if model.mastering?.master == nil {
+            Label("Сначала подготовьте мастер-файл текущей главы", systemImage: "lock.fill")
+                .foregroundStyle(.secondary)
+        } else if let export {
+            if let blocker = export.blockerMessage {
+                Label(blocker, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            } else if export.decision == "READY_TO_REPACKAGE" {
+                Button("Обновить файл главы") { model.createCurrentLitresExport() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isRunning)
+            } else if export.decision == "READY_TO_REPAIR" {
+                Button("Восстановить файл главы") { model.createCurrentLitresExport() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isRunning)
+            } else if export.chapterExport == nil {
+                Button("Создать файл текущей главы") { model.createCurrentLitresExport() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isRunning || export.decision != "READY_TO_EXPORT")
+            } else if let chapter = export.chapterExport {
+                Text("Глава готова · \(audioTimeLabel(chapter.facts.durationSeconds)) · \(ByteCountFormatter.string(fromByteCount: Int64(chapter.facts.sizeBytes), countStyle: .file))")
+                    .font(.callout)
+                AudioTransportCard(
+                    player: model.audioPlayer,
+                    role: "litres-mp3",
+                    playTitle: "Прослушать готовую главу",
+                    onLoad: model.playLitresMP3,
+                    onReveal: model.revealLitresMP3InFinder
+                )
+            }
+        } else {
+            ProgressView("Проверяется текущая глава…")
+                .controlSize(.small)
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Экспорт для ЛитРес", systemImage: model.litresExport?.chapterExport == nil ? "square.and.arrow.up" : "checkmark.circle")
-                    .font(.headline)
-                Spacer()
-                if let export = model.litresExport {
-                    Text(litresExportStateLabel(export.state, decision: export.decision))
-                        .foregroundStyle(export.decision == "BLOCKED" ? Color.orange : Color.secondary)
+            Label("Формат выпуска", systemImage: "square.and.arrow.down")
+                .font(.headline)
+            Text("Выберите один вариант. Studio запомнит его только для этой книги.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            if let delivery = model.bookDelivery {
+                VStack(spacing: 8) {
+                    ForEach(delivery.profiles) { profile in
+                        let selected = delivery.selectedProfileID == profile.id
+                        Button {
+                            model.selectBookDeliveryProfile(profile.id)
+                        } label: {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                                    .font(.title3)
+                                Image(systemName: profileIcon(profile.id))
+                                    .frame(width: 22)
+                                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(profile.title).fontWeight(.semibold)
+                                    Text(profile.description)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                    Text(profile.detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                            .padding(10)
+                            .background(
+                                selected ? Color.accentColor.opacity(0.09) : Color.secondary.opacity(0.045),
+                                in: RoundedRectangle(cornerRadius: 10)
+                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(selected ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.12))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(model.isRunning)
+                    }
                 }
-            }
-            if let export = model.litresExport {
-                Text("Готовый файл для публикации в ЛитРес")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if let blocker = export.blockerMessage {
-                    Label(blocker, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                } else if export.chapterExport != nil,
-                          export.bookExport.blockers.contains("unproven_third_party_assets") {
-                    Button("Применить блокировку выпуска") { model.createCurrentLitresExport() }
+
+                if delivery.selectedProfileID == nil {
+                    Label("Выберите формат, чтобы продолжить", systemImage: "hand.tap")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Button("Собрать аудиокнигу") {}
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.isRunning)
-                } else if export.decision == "READY_TO_REPACKAGE" {
-                    Button("Обновить пакет для ЛитРес") { model.createCurrentLitresExport() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.isRunning)
-                } else if export.decision == "READY_TO_REPAIR" {
-                    Button("Восстановить выпускной пакет") { model.createCurrentLitresExport() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.isRunning)
-                } else if export.chapterExport == nil {
-                    Button("Создать MP3 для ЛитРес") { model.createCurrentLitresExport() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.isRunning || export.decision != "READY_TO_EXPORT")
-                } else if let chapter = export.chapterExport {
-                    Text("Глава готова · \(audioTimeLabel(chapter.facts.durationSeconds)) · \(ByteCountFormatter.string(fromByteCount: Int64(chapter.facts.sizeBytes), countStyle: .file))")
-                        .font(.callout)
-                    AudioTransportCard(
-                        player: model.audioPlayer,
-                        role: "litres-mp3",
-                        playTitle: "Прослушать MP3",
-                        onLoad: model.playLitresMP3,
-                        onReveal: model.revealLitresMP3InFinder
-                    )
-                }
-                Text("Готово \(export.bookExport.readyChapters) из \(export.bookExport.expectedChapters) глав")
-                    .font(.callout.weight(.medium))
-                if !export.bookExport.ready {
-                    ForEach(export.bookExport.blockers, id: \.self) { blocker in
-                        Label(blockerLabel(blocker), systemImage: "lock.fill")
+                        .disabled(true)
+                } else if delivery.selectedProfileID == "chapters" {
+                    Divider()
+                    chapterFiles(model.litresExport)
+                } else {
+                    Divider()
+                    Text("Готово \(delivery.readyChapters) из \(delivery.expectedChapters) глав")
+                        .font(.callout.weight(.medium))
+                    if let artifact = delivery.delivery {
+                        Label("Аудиокнига собрана", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("\(ByteCountFormatter.string(fromByteCount: Int64(artifact.output.sizeBytes), countStyle: .file))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        HStack {
+                            if delivery.selectedProfileID != "hq_archive" {
+                                Button("Открыть") { model.openBookDelivery() }
+                                    .buttonStyle(.borderedProminent)
+                            }
+                            Button("Показать в Finder") { model.revealBookDeliveryInFinder() }
+                        }
+                    } else if delivery.bookReady {
+                        Button("Собрать аудиокнигу") { model.createBookDelivery() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.isRunning)
+                    } else {
+                        Button("Собрать аудиокнигу") {}
+                            .buttonStyle(.borderedProminent)
+                            .disabled(true)
+                        Label("Единый файл станет доступен, когда все главы будут приняты и подготовлены", systemImage: "lock.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(delivery.blockers, id: \.self) { blocker in
+                            Text("• \(blockerLabel(blocker))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
-                DisclosureGroup("Технические подробности экспорта") {
-                    LabeledContent("Profile", value: export.profile.id)
-                    LabeledContent("Profile hash", value: export.profileHash)
-                    LabeledContent("Candidate identity", value: export.candidateIdentity)
-                    LabeledContent("Encoder", value: export.encoder ?? "Недоступно")
-                    if let manifest = export.manifestPath {
-                        LabeledContent("Manifest", value: manifest)
+
+                DisclosureGroup("Технические сведения") {
+                    if let artifact = delivery.delivery {
+                        LabeledContent("SHA-256", value: artifact.output.sha256)
+                        LabeledContent("Файл", value: artifact.output.path)
                     }
-                    if let chapter = export.chapterExport {
-                        LabeledContent("SHA-256", value: chapter.sha256)
-                        LabeledContent("MP3", value: chapter.path)
-                    }
-                    if !export.blockers.isEmpty {
-                        Text("Blockers: \(export.blockers.joined(separator: ", "))")
-                    }
+                    LabeledContent("Сетевые запросы", value: "0")
+                    LabeledContent("Платные действия", value: "0")
                 }
+                .font(.caption)
             } else {
-                Text("Проверяется готовность MP3-экспорта…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                ProgressView("Проверяются форматы выпуска…")
+                    .controlSize(.small)
             }
         }
         .padding(.vertical, 6)

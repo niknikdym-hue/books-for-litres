@@ -80,7 +80,9 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
         self.assertIn('Дальше: выбрать диктора', panel)
         self.assertIn("applyDiagnosticInitialSectionIfRequested()", app)
         self.assertIn('NSApplication.shared.windows.first(where: { $0.title == "Audiobook Studio" })', app)
-        self.assertIn('window.setContentSize(CGSize(width: 900, height: 620))', app)
+        self.assertIn('case "minimum": return CGSize(width: 900, height: 620)', app)
+        self.assertIn('case "standard": return CGSize(width: 1060, height: 720)', app)
+        self.assertIn('window.setContentSize(diagnosticWindowSize)', app)
         self.assertIn('ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_SECTION"] == nil', panel)
         self.assertNotIn('ContentQualitySettingsPanel(selectedBookID: model.selectedBookID)', app)
 

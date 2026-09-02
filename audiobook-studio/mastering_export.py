@@ -2333,6 +2333,47 @@ class LitresExportService:
             raise MasteringExportError("export_identity_mismatch", "MP3 export identity изменилась.")
         return prepared
 
+    def current_book_release(self, book_value: Mapping[str, Any]) -> dict[str, Any] | None:
+        """Return only an exact-current complete release package, read-only.
+
+        Whole-book delivery formats use this accepted chapter-package authority
+        instead of rediscovering arbitrary audio files.
+        """
+        book = self._validated_book(book_value)
+        pointer_path = self._profile_root(book["slug"]) / "CURRENT.json"
+        if not pointer_path.is_file() or pointer_path.is_symlink():
+            return None
+        try:
+            pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+            manifest_path = _require_regular_path(
+                Path(pointer["manifest_path"]), root=self.workspace_root,
+                label="Whole-book release manifest",
+            )
+            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = self._read_export(manifest_path.parent, raw.get("export_identity"))
+            if (
+                manifest is None
+                or manifest.get("whole_book", {}).get("ready") is not True
+                or _canonical_json(manifest.get("book")) != _canonical_json(book)
+            ):
+                return None
+            self._revalidate_candidate_masters(book, manifest.get("chapters") or [])
+            return manifest
+        except (OSError, ValueError, KeyError, TypeError, MasteringExportError):
+            return None
+
+    def book_release_progress(self, book_value: Mapping[str, Any]) -> dict[str, Any]:
+        """Return current per-chapter release progress without publishing anything."""
+        book = self._validated_book(book_value)
+        candidates = self._load_current_candidates(book)
+        whole_book = build_book_export_state(book, candidates)
+        return {
+            "book": book,
+            "chapters": candidates,
+            "whole_book": whole_book,
+            "status": "RELEASE_READY" if whole_book["ready"] else "INCOMPLETE",
+        }
+
     def _package_cover_is_valid(
         self,
         payload: Mapping[str, Any],
