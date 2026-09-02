@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+private let audiobookTextFileType = UTType(filenameExtension: "txt", conformingTo: .plainText) ?? .plainText
+
 private struct WorkspaceContract: Decodable {
     let workspaceRoot: String
     enum CodingKeys: String, CodingKey { case workspaceRoot = "workspace_root" }
@@ -1912,12 +1914,20 @@ struct StudioView: View {
                     }
                 }
                 Section {
-                    Button {
-                        showBookImporter = true
-                    } label: {
-                        Label("Добавить книгу", systemImage: "plus")
+                    VStack(alignment: .leading, spacing: 5) {
+                        Button {
+                            showBookImporter = true
+                        } label: {
+                            Label("Добавить книгу", systemImage: "plus")
+                        }
+                        .disabled(model.isAddingBook)
+                        Text("TXT · UTF-8 · до 20 МБ")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Вся книга — одним файлом")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
-                    .disabled(model.isAddingBook)
                 }
             }
             .navigationSplitViewColumnWidth(min: 230, ideal: 280)
@@ -2184,7 +2194,8 @@ struct StudioView: View {
                                     .font(.title2.weight(.semibold))
                                 Text("Добавьте файл книги — Studio проведёт вас от проверки текста до готового аудио.")
                                     .foregroundStyle(.secondary)
-                                Button("Добавить книгу") { showBookImporter = true }
+                                BookImportRequirements()
+                                Button("Выбрать TXT-файл") { showBookImporter = true }
                                     .buttonStyle(.borderedProminent)
                             }
                             .padding(.vertical, 24)
@@ -2298,7 +2309,7 @@ struct StudioView: View {
             }
             .fileImporter(
                 isPresented: $showBookImporter,
-                allowedContentTypes: [.plainText],
+                allowedContentTypes: [audiobookTextFileType],
                 allowsMultipleSelection: false
             ) { result in
                 switch result {
@@ -2881,6 +2892,7 @@ private struct AddBookSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Добавить книгу").font(.title2.weight(.semibold))
+            BookImportRequirements()
             LabeledContent("TXT-файл", value: sourceURL?.lastPathComponent ?? "Не выбран")
             TextField("Название", text: $title)
             TextField("Автор", text: $author)
@@ -2920,6 +2932,23 @@ private struct AddBookSheet: View {
         }
         .padding(24)
         .frame(width: 480)
+    }
+}
+
+private struct BookImportRequirements: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Label("Поддерживается TXT в кодировке UTF-8 · до 20 МБ", systemImage: "doc.text")
+                .font(.subheadline.weight(.medium))
+            Text("Загрузите всю книгу одним файлом. Заголовки глав лучше размещать на отдельных строках — Studio распознает их при подготовке текста.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("Оригинал останется без изменений; для редактирования и озвучки будет создана отдельная копия.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

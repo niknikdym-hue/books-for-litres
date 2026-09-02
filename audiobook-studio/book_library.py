@@ -25,6 +25,7 @@ BOOK_SCHEMA_VERSION = 1
 SOURCE_RELATIVE_PATH = Path("source/original.txt")
 TTS_RELATIVE_PATH = Path("tts/working.txt")
 SOURCE_INTEGRITY_STATES = {"OK", "MISSING", "HASH_MISMATCH"}
+MAX_SOURCE_FILE_BYTES = 20 * 1024 * 1024
 
 
 class BookLibraryError(RuntimeError):
@@ -181,20 +182,22 @@ class BookLibrary:
         try:
             source_stat = source_file.lstat()
         except OSError as error:
-            raise BookLibraryError("Source TXT does not exist.") from error
+            raise BookLibraryError("Выбранный TXT-файл не существует.") from error
         if source_file.is_symlink() or not stat.S_ISREG(source_stat.st_mode):
-            raise BookLibraryError("Source TXT must be a regular file, not a symlink.")
+            raise BookLibraryError("Выберите обычный TXT-файл, а не ссылку или папку.")
         if source_file.suffix.lower() != ".txt":
-            raise BookLibraryError("BOOK_LIBRARY_ADD_BOOK_V1 accepts only .txt files.")
+            raise BookLibraryError("Можно загрузить только файл с расширением .txt.")
+        if source_stat.st_size > MAX_SOURCE_FILE_BYTES:
+            raise BookLibraryError("Файл книги слишком большой. Максимальный размер TXT — 20 МБ.")
         try:
             source_bytes = source_file.read_bytes()
             source_text = source_bytes.decode("utf-8", errors="strict")
         except UnicodeDecodeError as error:
-            raise BookLibraryError("Source TXT must use strict UTF-8 encoding.") from error
+            raise BookLibraryError("TXT-файл должен быть сохранён в кодировке UTF-8.") from error
         except OSError as error:
-            raise BookLibraryError("Source TXT could not be read.") from error
+            raise BookLibraryError("Не удалось прочитать выбранный TXT-файл.") from error
         if not source_text.strip():
-            raise BookLibraryError("Source TXT is empty or contains only whitespace.")
+            raise BookLibraryError("TXT-файл пуст или содержит только пробелы.")
 
         normalized_slug = normalize_slug(slug)
         normalized_title = _required_text(title, "Title")

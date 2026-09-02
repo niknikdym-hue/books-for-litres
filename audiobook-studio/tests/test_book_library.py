@@ -59,8 +59,16 @@ class BookLibraryTests(unittest.TestCase):
 
     def test_invalid_utf8_is_rejected(self):
         self.source.write_bytes(b"\xff\xfe")
-        with self.assertRaises(BookLibraryError):
+        with self.assertRaisesRegex(BookLibraryError, "UTF-8"):
             self.import_book()
+
+    def test_source_larger_than_20_mib_is_rejected_before_reading(self):
+        with self.source.open("wb") as handle:
+            handle.truncate(book_library.MAX_SOURCE_FILE_BYTES + 1)
+        with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("oversized file was read")):
+            with self.assertRaisesRegex(BookLibraryError, "20 МБ"):
+                self.import_book()
+        self.assertFalse(self.books.exists())
 
     def test_unsafe_and_traversal_slugs_fail_closed(self):
         for slug in ("../escape", "a/b", "a\\b", ".hidden", "has space", "name.json"):
@@ -200,6 +208,12 @@ class BookLibraryTests(unittest.TestCase):
         link.symlink_to(self.source)
         with self.assertRaises(BookLibraryError):
             self.library.import_text_book(source_file=link, title="Book", author="Author", slug="link-book")
+
+    def test_non_txt_source_reports_supported_extension(self):
+        other = self.root / "book.docx"
+        other.write_bytes(self.source_bytes)
+        with self.assertRaisesRegex(BookLibraryError, r"\.txt"):
+            self.library.import_text_book(source_file=other, title="Book", author="Author", slug="docx-book")
 
 
 if __name__ == "__main__":
