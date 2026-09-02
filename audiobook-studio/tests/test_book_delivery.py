@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 from audio_qa_review import path_identity, sha256_file
 from backends.common import inspect_pcm_wav
 from book_delivery import BookDeliveryError, BookDeliveryService, DELIVERY_PROFILES
+from media_tools import resolve_ffmpeg
 
 
 PNG_1X1 = base64.b64decode(
@@ -152,6 +153,8 @@ class BookDeliveryTests(unittest.TestCase):
             self.assertEqual(archive.read(wav_name), Path(chapters[0]["audio_path"]).read_bytes())
 
     def test_real_m4b_and_mp3_are_decodable_and_keep_chapter_metadata(self) -> None:
+        if not resolve_ffmpeg(self.workspace).available:
+            self.skipTest("Real media integration requires an installed FFmpeg toolchain.")
         book, chapters, release = self._fixture()
         for profile_id in ("m4b", "mp3"):
             with self.subTest(profile_id=profile_id):
