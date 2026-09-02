@@ -18,12 +18,11 @@ from book_library import BookLibrary, BookLibraryError
 from cloud_billing import CloudBillingService, decimal_text, decimal_value
 from paid_run import PaidRunPlanStore
 from production_authority_lock import production_authority_lock
+from voice_library import load_voice_library
 
 
 SCHEMA_VERSION = 1
 DEFAULT_TTL_SECONDS = 10 * 60
-PROFILE_ID = "yandex_lera"
-FROZEN_PROFILE = ("lera", "neutral", "1.04")
 MAX_CHAPTER_NETWORK_REQUESTS = 200
 PLAN_STATES = {"PREPARED", "CONSUMING", "CONSUMED", "EXPIRED", "BLOCKED"}
 PLAN_DECISIONS = {"READY_FOR_CONFIRMATION", "CACHE_ONLY", "BLOCKED"}
@@ -33,6 +32,19 @@ class ChapterProductionError(RuntimeError):
     def __init__(self, message: str, *, category: str = "chapter_production_blocked") -> None:
         super().__init__(message)
         self.category = category
+
+
+def _approved_profile(profile_id: str) -> dict[str, Any]:
+    matches = [
+        profile for profile in load_voice_library(provider="yandex")
+        if profile["profile_id"] == profile_id
+    ]
+    if len(matches) != 1:
+        raise ChapterProductionError(
+            "Yandex profile is not in the approved Voice Library.",
+            category="invalid_profile",
+        )
+    return matches[0]
 
 
 def _canonical_hash(value: Mapping[str, Any]) -> str:
@@ -158,10 +170,11 @@ class YandexChapterProductionService:
         book: Mapping[str, Any],
         job_id: str,
         *,
+        profile_id: str = "yandex_lera",
         canonical_book_slug: str | None = None,
     ) -> Path:
         slug = canonical_book_slug or str(book.get("slug") or "book")
-        return Path(self.backend.config.output_root) / slug / job_id / PROFILE_ID
+        return Path(self.backend.config.output_root) / slug / job_id / profile_id
 
     def _manifest_blockers(self, job_dir: Path, *, job_id: str, text: str) -> list[str]:
         path = job_dir / "MANIFEST.json"
@@ -262,24 +275,34 @@ class YandexChapterProductionService:
             raise ChapterProductionError("Chapter plan digest does not match.", category="plan_digest_mismatch")
 
     def _analyze(self, book_name: str, job_id: str, profile_id: str) -> dict[str, Any]:
-        if profile_id != PROFILE_ID:
-            raise ChapterProductionError("Yandex chapter production V1 supports only yandex_lera.", category="invalid_profile")
+        approved_profile = _approved_profile(profile_id)
         profile_path, book, job, text = self._load_chapter(book_name, job_id)
+        if book.get("selected_backend") != "yandex" or book.get("selected_profile_id") != profile_id:
+            raise ChapterProductionError(
+                "Selected Yandex profile does not match the voice saved for this book.",
+                category="profile_selection_mismatch",
+            )
         content_quality, quality_blockers = self._content_quality_status(profile_path.name)
         configured_profile = (
             self.backend.profile.voice,
             self.backend.profile.role,
             str(self.backend.profile.speed),
         )
-        if configured_profile != FROZEN_PROFILE:
+        expected_profile = (
+            str(approved_profile["voice"]),
+            str(approved_profile["role"]),
+            str(approved_profile["speed"]),
+        )
+        if configured_profile != expected_profile:
             raise ChapterProductionError(
-                "Configured Yandex production profile is not the frozen Lera/neutral/1.04 profile.",
+                "Configured Yandex production profile does not match the selected approved voice.",
                 category="invalid_profile",
             )
         canonical_book_slug = profile_path.stem
         job_dir = self._job_dir(
             book,
             job_id,
+            profile_id=profile_id,
             canonical_book_slug=canonical_book_slug,
         )
         estimate = self.backend.estimate(text, pricing=self.pricing, job_dir=job_dir, scope="book")

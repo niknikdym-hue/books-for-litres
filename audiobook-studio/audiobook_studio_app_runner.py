@@ -76,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--list-books", action="store_true")
     mode.add_argument("--add-book", action="store_true")
     mode.add_argument("--book-details", action="store_true")
+    mode.add_argument("--set-book-voice", action="store_true")
     mode.add_argument("--prepare-book-text", action="store_true")
     mode.add_argument("--book-preparation-status", action="store_true")
     mode.add_argument("--list-jobs", action="store_true")
@@ -212,6 +213,46 @@ def _yandex_chapter_service() -> YandexChapterProductionService:
         plans_dir=WORKSPACE_PATHS.paid_run_plans,
         content_quality_guard=_content_quality_execution,
     )
+
+
+def _approved_yandex_profile(profile_id: str) -> dict[str, Any]:
+    matches = [
+        profile for profile in load_voice_library(provider="yandex")
+        if profile["profile_id"] == profile_id
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("Выбранный голос не входит в утверждённую библиотеку Yandex.")
+    return matches[0]
+
+
+def _yandex_chapter_service_for_profile(profile_id: str) -> YandexChapterProductionService:
+    from backends.yandex_speechkit import YandexSpeechKitBackend, YandexVoiceProfile
+
+    profile = _approved_yandex_profile(profile_id)
+    billing = _billing_service()
+    offline_backend, pricing, _ = _load_yandex_offline()
+    config = replace(
+        offline_backend.config,
+        profile=YandexVoiceProfile.from_mapping(profile),
+    )
+    backend = YandexSpeechKitBackend(config, billing_ledger=billing.ledger)
+    return YandexChapterProductionService(
+        backend=backend,
+        pricing=pricing,
+        billing=billing,
+        books_dir=WORKSPACE_PATHS.books_root,
+        plans_dir=WORKSPACE_PATHS.paid_run_plans,
+        content_quality_guard=_content_quality_execution,
+    )
+
+
+def _yandex_chapter_service_for_plan(plan_id: str) -> YandexChapterProductionService:
+    from paid_run import PaidRunPlanStore
+
+    plan = PaidRunPlanStore(WORKSPACE_PATHS.paid_run_plans).load(plan_id)
+    if plan.get("provider") != "yandex":
+        raise RuntimeError("План не относится к Yandex SpeechKit.")
+    return _yandex_chapter_service_for_profile(_require(str(plan.get("profile_id") or ""), "plan profile_id"))
 
 
 def _audio_qa_service() -> AudioQAReviewService:
@@ -501,7 +542,7 @@ def _audio_qa_authority(
             fail_on_invalid_report=selected_manifest is not None,
         )
     if provider == "yandex":
-        backend, _, _ = _load_yandex_offline()
+        backend = _yandex_chapter_service_for_profile(profile_id).backend
         relative = Path(slug) / job_id / profile_id / "MANIFEST.json"
         configured_root = Path(backend.config.output_root).expanduser().absolute()
         workspace_alias = WORKSPACE_PATHS.yandex_output_root.expanduser().absolute()
@@ -1129,6 +1170,28 @@ def book_details(book_name: str) -> dict[str, Any]:
     return BOOK_LIBRARY.book_details(_require(book_name, "--book"))
 
 
+def set_book_voice(*, book_name: str, profile_id: str) -> dict[str, Any]:
+    profile = _approved_yandex_profile(_require(profile_id, "--profile-id"))
+    book_id = _require(book_name, "--book")
+    book = BOOK_LIBRARY.load_book_profile(book_id)
+    book["selected_backend"] = "yandex"
+    book["selected_profile_id"] = profile["profile_id"]
+    BOOK_LIBRARY.replace_book_profile(book_id, book)
+    return {
+        "schema_version": 1,
+        "book_id": BOOK_LIBRARY.resolve_book_profile(book_id).name,
+        "selected_backend": "yandex",
+        "selected_profile_id": profile["profile_id"],
+        "voice": profile["voice"],
+        "role": profile["role"],
+        "speed": profile["speed"],
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "paid_execution": False,
+        "billing_changed": False,
+    }
+
+
 def prepare_book_text(book_name: str) -> dict[str, Any]:
     return BOOK_TEXT_PREPARATION.prepare(_require(book_name, "--book"))
 
@@ -1302,6 +1365,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(book_details(args.book), ensure_ascii=False, indent=2))
         return 0
 
+    if args.set_book_voice:
+        print(json.dumps(set_book_voice(
+            book_name=args.book,
+            profile_id=args.profile_id,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
     if args.prepare_book_text:
         print(json.dumps(prepare_book_text(args.book), ensure_ascii=False, indent=2))
         return 0
@@ -1358,11 +1428,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _delegate(YANDEX_RUNNER, "--demo")
 
     if args.prepare_yandex_chapter_run:
+        selected_profile_id = _require(args.profile_id, "--profile-id")
         print(json.dumps(
-            _yandex_chapter_service().prepare(
+            _yandex_chapter_service_for_profile(selected_profile_id).prepare(
                 book_name=_require(args.book, "--book"),
                 job_id=_require(args.job, "--job"),
-                profile_id=_require(args.profile_id, "--profile-id"),
+                profile_id=selected_profile_id,
             ),
             ensure_ascii=False,
             indent=2,
@@ -1370,9 +1441,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.execute_yandex_chapter_plan:
+        selected_plan_id = _require(args.plan_id, "--plan-id")
         print(json.dumps(
-            _yandex_chapter_service().execute(
-                plan_id=_require(args.plan_id, "--plan-id"),
+            _yandex_chapter_service_for_plan(selected_plan_id).execute(
+                plan_id=selected_plan_id,
                 plan_digest=_require(args.plan_digest, "--plan-digest"),
             ),
             ensure_ascii=False,

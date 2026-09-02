@@ -120,6 +120,28 @@ struct BookTextPreparationResult: Codable {
     }
 }
 
+struct BookVoiceSelectionResult: Codable {
+    let bookID: String
+    let selectedProfileID: String
+    let voice: String
+    let role: String
+    let speed: String
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let paidExecution: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case voice, role, speed
+        case bookID = "book_id"
+        case selectedProfileID = "selected_profile_id"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case paidExecution = "paid_execution"
+        case billingChanged = "billing_changed"
+    }
+}
+
 struct BookImportResult: Codable {
     let bookID: String
     let slug: String

@@ -766,18 +766,24 @@ final class ContentQualityController: ObservableObject {
             process.arguments = [
                 contentQualityPaths.runtimeRoot.appendingPathComponent(script).path
             ] + arguments
-            let stdout = Pipe()
-            let stderr = Pipe()
+            let captureDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("audiobook-studio-content-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: captureDirectory, withIntermediateDirectories: false)
+            defer { try? FileManager.default.removeItem(at: captureDirectory) }
+            let stdoutURL = captureDirectory.appendingPathComponent("stdout.json")
+            let stderrURL = captureDirectory.appendingPathComponent("stderr.txt")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdout = try FileHandle(forWritingTo: stdoutURL)
+            let stderr = try FileHandle(forWritingTo: stderrURL)
             process.standardOutput = stdout
             process.standardError = stderr
             try process.run()
             process.waitUntilExit()
-            let output = String(
-                decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self
-            )
-            let diagnostic = String(
-                decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self
-            )
+            try stdout.close()
+            try stderr.close()
+            let output = String(decoding: try Data(contentsOf: stdoutURL), as: UTF8.self)
+            let diagnostic = String(decoding: try Data(contentsOf: stderrURL), as: UTF8.self)
             guard process.terminationStatus == 0 else {
                 if let data = output.data(using: .utf8),
                    let envelope = try? JSONDecoder().decode(ContentQualityErrorEnvelope.self, from: data) {

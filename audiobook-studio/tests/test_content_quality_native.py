@@ -16,9 +16,10 @@ class ContentQualityNativeContractTests(unittest.TestCase):
         main_part, settings_part = app.split("struct SettingsView: View", maxsplit=1)
         self.assertIn('"$script_dir/ContentQualityPanel.swift"', build)
         self.assertIn('"$script_dir/OwnerProductionFlowPanel.swift"', build)
-        self.assertIn("OwnerProductionFlowPanel(model: model, selectedBookID: book.id)", main_part)
+        self.assertIn("OwnerProductionFlowPanel(", main_part)
         self.assertNotIn("ContentQualitySettingsPanel(selectedBookID: book.id)", main_part)
-        self.assertIn("ContentQualitySettingsPanel(selectedBookID: model.selectedBookID)", settings_part)
+        self.assertNotIn("ContentQualitySettingsPanel(selectedBookID: model.selectedBookID)", settings_part)
+        self.assertIn('Section("Текст и произношение")', settings_part)
         self.assertIn('Section("Путь к готовой аудиокниге")', owner_panel)
         self.assertIn('Section("Текст перед озвучкой")', panel)
         self.assertIn('Section("Ударения и произношение")', panel)
@@ -88,6 +89,21 @@ class ContentQualityNativeContractTests(unittest.TestCase):
             "Любое изменение текста автоматически делает его неприменимым",
         ):
             self.assertIn(token, panel)
+
+    def test_large_book_text_bridge_cannot_deadlock_on_a_full_stdout_pipe(self) -> None:
+        panel = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
+        app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        owner = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
+        for source, capture_prefix in (
+            (panel, "audiobook-studio-content-"),
+            (app, "audiobook-studio-bridge-"),
+            (owner, "audiobook-studio-sound-"),
+        ):
+            self.assertIn(capture_prefix, source)
+            self.assertIn("Data(contentsOf: stdoutURL)", source)
+        run_text = panel[panel.index("private func runText(") : panel.index("private func runJSON<")]
+        self.assertNotIn("Pipe()", run_text)
+        self.assertLess(run_text.index("process.waitUntilExit()"), run_text.index("Data(contentsOf: stdoutURL)"))
 
 
 if __name__ == "__main__":

@@ -88,6 +88,10 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertEqual(len(snapshot["voice_library"]["yandex"]), 4)
         self.assertEqual(len(snapshot["voice_library"]["openai"]), 2)
         self.assertEqual(
+            [profile["profile_id"] for profile in snapshot["voice_library"]["yandex"]],
+            ["yandex_lera", "yandex_ermil", "yandex_kirill", "yandex_anton"],
+        )
+        self.assertEqual(
             [profile["profile_id"] for profile in snapshot["voice_library"]["openai"]],
             ["openai_onyx", "openai_cedar"],
         )
@@ -164,7 +168,7 @@ class NativeUIBridgeTests(unittest.TestCase):
         ):
             self.assertLess(source.index(clearing, reload), release_sweep)
         self.assertIn('Button("Подготовить мастер")', source)
-        self.assertIn('Button("Восстановить текущий master")', source)
+        self.assertIn('Button("Восстановить мастер-файл")', source)
         self.assertIn('mastering.decision == "READY_TO_REPAIR"', source)
         self.assertIn('result.mastering.decision == "ALREADY_MASTERED"', source)
         self.assertIn('Button("Создать MP3 для ЛитРес")', source)
@@ -180,7 +184,7 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('role: "litres-mp3"', source)
         self.assertEqual(source.count("let audioPlayer = EmbeddedAudioPlayer()"), 1)
         self.assertIn("Устарело — требуется повторный мастеринг", contracts)
-        self.assertIn("Требуется восстановить текущий master", contracts)
+        self.assertIn("Мастер-файл нужно восстановить", contracts)
         self.assertIn("Устарело — требуется повторный экспорт", contracts)
         self.assertIn("executionSelectionGeneration == expectedSelectionGeneration", source)
 
@@ -191,11 +195,11 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertTrue(snapshot["books"][0]["jobs"])
         self.assertIn('"--prepare-paid-run", "--provider", "openai"', source)
         self.assertIn('"--execute-paid-plan", "--plan-id", plan.planID', source)
-        self.assertIn("Подтвердить 1 платный запрос", source)
+        self.assertIn("Подтвердить одну платную запись", source)
         self.assertIn("Использовать готовое аудио", source)
-        self.assertIn("Новых платных запросов: максимум 1", source)
+        self.assertIn("Новых платных обращений: максимум 1", source)
         self.assertIn("Точная будущая стоимость: Недоступно", source)
-        self.assertIn("OpenAI balance:", source)
+        self.assertIn("Доступный остаток:", source)
         self.assertIn("Для книги нет подготовленных задач.", source)
         self.assertIn("Автоматический повтор запрещён.", contracts)
         self.assertIn('decision == "READY_FOR_CONFIRMATION"', contracts)
@@ -236,7 +240,10 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn("mutating func cancel()", contracts)
         self.assertIn('"Подготовить OpenAI-план?"', source)
         self.assertIn('Button("Подготовить план") { model.confirmOpenAIPrepare() }', source)
-        self.assertIn("Подготовка плана не отправляет TTS-запрос", source)
+        self.assertIn(
+            "Подготовка плана ничего не записывает и не списывает средства",
+            source,
+        )
 
     def test_native_openai_prepare_and_paid_confirmations_remain_separate(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
@@ -244,9 +251,9 @@ class NativeUIBridgeTests(unittest.TestCase):
         confirm_cache = swift_function_body(source, "func confirmCacheOnlyMaterialization()")
         execute = swift_function_body(source, "private func executePaidPlan(")
 
-        self.assertIn('"Подтвердить платный OpenAI TTS-запрос?"', source)
+        self.assertIn('"Подтвердить одну платную запись OpenAI?"', source)
         self.assertIn(
-            'Button("Подтвердить 1 платный запрос") { model.confirmPaidRequest() }',
+            'Button("Подтвердить одну платную запись") { model.confirmPaidRequest() }',
             source,
         )
         self.assertIn('paidPlan?.decision == "READY_FOR_CONFIRMATION"', confirm_paid)
@@ -302,10 +309,14 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"--audio-qa-decide"', source)
         self.assertIn('"--audio-qa-downstream"', source)
         self.assertIn('Button("Открыть готовое аудио для проверки")', source)
-        self.assertIn('playTitle: "Прослушать точный WAV"', source)
+        self.assertIn('playTitle: "Прослушать главу"', source)
         self.assertIn('Button("Одобрить")', source)
-        self.assertIn('Button("Отклонить", role: .destructive)', source)
-        self.assertIn('Button("Запросить перегенерацию")', source)
+        self.assertIn('Button("Отклонить этот вариант", role: .destructive)', source)
+        self.assertIn('Menu("Исправить…")', source)
+        self.assertIn('Button("Исправить текст")', source)
+        self.assertIn('Button("Исправить ударение")', source)
+        self.assertIn('Button("Выбрать другого диктора")', source)
+        self.assertIn('Button("Записать заново с текущими настройками")', source)
         self.assertIn("audioQAPlaybackIdentity == envelope.record.identity", decide)
         self.assertIn("audioPlayer.validateLoadedIdentity(rehash: true)", decide)
         self.assertIn("audioQASelectionMatches", decide)
@@ -710,8 +721,8 @@ class NativeUIBridgeTests(unittest.TestCase):
             "if model.engine == .openai, model.openAIQATargets.count > 1 {",
             source,
         )
-        self.assertIn('Button("Обновить список из manifest")', source)
-        self.assertIn("Проверить сегмент", source)
+        self.assertIn('Button("Обновить список")', source)
+        self.assertIn("Проверить часть", source)
 
     def test_native_add_book_uses_file_importer_and_offline_bridge_only(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
@@ -723,16 +734,15 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn("allowedContentTypes: [.plainText]", source)
         self.assertIn('TextField("Название"', source)
         self.assertIn('TextField("Автор"', source)
-        self.assertIn('TextField("ID / slug"', source)
+        self.assertIn('DisclosureGroup("Дополнительно")', source)
+        self.assertIn('TextField("Короткое имя книги"', source)
         self.assertIn('"--add-book", "--source-file", sourceURL.path', add_book)
         self.assertIn("await reload(preferredBookID: result.bookID)", add_book)
         self.assertNotIn("--prepare-paid-run", add_book)
         self.assertNotIn("--execute-paid-plan", add_book)
         self.assertNotIn("--run-", add_book)
         self.assertIn("Подготовленных задач пока нет", source)
-        self.assertIn("Source SHA-256", source)
-        self.assertIn("Исходник защищён", source)
-        self.assertIn("TTS working copy", source)
+        self.assertIn("Studio сохранит оригинал без изменений", source)
         self.assertIn("struct BookImportResult", contracts)
         self.assertIn('case sourceSHA256 = "source_sha256"', contracts)
 
@@ -747,8 +757,8 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('Подготовить текст заново', owner_panel)
         self.assertIn('"Подготовить текст книги?"', source)
         self.assertIn("Исходный файл не изменится", source)
-        self.assertIn("только TTS working copy", source)
-        self.assertIn("Платных и provider-запросов нет", source)
+        self.assertIn("Studio подготовит отдельный рабочий текст", source)
+        self.assertIn("запись и платные обращения не запускаются", source)
         self.assertIn("showBookTextPreparationConfirmation = true", request)
         self.assertNotIn("runBridge", request)
         self.assertIn('"--prepare-book-text", "--book", bookID', confirm)
@@ -760,6 +770,29 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn("Текст подготовлен", source)
         self.assertIn("struct BookTextPreparationResult", contracts)
         self.assertIn('case preparationStatus = "preparation_status"', contracts)
+
+    def test_native_yandex_picker_persists_exact_approved_profile_per_book(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
+        select = swift_function_body(source, "func selectYandexProfile(")
+        prepare = swift_function_body(source, "private func prepareYandexChapterRun()")
+        selection = swift_function_body(source, "private func currentYandexChapterSelection()")
+        self.assertIn("ForEach(model.availableProfiles)", source)
+        self.assertIn(".pickerStyle(.radioGroup)", source)
+        self.assertNotIn('.disabled(true)\n                            LabeledContent("Стиль"', source)
+        self.assertIn('"--set-book-voice"', select)
+        self.assertIn('"--profile-id", profileID', select)
+        self.assertIn("bookProfileSelections[book.id] = profileID", select)
+        self.assertIn(
+            'case .yandex: preferred = bookProfileSelections[selectedBookID] ?? "yandex_lera"',
+            source,
+        )
+        self.assertIn('"--profile-id", selection.profileID', prepare)
+        self.assertNotIn('selectedProfileID == "yandex_lera"', selection)
+        self.assertIn('profile.provider == "yandex"', selection)
+        self.assertIn('profile.status == "approved"', selection)
+        self.assertIn('Label("Диктор: \\(narrator.label)"', source)
+        self.assertIn("struct BookVoiceSelectionResult", contracts)
 
     def test_native_yandex_chapter_production_uses_separate_plan_and_confirmation(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
@@ -782,7 +815,7 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('yandexChapterStatusText = ""', execute)
         self.assertIn("showYandexChapterConfirmation = false", execute)
         self.assertIn('"Озвучить подготовленную главу?"', source)
-        self.assertIn("Новых запросов: максимум", source)
+        self.assertIn("Новых платных обращений: максимум", source)
         self.assertIn("struct YandexChapterRunPlan", contracts)
         self.assertIn("struct YandexChapterRunResult", contracts)
         self.assertIn("Автоматический повтор запрещён", contracts)

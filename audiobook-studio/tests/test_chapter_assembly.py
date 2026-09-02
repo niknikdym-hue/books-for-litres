@@ -18,11 +18,14 @@ sys.path.insert(0, str(ROOT))
 
 from audio_qa_review import path_identity, sha256_file
 from chapter_assembly import (
+    CHAPTER_CUE_PAUSE_FRAMES,
+    CHAPTER_CUE_PAUSE_CONTRACT,
     ChapterAssemblyError,
     ChapterAssemblyService,
     assembly_input_from_qa,
     assembly_input_from_qa_segments,
 )
+from book_sound_design import import_book_sound
 from media_tools import FFmpegResolution
 
 
@@ -187,6 +190,35 @@ class ChapterAssemblyTests(unittest.TestCase):
             result = self.service.assemble(self._input())
         self.assertFalse(result["normalization"]["performed"])
         self.assertEqual(result["output"]["sha256"], sha256_file(self.source))
+
+    def test_selected_cue_is_followed_by_exact_natural_pause_then_approved_speech(self):
+        self._write_wav(self.source, 48_000)
+        self.record["identity"]["audio_sha256"] = sha256_file(self.source)
+        self.record["wav"] = self._facts(self.source)
+        cue_source = self.root / "owner-cue.wav"
+        self._write_wav(cue_source, 48_000, seconds=1.0)
+        status = import_book_sound(
+            self.root, "demo-book", cue_source, label="Owner cue", rights_confirmed=True
+        )
+        cue_path = Path(status["selected"]["path"])
+        with wave.open(str(cue_path), "rb") as cue:
+            cue_samples = cue.readframes(cue.getnframes())
+            cue_frames = cue.getnframes()
+        with wave.open(str(self.source), "rb") as speech:
+            speech_samples = speech.readframes(speech.getnframes())
+        with mock.patch.object(
+            self.service, "_resolution", return_value=FFmpegResolution(False, None, None, "unavailable")
+        ):
+            result = self.service.assemble(self._input())
+        with wave.open(result["output"]["path"], "rb") as assembled:
+            output = assembled.readframes(assembled.getnframes())
+        pause_bytes = b"\x00\x00" * CHAPTER_CUE_PAUSE_FRAMES
+        self.assertEqual(output, cue_samples + pause_bytes + speech_samples)
+        self.assertEqual(result["pause_contract"], CHAPTER_CUE_PAUSE_CONTRACT)
+        self.assertEqual(result["concat"]["added_pause_frames"], CHAPTER_CUE_PAUSE_FRAMES)
+        self.assertEqual(result["concat"]["ordered_input_frames"], [cue_frames, CHAPTER_CUE_PAUSE_FRAMES, 4_800])
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
 
     def test_missing_ffmpeg_blocks_conversion_but_not_input_qa(self):
         with mock.patch.object(self.service, "_resolution", return_value=FFmpegResolution(False, None, None, "unavailable")):

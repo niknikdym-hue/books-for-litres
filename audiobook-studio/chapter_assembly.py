@@ -27,6 +27,8 @@ ASSEMBLY_SCHEMA_VERSION = 1
 TARGET_SAMPLE_RATE_HZ = 48_000
 TARGET_CHANNELS = 1
 TARGET_SAMPLE_WIDTH_BYTES = 2
+CHAPTER_CUE_PAUSE_FRAMES = 12_000
+CHAPTER_CUE_PAUSE_CONTRACT = "chapter_cue_then_250ms_pause_then_speech_v2"
 
 
 class ChapterAssemblyError(RuntimeError):
@@ -383,6 +385,11 @@ class ChapterAssemblyService:
         # creates a new downstream assembly identity without re-synthesizing TTS.
         if chapter_cue is not None:
             contract["chapter_cue"] = chapter_cue
+            contract["chapter_cue_join"] = {
+                "pause_contract": CHAPTER_CUE_PAUSE_CONTRACT,
+                "pause_frames": CHAPTER_CUE_PAUSE_FRAMES,
+                "sample_rate_hz": TARGET_SAMPLE_RATE_HZ,
+            }
         return _canonical_hash(contract)
 
     @staticmethod
@@ -515,6 +522,14 @@ class ChapterAssemblyService:
             target.writeframes(b"")
         return sum(per_input_frames), per_input_frames
 
+    @staticmethod
+    def _write_chapter_cue_pause(path: Path) -> None:
+        with wave.open(str(path), "wb") as output:
+            output.setnchannels(TARGET_CHANNELS)
+            output.setsampwidth(TARGET_SAMPLE_WIDTH_BYTES)
+            output.setframerate(TARGET_SAMPLE_RATE_HZ)
+            output.writeframes(b"\x00\x00" * CHAPTER_CUE_PAUSE_FRAMES)
+
     def assemble(
         self,
         value: Mapping[str, Any],
@@ -587,14 +602,17 @@ class ChapterAssemblyService:
                     cue_facts.update({"position": 0, "segment_id": "__chapter_cue__", "role": "chapter_cue"})
                     normalization.insert(0, cue_facts)
                     normalized_paths.insert(0, cue_normalized)
+                    cue_pause = temporary / "chapter-cue-pause.wav"
+                    self._write_chapter_cue_pause(cue_pause)
+                    normalized_paths.insert(1, cue_pause)
                 output_frames, input_frames = self._concatenate_pcm(normalized_paths, temporary_wav)
                 concat = {
                     "version": "pcm16_mono_48000_ordered_frames_v1",
                     "ordered_input_count": len(normalized_paths),
                     "ordered_input_frames": input_frames,
                     "output_frames": output_frames,
-                    "pause_contract": "chapter_cue_then_speech_v1" if chapter_cue is not None else payload["pause_contract"],
-                    "added_pause_frames": 0,
+                    "pause_contract": CHAPTER_CUE_PAUSE_CONTRACT if chapter_cue is not None else payload["pause_contract"],
+                    "added_pause_frames": CHAPTER_CUE_PAUSE_FRAMES if chapter_cue is not None else 0,
                 }
             else:
                 speech_target = temporary / "normalized-speech.wav" if chapter_cue is not None else temporary_wav
@@ -620,15 +638,17 @@ class ChapterAssemblyService:
                     )
                     cue_facts.update({"position": 0, "segment_id": "__chapter_cue__", "role": "chapter_cue"})
                     normalization.insert(0, cue_facts)
-                    normalized_paths.extend([cue_normalized, speech_target])
+                    cue_pause = temporary / "chapter-cue-pause.wav"
+                    self._write_chapter_cue_pause(cue_pause)
+                    normalized_paths.extend([cue_normalized, cue_pause, speech_target])
                     output_frames, input_frames = self._concatenate_pcm(normalized_paths, temporary_wav)
                     concat = {
                         "version": "pcm16_mono_48000_ordered_frames_v1",
-                        "ordered_input_count": 2,
+                        "ordered_input_count": 3,
                         "ordered_input_frames": input_frames,
                         "output_frames": output_frames,
-                        "pause_contract": "chapter_cue_then_speech_v1",
-                        "added_pause_frames": 0,
+                        "pause_contract": CHAPTER_CUE_PAUSE_CONTRACT,
+                        "added_pause_frames": CHAPTER_CUE_PAUSE_FRAMES,
                     }
                 else:
                     with wave.open(str(temporary_wav), "rb") as result_wave:

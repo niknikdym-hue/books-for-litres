@@ -68,7 +68,7 @@ class ChapterProductionTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def service(self, *, current: datetime = NOW) -> YandexChapterProductionService:
+    def service(self, *, current: datetime = NOW, profile_id: str = "yandex_lera") -> YandexChapterProductionService:
         settings = self.root / "cloud-billing.json"
         save_settings(settings, CloudBillingSettings())
         billing = CloudBillingService(
@@ -77,11 +77,18 @@ class ChapterProductionTests(unittest.TestCase):
             cache_path=self.root / "provider-cache.json",
             now=lambda: current,
         )
+        profiles = {
+            "yandex_lera": ("lera", "1.04"),
+            "yandex_ermil": ("ermil", "1.0"),
+            "yandex_kirill": ("kirill", "1.0"),
+            "yandex_anton": ("anton", "1.0"),
+        }
+        voice, speed = profiles[profile_id]
         backend = YandexSpeechKitBackend(
             YandexBackendConfig.from_mapping({
                 "output_root": str(self.root / "renders/yandex"),
                 "keychain_account": "tester",
-                "default_profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+                "default_profile": {"voice": voice, "role": "neutral", "speed": speed},
                 "segmentation": {"max_chars": 220, "max_words": 34},
             }),
             api_key="test-yandex-api-key-1234567890",
@@ -143,9 +150,35 @@ class ChapterProductionTests(unittest.TestCase):
                 service = self.service()
                 service.backend.profile = replace(service.backend.profile, **{field: value})
 
-                with self.assertRaisesRegex(ChapterProductionError, "frozen Lera/neutral/1.04"):
+                with self.assertRaisesRegex(ChapterProductionError, "selected approved voice"):
                     self.prepare(service)
                 self.assertEqual(self.requests, 0)
+
+    def test_every_approved_yandex_voice_reaches_exact_offline_plan(self) -> None:
+        expected = {
+            "yandex_lera": ("lera", "1.04"),
+            "yandex_ermil": ("ermil", "1.0"),
+            "yandex_kirill": ("kirill", "1.0"),
+            "yandex_anton": ("anton", "1.0"),
+        }
+        for profile_id, (voice, speed) in expected.items():
+            with self.subTest(profile_id=profile_id):
+                library = BookLibrary(self.books)
+                book = library.load_book_profile("chapter-book")
+                book["selected_backend"] = "yandex"
+                book["selected_profile_id"] = profile_id
+                library.replace_book_profile("chapter-book", book)
+                plan = self.service(profile_id=profile_id).prepare(
+                    book_name="chapter-book",
+                    job_id="chapter-ch001",
+                    profile_id=profile_id,
+                )
+                self.assertEqual(plan["profile_id"], profile_id)
+                self.assertEqual(plan["voice"], voice)
+                self.assertEqual(plan["role"], "neutral")
+                self.assertEqual(plan["speed"], speed)
+                self.assertFalse(plan["remote_request_sent"])
+        self.assertEqual(self.requests, 0)
 
     def test_execute_consumes_plan_and_never_exceeds_bound(self) -> None:
         service = self.service()

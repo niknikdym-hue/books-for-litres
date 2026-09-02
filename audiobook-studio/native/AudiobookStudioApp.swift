@@ -116,6 +116,7 @@ final class StudioModel: ObservableObject {
     private var yandexChapterPlanSelection: YandexChapterSelection?
     private var openAIQASelection: OpenAIExecutionSelection?
     private var executionSelectionGeneration: UInt64 = 0
+    private var bookProfileSelections: [String: String] = [:]
 
     init() {
         if let requested = ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_ENGINE"],
@@ -171,6 +172,10 @@ final class StudioModel: ObservableObject {
             }
             let snapshot: StudioSnapshot = try await runBridgeJSON(["--ui-snapshot"])
             books = snapshot.books
+            bookProfileSelections = Dictionary(uniqueKeysWithValues: snapshot.books.compactMap { book in
+                guard let profileID = book.selectedProfileID, !profileID.isEmpty else { return nil }
+                return (book.id, profileID)
+            })
             voiceLibrary = snapshot.voiceLibrary
             profile = snapshot.yandexProfile
             estimate = snapshot.yandexEstimate
@@ -228,7 +233,7 @@ final class StudioModel: ObservableObject {
 
     func requestBookTextPreparation() {
         guard let book = selectedBook, book.kind == "production" else {
-            errorMessage = "Подготовка текста доступна только для книг из production-библиотеки."
+            errorMessage = "Подготовка текста доступна только для книг, добавленных в Studio."
             return
         }
         guard book.sourceIntegrity == "OK" else {
@@ -284,7 +289,7 @@ final class StudioModel: ObservableObject {
             return
         }
         guard engine == .yandex else {
-            errorMessage = "Для Qwen выберите подготовленную задачу. Автоматический запуск литературного master-а отключён."
+            errorMessage = "Для локального голоса выберите подготовленную главу. Автоматическая запись всей книги отключена."
             return
         }
         if yandexChapterPlan?.canExecute == true,
@@ -300,7 +305,7 @@ final class StudioModel: ObservableObject {
         let preferred: String
         switch engine {
         case .qwen: preferred = "qwen_vivian"
-        case .yandex: preferred = "yandex_lera"
+        case .yandex: preferred = bookProfileSelections[selectedBookID] ?? "yandex_lera"
         case .openai: preferred = "openai_onyx"
         }
         selectedProfileID = availableProfiles.first(where: { $0.profileID == preferred })?.profileID
@@ -310,6 +315,41 @@ final class StudioModel: ObservableObject {
         yandexChapterPlanSelection = nil
         showPaidConfirmation = false
         showYandexChapterConfirmation = false
+    }
+
+    func selectYandexProfile(_ profileID: String) {
+        guard engine == .yandex,
+              let book = selectedBook, book.kind == "production",
+              availableProfiles.contains(where: { $0.profileID == profileID }) else {
+            errorMessage = "Выбранный голос недоступен для этой книги."
+            return
+        }
+        let previous = selectedProfileID
+        selectedProfileID = profileID
+        Task {
+            do {
+                let result: BookVoiceSelectionResult = try await runBridgeJSON([
+                    "--set-book-voice",
+                    "--book", book.id,
+                    "--profile-id", profileID,
+                ])
+                guard result.selectedProfileID == profileID,
+                      result.providerRequests == 0,
+                      !result.remoteRequestSent,
+                      !result.paidExecution,
+                      !result.billingChanged else {
+                    throw BridgeError.message("Studio не подтвердила безопасное сохранение диктора.")
+                }
+                guard selectedBookID == book.id else { return }
+                bookProfileSelections[book.id] = profileID
+                errorMessage = nil
+            } catch {
+                if selectedBookID == book.id, selectedProfileID == profileID {
+                    selectedProfileID = previous
+                }
+                showError(error)
+            }
+        }
     }
 
     func selectDefaultJob() {
@@ -353,7 +393,7 @@ final class StudioModel: ObservableObject {
                 technicalDetails = nil
                 if plan.canExecute {
                     yandexChapterStatusText = plan.decision == "CACHE_ONLY"
-                        ? "Глава уже есть в проверенном кэше; новый запрос не требуется."
+                        ? "Глава уже готова; новая платная запись не требуется."
                         : "План главы подготовлен. Требуется отдельное подтверждение."
                     showYandexChapterConfirmation = true
                     errorMessage = nil
@@ -398,8 +438,8 @@ final class StudioModel: ObservableObject {
                       currentYandexChapterSelection() == plannedSelection else { return }
                 completedOutput = URL(fileURLWithPath: result.outputPath)
                 yandexChapterStatusText = result.networkRequests == 0
-                    ? "Глава материализована из кэша без нового запроса."
-                    : "Глава озвучена. Provider-запросов: \(result.networkRequests)."
+                    ? "Studio использовала уже готовую главу без нового обращения."
+                    : "Глава записана. Новых обращений: \(result.networkRequests)."
                 errorMessage = nil
                 await loadAudioQA(
                     provider: "yandex",
@@ -502,14 +542,14 @@ final class StudioModel: ObservableObject {
                 technicalDetails = nil
                 if plan.decision == "READY_FOR_CONFIRMATION" {
                     showPaidConfirmation = plan.canExecute
-                    paidStatusText = "План подготовлен. Требуется подтверждение одного сегмента."
+                    paidStatusText = "План подготовлен. Требуется подтверждение одной части записи."
                 } else if plan.decision == "CACHE_ONLY" {
                     paidStatusText = "Готовое аудио найдено. Платный запрос не требуется."
                 } else if plan.blockers.contains("ambiguous_segment_requires_resolution") {
                     errorMessage = "Результат запроса не определён. Автоматический повтор запрещён."
                     technicalDetails = plan.blockers.joined(separator: "\n")
                 } else if plan.blockers.contains("failed_segment_requires_resolution") {
-                    errorMessage = "Неустранённая ошибка сегмента блокирует запуск."
+                    errorMessage = "Неустранённая ошибка части записи блокирует запуск."
                     technicalDetails = plan.blockers.joined(separator: "\n")
                 } else {
                     errorMessage = paidRunBlockerLabel(plan.blockers)
@@ -584,9 +624,9 @@ final class StudioModel: ObservableObject {
                 }
                 paidStatusText = result.networkRequests == 0
                     ? (targets.count > 1
-                        ? "Готовое аудио использовано без нового запроса. Выберите точный сегмент для проверки."
+                        ? "Готовое аудио использовано без нового обращения. Выберите конкретную часть для проверки."
                         : "Готовое аудио использовано без нового запроса.")
-                    : "Сегмент готов. Осталось: \(result.remainingSegments)"
+                    : "Часть готова. Осталось: \(result.remainingSegments)"
                 errorMessage = nil
             } catch {
                 showError(error)
@@ -601,7 +641,7 @@ final class StudioModel: ObservableObject {
                 let _: CloudBillingSnapshot = try await runBridgeJSON([
                     "--billing-status", "--provider", provider.rawValue, "--refresh",
                 ])
-                billingRefreshText = "Статус обновлён. Недоступные provider-данные не считаются ошибкой Studio."
+                billingRefreshText = "Статус обновлён. Если сервис не сообщает остаток, Studio честно покажет «Недоступно»."
                 await reload()
             } catch {
                 billingRefreshText = "Не удалось выполнить read-only обновление billing."
@@ -674,7 +714,9 @@ final class StudioModel: ObservableObject {
         guard engine == .yandex,
               selectedBook?.preparationStatus == "READY",
               selectedJob?.kind == "chapter",
-              selectedProfileID == "yandex_lera" else { return nil }
+              let profile = selectedProfile,
+              profile.provider == "yandex",
+              profile.status == "approved" else { return nil }
         return YandexChapterSelection(
             bookID: selectedBookID,
             jobID: selectedJobID,
@@ -763,7 +805,7 @@ final class StudioModel: ObservableObject {
                 "--profile-id", selection.profileID,
             ])
             guard !result.remoteRequestSent else {
-                throw BridgeError.message("Список OpenAI QA targets нарушил offline contract.")
+                throw BridgeError.message("Список готовых частей OpenAI не прошёл локальную проверку безопасности.")
             }
             guard executionSelectionGeneration == expectedSelectionGeneration,
                   currentOpenAISelection() == selection else { return }
@@ -794,9 +836,9 @@ final class StudioModel: ObservableObject {
                 )
             } else if result.qaTargets.isEmpty {
                 audioQA = nil
-                errorMessage = "Текущих точных OpenAI-сегментов для проверки не найдено."
+                errorMessage = "Готовых частей OpenAI для проверки не найдено."
             } else {
-                paidStatusText = "Выберите точный OpenAI-сегмент для проверки."
+                paidStatusText = "Выберите конкретную часть OpenAI для проверки."
                 errorMessage = nil
             }
         } catch {
@@ -809,12 +851,12 @@ final class StudioModel: ObservableObject {
         guard let envelope = audioQA else { return }
         let audio = URL(fileURLWithPath: envelope.record.audioPath)
         guard audio.path == envelope.authority.audioPath else {
-            errorMessage = "Текущий WAV больше не совпадает с production authority."
+            errorMessage = "Открытый аудиофайл больше не совпадает с текущей версией главы."
             return
         }
         guard let sha = envelope.record.identity.audioSHA256,
               let fingerprint = envelope.record.identity.synthesisFingerprint else {
-            errorMessage = "Точная identity текущего WAV недоступна."
+            errorMessage = "Не удалось подтвердить точную версию текущего аудиофайла."
             return
         }
         let binding = AudioPlaybackBinding(
@@ -861,13 +903,13 @@ final class StudioModel: ObservableObject {
                   audioPlayer.binding?.jobID == envelope.authority.jobID,
                   audioPlayer.binding?.segmentID == envelope.authority.segmentID,
                   audioPlayer.validateLoadedIdentity(rehash: true) else {
-                errorMessage = "Перед одобрением прослушайте именно текущую версию WAV."
+                errorMessage = "Перед одобрением прослушайте именно текущую версию аудио."
                 return
             }
         }
         guard let sha = envelope.record.identity.audioSHA256,
               let fingerprint = envelope.record.identity.synthesisFingerprint else {
-            errorMessage = "Точная identity текущего WAV недоступна."
+            errorMessage = "Не удалось подтвердить точную версию текущего аудиофайла."
             return
         }
         let expectedSelectionGeneration = executionSelectionGeneration
@@ -901,7 +943,7 @@ final class StudioModel: ObservableObject {
                 )
                 guard executionSelectionGeneration == expectedSelectionGeneration else { return }
                 audioQAStatusText = decision == "REGENERATE_REQUESTED"
-                    ? "Запрос перегенерации записан. Новый синтез запускается только обычным подтверждаемым маршрутом."
+                    ? "Запрос новой записи сохранён. Studio ничего не запустит без обычного подтверждения."
                     : audioQAManualLabel(result.record.manualState)
                 errorMessage = nil
             } catch {
@@ -917,7 +959,7 @@ final class StudioModel: ObservableObject {
               openAIQATargets.contains(target) else {
             openAIQATargets = []
             openAIQASelection = nil
-            errorMessage = "Выбор изменился. Получите текущий список готовых сегментов заново."
+            errorMessage = "Выбор изменился. Обновите список готовых частей."
             return
         }
         audioPlayer.clear()
@@ -984,7 +1026,7 @@ final class StudioModel: ObservableObject {
                       result.authority.audioPath == expectedTarget.outputPath,
                       result.authority.manifestPath == expectedTarget.manifestPath,
                       result.authority.synthesisFingerprint == expectedTarget.synthesisFingerprint else {
-                    throw BridgeError.message("Точный OpenAI QA target больше не совпадает с production authority.")
+                    throw BridgeError.message("Выбранная часть OpenAI больше не совпадает с текущей записью.")
                 }
             }
             guard selectedBookID == bookID,
@@ -1162,7 +1204,7 @@ final class StudioModel: ObservableObject {
     func playAssembledChapter() {
         guard let output = chapterAssembly?.assembly?.output,
               let qa = audioQA else {
-            errorMessage = "Собранный WAV пока недоступен."
+            errorMessage = "Собранная глава пока недоступна."
             return
         }
         let binding = AudioPlaybackBinding(
@@ -1265,7 +1307,7 @@ final class StudioModel: ObservableObject {
                       result.providerRequests == 0,
                       !result.billingChanged,
                       result.mastering.master != nil else {
-                    throw BridgeError.message("Clean master не был безопасно опубликован.")
+                    throw BridgeError.message("Мастер-файл не удалось безопасно сохранить.")
                 }
                 guard executionSelectionGeneration == expectedSelectionGeneration,
                       audioQA?.authority == authority else { return }
@@ -1312,7 +1354,7 @@ final class StudioModel: ObservableObject {
     func createCurrentLitresExport() {
         guard let authority = audioQA?.authority,
               mastering?.master != nil else {
-            errorMessage = "Для экспорта требуется точный текущий clean master."
+            errorMessage = "Перед экспортом подготовьте актуальный мастер-файл."
             return
         }
         let expectedSelectionGeneration = executionSelectionGeneration
@@ -1410,14 +1452,24 @@ final class StudioModel: ObservableObject {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: pythonExecutable)
             process.arguments = [studioDirectory.appendingPathComponent("audiobook_studio_app_runner.py").path] + arguments
-            let stdout = Pipe()
-            let stderr = Pipe()
+            let captureDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("audiobook-studio-bridge-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: captureDirectory, withIntermediateDirectories: false)
+            defer { try? FileManager.default.removeItem(at: captureDirectory) }
+            let stdoutURL = captureDirectory.appendingPathComponent("stdout.json")
+            let stderrURL = captureDirectory.appendingPathComponent("stderr.txt")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdout = try FileHandle(forWritingTo: stdoutURL)
+            let stderr = try FileHandle(forWritingTo: stderrURL)
             process.standardOutput = stdout
             process.standardError = stderr
             try process.run()
             process.waitUntilExit()
-            let output = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            let error = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            try stdout.close()
+            try stderr.close()
+            let output = String(decoding: try Data(contentsOf: stdoutURL), as: UTF8.self)
+            let error = String(decoding: try Data(contentsOf: stderrURL), as: UTF8.self)
             guard process.terminationStatus == 0 else {
                 throw BridgeError.message(error.isEmpty ? "Команда Studio завершилась с ошибкой." : error)
             }
@@ -1450,16 +1502,166 @@ private enum BridgeError: LocalizedError { case message(String); var errorDescri
 struct AudiobookStudioApp: App {
     @StateObject private var model = StudioModel()
 
+    private var diagnosticDefaultSize: CGSize {
+        ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_DIAGNOSTIC_WINDOW_SIZE"] == "minimum"
+            ? CGSize(width: 900, height: 620)
+            : CGSize(width: 1060, height: 720)
+    }
+
     var body: some Scene {
         WindowGroup("Audiobook Studio") {
             StudioView(model: model)
                 .frame(minWidth: 900, minHeight: 620)
+                .task {
+                    guard ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_DIAGNOSTIC_WINDOW_SIZE"] == "minimum" else {
+                        return
+                    }
+                    // SwiftUI restores saved window bounds after `defaultSize`. The
+                    // diagnostic render contract must exercise the real minimum.
+                    for _ in 0..<12 {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        if let window = NSApplication.shared.windows.first(where: { $0.title == "Audiobook Studio" }) {
+                            window.setContentSize(CGSize(width: 900, height: 620))
+                            break
+                        }
+                    }
+                }
         }
-        .defaultSize(width: 1060, height: 720)
+        .defaultSize(width: diagnosticDefaultSize.width, height: diagnosticDefaultSize.height)
         Settings {
             SettingsView(model: model)
                 .frame(width: 520)
         }
+    }
+}
+
+private enum StudioHelpTopic: String, CaseIterable, Identifiable {
+    case quickStart, text, pronunciation, narrators, recording, regeneration
+    case sound, listening, approval, mastering, export, costs
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .quickStart: return "Быстрый старт"
+        case .text: return "Текст"
+        case .pronunciation: return "Ударения"
+        case .narrators: return "Дикторы"
+        case .recording: return "Запись"
+        case .regeneration: return "Как исправить фрагмент"
+        case .sound: return "Звуки перед главами"
+        case .listening: return "Прослушивание"
+        case .approval: return "Одобрение"
+        case .mastering: return "Мастеринг"
+        case .export: return "Экспорт"
+        case .costs: return "Расходы и лимиты"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .quickStart:
+            return "Выберите книгу и двигайтесь по разделам слева. Studio показывает один текущий шаг и не запускает запись без вашего действия."
+        case .text:
+            return "Проверьте рабочий текст для озвучки, сохраните изменения и примите его. Оригинальный файл книги не меняется."
+        case .pronunciation:
+            return "Введите сложное слово, прослушайте варианты ударения и сохраните подходящий вариант для этой книги."
+        case .narrators:
+            return "Выберите способ озвучки и голос. Технические параметры скрыты в раскрывающемся блоке."
+        case .recording:
+            return "Выберите главу и подготовьте запуск. Если запись платная, Studio отдельно покажет стоимость и попросит подтверждение."
+        case .regeneration:
+            return "После прослушивания нажмите «Исправить…»: вернитесь к тексту, поправьте ударение или выберите другого диктора. Затем снова откройте «Запись» и подготовьте новую версию. Если настройки уже верны, выберите «Записать заново с текущими настройками». Studio никогда не повторяет платный запрос автоматически."
+        case .sound:
+            return "Оставьте вариант «Без звукового оформления», выберите встроенный звук или добавьте свой WAV. Звук можно менять после записи голоса."
+        case .listening:
+            return "Откройте готовое аудио и прослушайте именно выбранную главу встроенным плеером."
+        case .approval:
+            return "Одобряйте главу только после прослушивания. После одобрения откроется сборка; до этого выпуск заблокирован."
+        case .mastering:
+            return "После сборки Studio выравнивает громкость и проверяет техническое качество итогового файла."
+        case .export:
+            return "Экспорт создаёт файл для публикации. Прогресс показывает, сколько глав всей книги уже готово."
+        case .costs:
+            return "Защитные лимиты находятся в Настройках. Подготовка плана бесплатна; платная запись требует отдельного подтверждения."
+        }
+    }
+}
+
+private struct StudioHelpView: View {
+    let selectedTopic: StudioHelpTopic
+    let onShowIntroduction: () -> Void
+
+    private let quickStart = [
+        "Добавьте или выберите книгу.",
+        "Проверьте текст, который будет озвучен.",
+        "Проверьте ударения в сложных словах.",
+        "Выберите звук перед главами или оставьте книгу без него.",
+        "Выберите диктора.",
+        "Выберите главу.",
+        "Подготовьте и запустите запись.",
+        "Прослушайте результат.",
+        "Исправьте ошибки или запросите перезапись.",
+        "Примите готовую главу.",
+        "Повторите запись для остальных глав.",
+        "Соберите аудиокнигу.",
+        "Сделайте мастеринг.",
+        "Подготовьте выпуск.",
+    ]
+
+    var body: some View {
+        Group {
+            Section("Помощь · \(selectedTopic.title)") {
+                Text(selectedTopic.explanation)
+                    .font(.body)
+                Button("Показать введение снова", action: onShowIntroduction)
+            }
+            Section("Быстрый старт") {
+                ForEach(Array(quickStart.enumerated()), id: \.offset) { index, item in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text("\(index + 1)")
+                            .font(.caption.bold())
+                            .frame(width: 24, height: 24)
+                            .background(Circle().fill(Color.accentColor.opacity(0.14)))
+                        Text(item)
+                    }
+                }
+            }
+            Section("Помощь по разделам") {
+                ForEach(StudioHelpTopic.allCases.filter { $0 != .quickStart }) { topic in
+                    DisclosureGroup(topic.title) {
+                        Text(topic.explanation).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct StudioOnboardingView: View {
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Image(systemName: "waveform.and.book.pages")
+                .font(.system(size: 42))
+                .foregroundStyle(.tint)
+            Text("Добро пожаловать в Audiobook Studio")
+                .font(.largeTitle.weight(.semibold))
+            Text("Добавьте книгу → подготовьте текст → выберите голос → запишите первую главу")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            Text("Разделы слева проведут вас по всей работе. Подробные подсказки всегда доступны в «Помощи».")
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Начать") { isPresented = false }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(32)
+        .frame(width: 620)
     }
 }
 
@@ -1475,6 +1677,12 @@ struct StudioView: View {
     @State private var newBookTitle = ""
     @State private var newBookAuthor = ""
     @State private var newBookSlug = ""
+    @State private var activeOwnerStep: OwnerProductionStep = .text
+    @State private var acknowledgedOwnerSteps: Set<OwnerProductionStep> = []
+    @State private var showingHelp = false
+    @State private var helpTopic: StudioHelpTopic = .quickStart
+    @State private var showOnboarding = false
+    @AppStorage("hasSeenAuthorOnboarding") private var hasSeenAuthorOnboarding = false
 
     private var dilonSelectionKey: String {
         "\(model.selectedBookID)\u{1f}\(model.selectedJobID)"
@@ -1493,9 +1701,87 @@ struct StudioView: View {
         )
     }
 
+    private func openHelp(_ topic: StudioHelpTopic) {
+        helpTopic = topic
+        showingHelp = true
+    }
+
+    private func applyDiagnosticInitialSectionIfRequested() -> Bool {
+        switch ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_SECTION"] {
+        case "help": openHelp(.quickStart)
+        case "pronunciation": showingHelp = false; activeOwnerStep = .pronunciation
+        case "sound": showingHelp = false; activeOwnerStep = .chapterSound
+        case "recording": showingHelp = false; activeOwnerStep = .narrator
+        case "release": showingHelp = false; activeOwnerStep = .release
+        default: return false
+        }
+        return true
+    }
+
+    private func helpTopic(for step: OwnerProductionStep) -> StudioHelpTopic {
+        switch step {
+        case .text: return .text
+        case .pronunciation: return .pronunciation
+        case .chapterSound: return .sound
+        case .narrator: return .narrators
+        case .chapter, .review: return .recording
+        case .release: return .export
+        }
+    }
+
+    @ViewBuilder
+    private func sidebarButton(
+        _ title: String,
+        systemImage: String,
+        active: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .fontWeight(active ? .semibold : .regular)
+                .foregroundStyle(active ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 3)
+    }
+
     var body: some View {
         NavigationSplitView {
             List(selection: $model.selectedBookID) {
+                Section("РАБОТА С КНИГОЙ") {
+                    sidebarButton("Книга", systemImage: "book.pages", active: !showingHelp && activeOwnerStep == .text) {
+                        showingHelp = false
+                        activeOwnerStep = .text
+                    }
+                    sidebarButton("Произношение", systemImage: "textformat.abc", active: !showingHelp && activeOwnerStep == .pronunciation) {
+                        showingHelp = false
+                        activeOwnerStep = .pronunciation
+                    }
+                    sidebarButton("Звуковое оформление", systemImage: "music.note", active: !showingHelp && activeOwnerStep == .chapterSound) {
+                        showingHelp = false
+                        activeOwnerStep = .chapterSound
+                    }
+                    sidebarButton(
+                        "Запись",
+                        systemImage: "waveform",
+                        active: !showingHelp && [.narrator, .chapter, .review].contains(activeOwnerStep)
+                    ) {
+                        showingHelp = false
+                        activeOwnerStep = .narrator
+                    }
+                    sidebarButton("Сборка и выпуск", systemImage: "shippingbox", active: !showingHelp && activeOwnerStep == .release) {
+                        showingHelp = false
+                        activeOwnerStep = .release
+                    }
+                }
+                Section("СПРАВКА") {
+                    sidebarButton("Помощь", systemImage: "questionmark.circle", active: showingHelp) {
+                        openHelp(.quickStart)
+                    }
+                    sidebarButton("Настройки", systemImage: "gearshape", active: false) {
+                        openSettings()
+                    }
+                }
                 Section("БИБЛИОТЕКА") {
                     ForEach(model.books) { book in
                         VStack(alignment: .leading, spacing: 3) {
@@ -1522,7 +1808,12 @@ struct StudioView: View {
         } detail: {
             VStack(spacing: 0) {
                 Form {
-                    if let book = model.selectedBook, book.kind == "production" {
+                    if showingHelp {
+                        StudioHelpView(
+                            selectedTopic: helpTopic,
+                            onShowIntroduction: { showOnboarding = true }
+                        )
+                    } else if let book = model.selectedBook, book.kind == "production" {
                         Section("Книга") {
                             Text(book.title).font(.title2.weight(.semibold))
                             Text(book.author).foregroundStyle(.secondary)
@@ -1546,12 +1837,18 @@ struct StudioView: View {
                             .font(.caption)
                         }
 
-                        OwnerProductionFlowPanel(model: model, selectedBookID: book.id)
+                        OwnerProductionFlowPanel(
+                            model: model,
+                            activeStep: $activeOwnerStep,
+                            acknowledgedSteps: $acknowledgedOwnerSteps,
+                            selectedBookID: book.id,
+                            selectedBookSlug: book.slug ?? book.id,
+                            onOpenHelp: { openHelp(helpTopic(for: $0)) }
+                        )
 
-                    }
-
-                    Section("4. Диктор") {
-                        Picker("Движок", selection: $model.engine) {
+                    if activeOwnerStep == .narrator {
+                        Section("4. Выберите диктора") {
+                        Picker("Способ озвучки", selection: $model.engine) {
                             ForEach(Engine.allCases) { engine in Text(engine.title).tag(engine) }
                         }
                         .pickerStyle(.segmented)
@@ -1565,29 +1862,49 @@ struct StudioView: View {
                                 ForEach(model.availableProfiles) { Text($0.label).tag($0.profileID) }
                             }
                         } else if model.engine == .yandex {
-                            Picker("Голос", selection: $model.selectedProfileID) {
+                            Picker(
+                                "Голос",
+                                selection: Binding(
+                                    get: { model.selectedProfileID },
+                                    set: { model.selectYandexProfile($0) }
+                                )
+                            ) {
                                 ForEach(model.availableProfiles) { Text($0.label).tag($0.profileID) }
                             }
-                            .disabled(true)
+                            .pickerStyle(.radioGroup)
                             LabeledContent("Стиль", value: model.selectedProfile?.role ?? model.profile.role)
                             LabeledContent("Скорость", value: model.selectedProfile?.speed ?? model.profile.speed)
-                            Text("Текущий production-профиль Lera зафиксирован; остальные approved-профили доступны в Voice Library.")
+                            Text("Выбор сохранится только для этой книги.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
                             Picker("Голос", selection: $model.selectedProfileID) {
                                 ForEach(model.availableProfiles) { Text($0.label).tag($0.profileID) }
                             }
-                            LabeledContent("Модель", value: model.selectedProfile?.model ?? "gpt-4o-mini-tts")
-                            LabeledContent("Формат", value: (model.selectedProfile?.responseFormat ?? "wav").uppercased())
-                            LabeledContent("Статус", value: "Безопасный запуск одного сегмента")
-                            Label("Каждый новый платный сегмент требует отдельного плана и подтверждения.", systemImage: "checkmark.shield")
+                            Label("Каждый новый фрагмент потребует отдельного подтверждения.", systemImage: "checkmark.shield")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            DisclosureGroup("Технические параметры голоса") {
+                                LabeledContent("Модель", value: model.selectedProfile?.model ?? "gpt-4o-mini-tts")
+                                LabeledContent("Формат", value: (model.selectedProfile?.responseFormat ?? "wav").uppercased())
+                            }
                         }
+                        Button("Подробнее о дикторах") { openHelp(.narrators) }
+                            .buttonStyle(.link)
+                        }
+                        Button("Дальше: выбрать главу") {
+                            acknowledgedOwnerSteps.insert(.narrator)
+                            activeOwnerStep = .chapter
+                        }
+                            .buttonStyle(.borderedProminent)
                     }
 
-                    Section("5. Глава для записи") {
+                    if activeOwnerStep == .chapter {
+                        Section("5. Выберите главу") {
+                        if let narrator = model.selectedProfile {
+                            Label("Диктор: \(narrator.label)", systemImage: "person.wave.2.fill")
+                                .font(.headline)
+                        }
                         if model.selectedBook?.jobs.isEmpty ?? true {
                             Text("Подготовленных задач пока нет")
                                 .foregroundStyle(.secondary)
@@ -1595,7 +1912,7 @@ struct StudioView: View {
                             if let book = model.selectedBook, !book.jobs.isEmpty {
                                 Picker("Подготовленная задача", selection: $model.selectedJobID) {
                                     ForEach(book.jobs) { job in
-                                        Text("\(job.label) · \(job.segmentCount) сегм.").tag(job.id)
+                                        Text(job.label).tag(job.id)
                                     }
                                 }
                                 .onChange(of: model.selectedJobID) { _, _ in model.paidPlan = nil }
@@ -1603,7 +1920,7 @@ struct StudioView: View {
                                 Text("Для книги нет подготовленных задач.")
                                     .foregroundStyle(.secondary)
                             }
-                            Text("Studio выберет только первый допустимый MISS-сегмент. Вся книга автоматически не запускается.")
+                            Text("Studio подготовит только один следующий фрагмент. Вся книга автоматически не запускается.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else if model.engine == .yandex {
@@ -1613,30 +1930,40 @@ struct StudioView: View {
                             } else {
                                 Picker("Подготовленная глава", selection: $model.selectedJobID) {
                                     ForEach(model.chapterJobs) { job in
-                                        Text("\(job.label) · \(job.segmentCount) лит. сегм.").tag(job.id)
+                                        Text(job.label).tag(job.id)
                                     }
                                 }
                             }
-                            Text("Studio сначала создаёт локальный неизменяемый план, затем отдельно показывает стоимость и число возможных provider-запросов.")
+                            Text("Перед записью Studio покажет стоимость и число возможных запросов. Ничего не отправится без подтверждения.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else if let book = model.selectedBook, !book.jobs.isEmpty {
                             Picker("Подготовленная задача", selection: $model.selectedJobID) {
                                 ForEach(book.jobs) { job in
-                                    Text("\(job.label) · \(job.segmentCount) сегм.").tag(job.id)
+                                    Text(job.label).tag(job.id)
                                 }
                             }
                         } else {
                             Text("Для книги нет подготовленных задач.")
                                 .foregroundStyle(.secondary)
                         }
+                        Button("Как выбрать главу и начать запись?") { openHelp(.recording) }
+                            .buttonStyle(.link)
+                        }
+                        Button("Дальше: записать и прослушать") {
+                            acknowledgedOwnerSteps.insert(.chapter)
+                            activeOwnerStep = .review
+                        }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.selectedJob == nil || model.selectedProfile == nil)
                     }
 
-                    if model.engine == .openai, let plan = model.paidPlan {
+                    if activeOwnerStep == .review,
+                       model.engine == .openai, let plan = model.paidPlan {
                         Section("План запуска") {
-                            LabeledContent("Решение", value: plan.decision == "CACHE_ONLY" ? "Готовое аудио" : plan.decision)
+                            LabeledContent("Состояние", value: plan.decision == "CACHE_ONLY" ? "Готовое аудио найдено" : "Готово к подтверждению")
                             if let number = plan.selectedSegmentNumber {
-                                LabeledContent("Сегмент", value: "\(number) из \(plan.totalSegments)")
+                                LabeledContent("Часть записи", value: "\(number) из \(plan.totalSegments)")
                             }
                             LabeledContent("Новых платных запросов", value: "максимум \(plan.maxNetworkRequests)")
                             LabeledContent("Точная будущая стоимость", value: "Недоступно")
@@ -1646,13 +1973,14 @@ struct StudioView: View {
                         }
                     }
 
-                    if model.engine == .yandex, let plan = model.yandexChapterPlan {
+                    if activeOwnerStep == .review,
+                       model.engine == .yandex, let plan = model.yandexChapterPlan {
                         Section("Параметры задачи") {
-                            Text("\(plan.characters.formatted()) символов · \(plan.totalSegments) provider-сегм.")
+                            Text("\(plan.characters.formatted()) символов · \(plan.totalSegments) частей для записи")
                             if plan.cachedSegments > 0 {
-                                Text("Проверенный кэш: \(plan.cachedSegments)")
+                                Text("Уже готовых частей: \(plan.cachedSegments)")
                             }
-                            LabeledContent("Новых запросов", value: "максимум \(plan.maxNetworkRequests)")
+                            LabeledContent("Новых платных обращений", value: "максимум \(plan.maxNetworkRequests)")
                             LabeledContent(
                                 "Оценка главы",
                                 value: formattedMoney(plan.estimatedRemainingCost, currency: plan.currency, source: "local_estimate")
@@ -1663,14 +1991,16 @@ struct StudioView: View {
                                 Text(model.yandexChapterStatusText).font(.caption).foregroundStyle(.secondary)
                             }
                         }
-                    } else if model.engine == .yandex, let job = model.selectedJob {
+                    } else if activeOwnerStep == .review,
+                              model.engine == .yandex, let job = model.selectedJob {
                         Section("Параметры задачи") {
-                            Text("Подготовленная глава · \(job.segmentCount) литературных сегм.")
-                            Text("Точная provider-сегментация и стоимость появятся после локальной подготовки плана.")
+                            Text("Подготовленная глава · \(job.segmentCount) частей текста")
+                            Text("Количество запросов и оценка стоимости появятся после локальной подготовки плана.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                    } else if model.engine == .yandex, let estimate = model.estimate {
+                    } else if activeOwnerStep == .review,
+                              model.engine == .yandex, let estimate = model.estimate {
                         Section("Диагностический тариф") {
                             Text(estimate.priceStale ? "Тариф требует проверки" : "Тариф проверен: \(russianDate(estimate.priceVerifiedAt))")
                                 .foregroundStyle(estimate.priceStale ? .orange : .secondary)
@@ -1681,9 +2011,22 @@ struct StudioView: View {
                         }
                     }
 
-                    AudioQAReviewSection(model: model)
+                    if activeOwnerStep == .review {
+                        AudioQAReviewSection(model: model, activeStep: $activeOwnerStep)
+                        Button("Как прослушать, исправить или принять главу?") { openHelp(.regeneration) }
+                            .buttonStyle(.link)
+                        Button("Дальше: собрать готовую книгу") { activeOwnerStep = .release }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.audioQA?.record.manualState != "APPROVED")
+                    }
 
-                    if let snapshot = dilonFlow.snapshot {
+                    if activeOwnerStep == .release {
+                        OwnerReleaseSection(model: model)
+                        Button("Подробнее о мастеринге и выпуске") { openHelp(.mastering) }
+                            .buttonStyle(.link)
+                    }
+
+                    if activeOwnerStep == .release, let snapshot = dilonFlow.snapshot {
                         DilonNativeCard(
                             snapshot: snapshot,
                             player: model.audioPlayer,
@@ -1695,26 +2038,40 @@ struct StudioView: View {
                             }
                         )
                         if !dilonFlow.statusText.isEmpty {
-                            Section("Dilon Voices status") {
+                            Section("Фирменная заставка") {
                                 Label(dilonFlow.statusText, systemImage: "checkmark.shield.fill")
                                     .foregroundStyle(.green)
                             }
                         }
-                    } else if model.selectedBook?.kind == "production",
+                    } else if activeOwnerStep == .release,
+                              model.selectedBook?.kind == "production",
                               model.selectedJob?.kind == "chapter" {
                         Section("Dilon Voices") {
                             if dilonFlow.isLoading {
-                                ProgressView("Проверяется Dilon identity…")
+                                ProgressView("Проверяется фирменная заставка…")
                             } else if let error = dilonFlow.errorMessage {
                                 Label(error, systemImage: "lock.shield")
                                     .foregroundStyle(.secondary)
-                                Button("Обновить Dilon status") {
+                                Button("Проверить снова") {
                                     dilonFlow.refresh(player: model.audioPlayer)
                                 }
                             } else {
-                                Label("Dilon identity пока недоступен", systemImage: "lock.fill")
+                                Label("Фирменная заставка пока недоступна", systemImage: "lock.fill")
                                     .foregroundStyle(.secondary)
                             }
+                        }
+                    }
+                    } else {
+                        Section {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Label("Начните с книги", systemImage: "book.closed")
+                                    .font(.title2.weight(.semibold))
+                                Text("Добавьте файл книги — Studio проведёт вас от проверки текста до готового аудио.")
+                                    .foregroundStyle(.secondary)
+                                Button("Добавить книгу") { showBookImporter = true }
+                                    .buttonStyle(.borderedProminent)
+                            }
+                            .padding(.vertical, 24)
                         }
                     }
 
@@ -1722,62 +2079,70 @@ struct StudioView: View {
                 .formStyle(.grouped)
                 .padding(.top, 8)
 
-                Divider()
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(model.isRunning ? "Идёт озвучка" : (model.completedOutput == nil ? "Готово к запуску" : "Готово"))
-                            .font(.headline)
+                if model.selectedBook?.kind == "production", activeOwnerStep == .review {
+                    Divider()
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(model.isRunning ? "Идёт запись главы" : "Запись и прослушивание")
+                                .font(.headline)
+                            if let output = model.completedOutput {
+                                Text(output.lastPathComponent).foregroundStyle(.secondary)
+                            } else {
+                                Text("Сначала подготовьте запуск. Запись начнётся только после отдельного подтверждения, если оно требуется.")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
                         if let output = model.completedOutput {
-                            Text(output.lastPathComponent).foregroundStyle(.secondary)
-                        } else if model.engine == .qwen {
-                            Text("Выберите подготовленную задачу для Qwen.").foregroundStyle(.secondary)
-                        } else if model.engine == .openai {
-                            Text(model.paidStatusText.isEmpty
-                                ? "Выберите подготовленную задачу. Один план разрешает максимум один новый запрос."
-                                : model.paidStatusText)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(model.yandexChapterStatusText.isEmpty
-                                ? "Подготовленная глава · Lera · neutral · 1.04"
-                                : model.yandexChapterStatusText)
-                                .foregroundStyle(.secondary)
+                            Button("Прослушать") { NSWorkspace.shared.open(output) }
+                            Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
+                        }
+                        if model.audioQA == nil
+                            || model.audioQA?.record.manualState == "REJECTED"
+                            || model.audioQA?.record.manualState == "REGENERATE_REQUESTED" {
+                            Button(primaryButtonTitle(model)) { model.begin() }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(
+                                    model.isRunning || model.isLoading || model.isAddingBook
+                                        || model.isPreparingBookText
+                                        || (model.selectedBook?.jobs.isEmpty ?? true)
+                                        || (model.engine == .yandex && model.selectedJob?.kind != "chapter")
+                                )
                         }
                     }
-                    Spacer()
-                    if let output = model.completedOutput {
-                        Button("Прослушать") { NSWorkspace.shared.open(output) }
-                        Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
+                    .padding()
+                    if let details = model.technicalDetails {
+                        DisclosureGroup("Технические подробности") {
+                            Text(details).font(.caption.monospaced())
+                        }
+                        .padding([.horizontal, .bottom])
                     }
-                    Button(primaryButtonTitle(model)) { model.begin() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(
-                            model.isRunning || model.isLoading || model.isAddingBook
-                                || model.isPreparingBookText
-                                || (model.selectedBook?.jobs.isEmpty ?? true)
-                                || (model.engine == .yandex && model.selectedJob?.kind != "chapter")
-                        )
-                }
-                .padding()
-                if let details = model.technicalDetails {
-                    DisclosureGroup("Технические подробности") {
-                        Text(details).font(.caption.monospaced())
-                    }
-                    .padding([.horizontal, .bottom])
                 }
             }
             .overlay {
                 if model.isLoading { ProgressView("Загрузка Studio…") }
             }
-            .navigationTitle(model.selectedBook?.title ?? "Audiobook Studio")
+            .navigationTitle(showingHelp ? "Как пользоваться Audiobook Studio" : (model.selectedBook?.title ?? "Audiobook Studio"))
             .task(id: dilonSelectionKey) {
                 syncDilonSelection()
             }
             .onChange(of: model.selectedBookID) { _, _ in
                 model.cancelBookTextPreparation()
                 model.selectDefaultJob()
+                model.selectDefaultProfile()
+                acknowledgedOwnerSteps = []
+                if !applyDiagnosticInitialSectionIfRequested() {
+                    showingHelp = false
+                    activeOwnerStep = .text
+                }
             }
             .toolbar { ToolbarItem { SettingsLink { Label("Настройки", systemImage: "gearshape") } } }
             .task {
+                _ = applyDiagnosticInitialSectionIfRequested()
+                if !hasSeenAuthorOnboarding,
+                   ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_SKIP_ONBOARDING"] != "1" {
+                    showOnboarding = true
+                }
                 if ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_OPEN_SETTINGS_ON_LAUNCH"] == "1",
                    !openedDiagnosticSettings {
                     openedDiagnosticSettings = true
@@ -1797,7 +2162,7 @@ struct StudioView: View {
                 Button("Отмена", role: .cancel) {}
             } message: {
                 if let plan = model.yandexChapterPlan {
-                    Text("Yandex SpeechKit\nГлава: \(plan.jobLabel)\nГолос: \(plan.voice.capitalized) · \(plan.role) · \(plan.speed)\nProvider-сегментов: \(plan.totalSegments)\nНовых запросов: максимум \(plan.maxNetworkRequests)\nОценка: \(formattedMoney(plan.estimatedRemainingCost, currency: plan.currency, source: "local_estimate"))\nЛимит Studio: \(formattedMoney(plan.hardLimit, currency: plan.currency, source: "local_actual"))")
+                    Text("Yandex SpeechKit\nГлава: \(plan.jobLabel)\nГолос: \(plan.voice.capitalized) · \(plan.role) · \(plan.speed)\nЧастей записи: \(plan.totalSegments)\nНовых платных обращений: максимум \(plan.maxNetworkRequests)\nОценка: \(formattedMoney(plan.estimatedRemainingCost, currency: plan.currency, source: "local_estimate"))\nЛимит Studio: \(formattedMoney(plan.hardLimit, currency: plan.currency, source: "local_actual"))")
                 }
             }
             .modifier(OpenAIConfirmationDialogs(model: model))
@@ -1812,7 +2177,7 @@ struct StudioView: View {
                 Button("Подготовить текст") { model.confirmBookTextPreparation() }
                 Button("Отмена", role: .cancel) { model.cancelBookTextPreparation() }
             } message: {
-                Text("Исходный файл не изменится. Будет обработана только TTS working copy. Платных и provider-запросов нет.")
+                Text("Исходный файл не изменится. Studio подготовит отдельный рабочий текст; запись и платные обращения не запускаются.")
             }
             .fileImporter(
                 isPresented: $showBookImporter,
@@ -1841,27 +2206,33 @@ struct StudioView: View {
                     isPresented: $showAddBookSheet
                 )
             }
+            .sheet(isPresented: $showOnboarding, onDismiss: {
+                hasSeenAuthorOnboarding = true
+            }) {
+                StudioOnboardingView(isPresented: $showOnboarding)
+            }
         }
     }
 }
 
 private struct AudioQAReviewSection: View {
     @ObservedObject var model: StudioModel
+    @Binding var activeStep: OwnerProductionStep
 
     var body: some View {
         Group {
             if model.engine == .openai, model.openAIQATargets.count > 1 {
-                Section("Точный сегмент для проверки") {
+                Section("Выберите часть записи для проверки") {
                     ForEach(model.openAIQATargets) { target in
-                        Button("Проверить сегмент \(target.segmentID)") {
+                        Button("Проверить часть \(target.segmentID)") {
                             model.openOpenAIQATarget(target)
                         }
                         .disabled(model.isRunning)
                     }
-                    Text("Выберите сегмент явно; неоднозначный WAV не может быть одобрен.")
+                    Text("Выберите одну конкретную часть: Studio не позволит случайно одобрить другой файл.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Button("Обновить список из manifest") {
+                    Button("Обновить список") {
                         model.refreshOpenAIQATargets()
                     }
                     .disabled(model.isRunning)
@@ -1897,13 +2268,13 @@ private struct AudioQAReviewSection: View {
                     AudioTransportCard(
                         player: model.audioPlayer,
                         role: "qa-source",
-                        playTitle: "Прослушать точный WAV",
+                        playTitle: "Прослушать главу",
                         onLoad: model.playExactAudioForQA,
                         onReveal: model.revealCurrentAudioInFinder
                     )
 
-                    LabeledContent("Ручное решение", value: audioQAManualLabel(qa.record.manualState))
-                    DisclosureGroup("Точный текст синтеза · \(qa.authority.textCharacters) символов") {
+                    LabeledContent("Ваше решение", value: audioQAManualLabel(qa.record.manualState))
+                    DisclosureGroup("Текст этой записи · \(qa.authority.textCharacters) символов") {
                         Text(qa.authority.segmentText).textSelection(.enabled)
                     }
                     ForEach(qa.record.automaticReasons, id: \.self) { reason in
@@ -1920,10 +2291,19 @@ private struct AudioQAReviewSection: View {
                                     || qa.record.automaticStatus == "FAIL"
                                     || model.audioQAPlaybackIdentity != qa.record.identity
                             )
-                        Button("Отклонить", role: .destructive) { model.decideAudioQA("REJECTED") }
-                            .disabled(model.isRunning)
-                        Button("Запросить перегенерацию") { model.decideAudioQA("REGENERATE_REQUESTED") }
-                            .disabled(model.isRunning)
+                        Menu("Исправить…") {
+                            Button("Исправить текст") { activeStep = .text }
+                            Button("Исправить ударение") { activeStep = .pronunciation }
+                            Button("Выбрать другого диктора") { activeStep = .narrator }
+                            Divider()
+                            Button("Записать заново с текущими настройками") {
+                                model.decideAudioQA("REGENERATE_REQUESTED")
+                            }
+                            Button("Отклонить этот вариант", role: .destructive) {
+                                model.decideAudioQA("REJECTED")
+                            }
+                        }
+                        .disabled(model.isRunning)
                     }
                     Label(
                         model.downstreamApprovedOutput == nil
@@ -1932,14 +2312,6 @@ private struct AudioQAReviewSection: View {
                         systemImage: model.downstreamApprovedOutput == nil ? "lock.fill" : "checkmark.shield.fill"
                     )
                     .foregroundStyle(model.downstreamApprovedOutput == nil ? Color.secondary : Color.green)
-
-                    ChapterAssemblyCard(model: model, qa: qa)
-                    if model.chapterAssembly?.assembly != nil {
-                        MasteringCard(model: model)
-                    }
-                    if model.mastering?.master != nil {
-                        LitresExportCard(model: model)
-                    }
 
                     DisclosureGroup("Технические подробности") {
                         LabeledContent("Сегмент", value: qa.authority.segmentID)
@@ -1967,10 +2339,33 @@ private struct AudioQAReviewSection: View {
                 Section("6. Прослушивание и приёмка") {
                     Button("Открыть готовое аудио для проверки") { model.openCurrentAudioForQA() }
                         .disabled(model.isRunning || model.selectedJob == nil || model.selectedProfile == nil)
-                    Text("Команда только читает текущие production manifest и WAV; TTS-запросы не выполняются.")
+                    Text("Studio откроет уже готовое аудио. Новая запись и платные запросы не запускаются.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+}
+
+private struct OwnerReleaseSection: View {
+    @ObservedObject var model: StudioModel
+
+    var body: some View {
+        Section("7. Соберите готовую аудиокнигу") {
+            Text("Здесь Studio собирает принятую главу, выравнивает звук и готовит файл для публикации. Остальные главы можно добавлять по мере готовности.")
+                .foregroundStyle(.secondary)
+            if let qa = model.audioQA {
+                ChapterAssemblyCard(model: model, qa: qa)
+                if model.chapterAssembly?.assembly != nil {
+                    MasteringCard(model: model)
+                }
+                if model.mastering?.master != nil {
+                    LitresExportCard(model: model)
+                }
+            } else {
+                Label("Сначала запишите и примите главу на шаге 6", systemImage: "lock.fill")
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -2052,11 +2447,11 @@ private struct ChapterAssemblyCard: View {
                     Text(chapterAssemblyStateLabel(assembly.state, decision: assembly.decision))
                         .foregroundStyle(assembly.decision == "BLOCKED" ? Color.orange : Color.secondary)
                 }
-                Text("WAV · PCM 16-bit · 48 000 Гц · моно")
+                Text("Готовый мастер-файл главы можно прослушать перед выпуском.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if let counts = assembly.segmentCounts, counts.expected > 1 {
-                    Text("Готово \(counts.produced) из \(counts.expected) сегментов")
+                    Text("Готово \(counts.produced) из \(counts.expected) частей")
                     Text("Одобрено \(counts.approved) из \(counts.expected)")
                     if counts.blocked > 0 {
                         Text("Сборка главы недоступна")
@@ -2121,11 +2516,12 @@ private struct MasteringCard: View {
                 }
             }
             if let mastering = model.mastering {
-                Text("Clean WAV · моно · 48 000 Гц · PCM 16-bit")
+                Text("Studio выровняет громкость и проверит качество итоговой главы.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Целевая громкость: \(mastering.masterPreset.targetIntegratedLufs.formatted()) LUFS-I · true peak ≤ \(mastering.masterPreset.truePeakCeilingDbtp.formatted()) dBTP")
-                    .font(.callout)
+                Text("Технические параметры доступны ниже в подробностях.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 if let blocker = mastering.blockerMessage {
                     Label(blocker, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
@@ -2135,14 +2531,14 @@ private struct MasteringCard: View {
                         .disabled(model.isRunning || mastering.decision != "READY_TO_MASTER")
                 } else {
                     if mastering.decision == "READY_TO_REPAIR" {
-                        Button("Восстановить текущий master") { model.createCurrentMaster() }
+                        Button("Восстановить мастер-файл") { model.createCurrentMaster() }
                             .buttonStyle(.borderedProminent)
                             .disabled(model.isRunning)
                     }
                     AudioTransportCard(
                         player: model.audioPlayer,
                         role: "clean-master",
-                        playTitle: "Прослушать clean master",
+                        playTitle: "Прослушать мастер-файл",
                         onLoad: model.playCleanMaster,
                         onReveal: model.revealCleanMasterInFinder
                     )
@@ -2175,7 +2571,7 @@ private struct MasteringCard: View {
                     }
                 }
             } else {
-                Text("Проверяется exact-current assembly…")
+                Text("Проверяется текущая версия главы…")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2194,6 +2590,7 @@ private struct LitresExportCard: View {
         case "duplicate_chapters": return "Обнаружены дубли глав"
         case "unknown_extra_chapters": return "Есть главы вне текущей структуры книги"
         case "unproven_third_party_assets": return "Не подтверждены права на сторонние материалы"
+        case "chapter_cue_rights_unverified": return "Подтвердите право использовать выбранный звук перед главами"
         default: return "Пакет книги пока не готов"
         }
     }
@@ -2210,7 +2607,7 @@ private struct LitresExportCard: View {
                 }
             }
             if let export = model.litresExport {
-                Text("MP3 · Stereo (dual mono) · 128 kbps")
+                Text("Готовый файл для публикации в ЛитРес")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if let blocker = export.blockerMessage {
@@ -2293,8 +2690,13 @@ private struct AddBookSheet: View {
             LabeledContent("TXT-файл", value: sourceURL?.lastPathComponent ?? "Не выбран")
             TextField("Название", text: $title)
             TextField("Автор", text: $author)
-            TextField("ID / slug", text: $slug)
-            Text("Оригинал будет сохранён read-only. Для будущей подготовки создаётся отдельная TTS working copy.")
+            DisclosureGroup("Дополнительно") {
+                TextField("Короткое имя книги", text: $slug)
+                Text("Обычно менять его не нужно.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text("Studio сохранит оригинал без изменений и создаст отдельный текст для озвучки.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {
@@ -2363,7 +2765,7 @@ private struct OpenAIConfirmationDialogs: ViewModifier {
                 Button("Подготовить план") { model.confirmOpenAIPrepare() }
                 Button("Отмена", role: .cancel) { model.cancelOpenAIIntent() }
             } message: {
-                Text("Подготовка плана не отправляет TTS-запрос и не списывает средства. После подготовки платный запрос потребует отдельного подтверждения.")
+                Text("Подготовка плана ничего не записывает и не списывает средства. Новая платная запись потребует отдельного подтверждения.")
             }
             .confirmationDialog(
                 "Использовать готовое OpenAI-аудио?",
@@ -2376,21 +2778,21 @@ private struct OpenAIConfirmationDialogs: ViewModifier {
                 Button("Использовать готовое аудио") { model.confirmCacheOnlyMaterialization() }
                 Button("Отмена", role: .cancel) { model.cancelOpenAIIntent() }
             } message: {
-                Text("Готовое аудио будет материализовано локально. Новый provider-запрос не отправляется.")
+                Text("Studio использует уже готовое аудио. Новое платное обращение не отправляется.")
             }
             .confirmationDialog(
-                "Подтвердить платный OpenAI TTS-запрос?",
+                "Подтвердить одну платную запись OpenAI?",
                 isPresented: $model.showPaidConfirmation,
                 titleVisibility: .visible
             ) {
                 if model.paidPlan?.canExecute == true,
                    model.paidPlan?.decision == "READY_FOR_CONFIRMATION" {
-                    Button("Подтвердить 1 платный запрос") { model.confirmPaidRequest() }
+                Button("Подтвердить одну платную запись") { model.confirmPaidRequest() }
                 }
                 Button("Отмена", role: .cancel) { model.showPaidConfirmation = false }
             } message: {
                 if let plan = model.paidPlan {
-                    Text("OpenAI TTS\nГолос: \(plan.voice.capitalized)\nМодель: \(plan.model)\nКнига: \(plan.bookTitle)\nЗадача: \(plan.jobLabel)\nСегмент: \(plan.selectedSegmentNumber ?? 0) из \(plan.totalSegments)\nСимволов: \(plan.selectedSegmentCharacters)\nКэш: MISS\nНовых платных запросов: максимум 1\nТочная будущая стоимость: Недоступно\nЛимит политики Studio: \(formattedMoney(plan.hardLimit, currency: plan.currency, source: "local_actual"))\nOpenAI balance: \(formattedMoney(plan.billing.remaining, currency: plan.currency, source: plan.billing.remainingSource))\n\nOpenAI не сообщает точную стоимость будущего аудио до синтеза. После подтверждения Studio сможет отправить максимум один новый платный TTS-запрос.")
+                    Text("OpenAI\nГолос: \(plan.voice.capitalized)\nМодель: \(plan.model)\nКнига: \(plan.bookTitle)\nЗадача: \(plan.jobLabel)\nЧасть записи: \(plan.selectedSegmentNumber ?? 0) из \(plan.totalSegments)\nСимволов: \(plan.selectedSegmentCharacters)\nГотового аудио нет\nНовых платных обращений: максимум 1\nТочная будущая стоимость: Недоступно\nЛимит Studio: \(formattedMoney(plan.hardLimit, currency: plan.currency, source: "local_actual"))\nДоступный остаток: \(formattedMoney(plan.billing.remaining, currency: plan.currency, source: plan.billing.remainingSource))\n\nOpenAI не сообщает точную стоимость будущего аудио до записи. После подтверждения Studio сможет отправить максимум одно новое платное обращение.")
                 }
             }
     }
@@ -2411,7 +2813,7 @@ private func primaryButtonTitle(_ model: StudioModel) -> String {
         return "Использовать готовое аудио"
     }
     if let remaining = model.remainingPaidSegments, remaining > 0 {
-        return "Подготовить следующий сегмент"
+        return "Подготовить следующую часть"
     }
     return "Подготовить запуск"
 }
@@ -2442,14 +2844,14 @@ struct SettingsView: View {
                 Section("Общие") {
                     Toggle("Открывать Finder после завершения", isOn: $openFinderAfterCompletion)
                     Toggle("Показывать уведомления", isOn: $notificationsEnabled)
-                    LabeledContent("Папка результатов", value: "Выбирается backend-ом")
+                    LabeledContent("Папка результатов", value: "Папка проекта Audiobook Studio")
                 }
-                Section("Qwen") {
-                    LabeledContent("Статус", value: "Локальный backend")
-                    Button("Проверить") { Task { await model.reload() } }
+                Section("Локальная запись") {
+                    LabeledContent("Статус", value: "Работает на этом Mac")
+                    Button("Проверить готовность") { Task { await model.reload() } }
                 }
                 Section("Yandex SpeechKit") {
-                    LabeledContent("Профиль", value: "Lera · neutral · 1.04")
+                    LabeledContent("Диктор текущей книги", value: model.engine == .yandex ? (model.selectedProfile?.label ?? "Не выбран") : "Выберите в разделе «Запись»")
                     HStack {
                         TextField("Максимальная стоимость задачи, ₽", text: $model.hardLimitText)
                         Button("Сохранить") { model.saveHardLimit() }
@@ -2463,7 +2865,7 @@ struct SettingsView: View {
                     }
                 }
                 Section("OpenAI TTS") {
-                    LabeledContent("Backend", value: "Production готов · one-time approval")
+                    LabeledContent("Подтверждение", value: "Перед каждым новым платным фрагментом")
                     HStack {
                         TextField("Максимальная стоимость задачи, $", text: $model.openAIHardLimitText)
                         Button("Сохранить") { model.saveOpenAIHardLimit() }
@@ -2473,7 +2875,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .id("openai-settings")
-                Section("Cloud Billing") {
+                Section("Данные сервисов") {
                     LabeledContent("Yandex", value: billingSettingsStatus(model.cloudBilling?.providers.yandex))
                     LabeledContent("OpenAI", value: billingSettingsStatus(model.cloudBilling?.providers.openai))
                     HStack {
@@ -2522,7 +2924,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                ContentQualitySettingsPanel(selectedBookID: model.selectedBookID)
+                Section("Текст и произношение") {
+                    Text("Редактор текста, ударения и контроль качества находятся в шагах 1–2 выбранной книги. Так вы всегда меняете именно тот текст, который собираетесь записывать.")
+                        .foregroundStyle(.secondary)
+                }
             }
             .formStyle(.grouped)
             .task {
