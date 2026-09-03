@@ -25,7 +25,7 @@ from chapter_assembly import (
     assembly_input_from_qa,
     assembly_input_from_qa_segments,
 )
-from book_sound_design import import_book_sound
+from book_sound_design import chapter_cue_for_book, import_book_sound
 from media_tools import FFmpegResolution
 
 
@@ -263,6 +263,45 @@ class ChapterAssemblyTests(unittest.TestCase):
         self.assertEqual(result["output"]["wav"]["channels"], 1)
         self.assertEqual(result["provider_requests"], 0)
         self.assertFalse(result["remote_request_sent"])
+
+    def test_cue_selection_change_after_prepare_never_publishes_old_identity(self):
+        self._write_wav(self.source, 48_000)
+        self.record["identity"]["audio_sha256"] = sha256_file(self.source)
+        self.record["wav"] = self._facts(self.source)
+        first_cue = self.root / "first-stereo-cue.wav"
+        second_cue = self.root / "second-cue.wav"
+        self._write_wav(first_cue, 48_000, seconds=1.0, channels=2)
+        self._write_wav(second_cue, 44_100, seconds=0.75)
+        import_book_sound(
+            self.root,
+            "demo-book",
+            first_cue,
+            label="First cue",
+            rights_confirmed=True,
+        )
+        first_snapshot = chapter_cue_for_book(self.root, "demo-book")
+        import_book_sound(
+            self.root,
+            "demo-book",
+            second_cue,
+            label="Second cue",
+            rights_confirmed=True,
+        )
+        second_snapshot = chapter_cue_for_book(self.root, "demo-book")
+        self.assertNotEqual(first_snapshot["sound_id"], second_snapshot["sound_id"])
+
+        # PREPARE observes A; the next lookup observes the user's newer B.
+        # The third value makes this regression fail against the former code,
+        # which silently assembled B under A's identity and then compared B=B.
+        with mock.patch.object(self.service, "_resolution", return_value=self._available()), mock.patch(
+            "chapter_assembly.chapter_cue_for_book",
+            side_effect=[first_snapshot, second_snapshot, second_snapshot],
+        ) as cue_lookup, self.assertRaises(ChapterAssemblyError) as raised:
+            self.service.assemble(self._input())
+
+        self.assertEqual(raised.exception.code, "chapter_cue_changed_during_assembly")
+        self.assertEqual(cue_lookup.call_count, 2)
+        self.assertFalse(any((self.root / "chapters").rglob("MANIFEST.json")))
 
     def test_missing_ffmpeg_blocks_conversion_but_not_input_qa(self):
         with mock.patch.object(self.service, "_resolution", return_value=FFmpegResolution(False, None, None, "unavailable")):

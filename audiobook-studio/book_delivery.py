@@ -334,10 +334,9 @@ class BookDeliveryService:
                 if "invalid_release_authority" not in blockers:
                     blockers.append("invalid_release_authority")
         current = self._current(book_slug, selected) if selected and selected != "chapters" else None
-        if (
-            current is not None
-            and expected_delivery_identity is not None
-            and current.get("delivery_identity") != expected_delivery_identity
+        if current is not None and isinstance(release_manifest, Mapping) and (
+            expected_delivery_identity is None
+            or current.get("delivery_identity") != expected_delivery_identity
         ):
             current = None
         if selected is None:

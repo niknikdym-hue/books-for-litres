@@ -441,6 +441,7 @@ class ChapterAssemblyService:
             ),
             "assembly_identity": assembly_identity,
             "input": payload,
+            "chapter_cue": chapter_cue,
             "target": self._target_facts(),
             "ffmpeg": ffmpeg.to_dict(),
             "output_path": existing.get("output", {}).get("path") if existing else None,
@@ -585,7 +586,12 @@ class ChapterAssemblyService:
             ) or prepared
 
         payload, sources, manifests = self._validate_input(prepared["input"])
-        chapter_cue = chapter_cue_for_book(self.workspace_root, str(payload["book_slug"]))
+        chapter_cue = prepared["chapter_cue"]
+        if chapter_cue_for_book(self.workspace_root, str(payload["book_slug"])) != chapter_cue:
+            raise ChapterAssemblyError(
+                "chapter_cue_changed_during_assembly",
+                "Выбор звука перед главой изменился после подготовки сборки.",
+            )
         assembly_identity = prepared["assembly_identity"]
         output_dir = self._output_dir(payload, assembly_identity)
         parent = output_dir.parent

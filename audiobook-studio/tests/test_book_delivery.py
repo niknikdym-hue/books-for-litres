@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 from audio_qa_review import path_identity, sha256_file
 from backends.common import inspect_pcm_wav
 from book_delivery import BookDeliveryError, BookDeliveryService, DELIVERY_PROFILES
+from mastering_export import MasteringExportError
 from media_tools import resolve_ffmpeg
 
 
@@ -169,6 +170,43 @@ class BookDeliveryTests(unittest.TestCase):
             restarted._identity("m4b", book, changed_chapters),
         )
         self.assertEqual(status["decision"], "READY_TO_EXPORT")
+        self.assertIsNone(status["delivery"])
+        self.assertEqual(status["provider_requests"], 0)
+        self.assertFalse(status["remote_request_sent"])
+
+    def test_status_hides_old_delivery_when_current_master_is_missing(self) -> None:
+        book, chapters, release = self._fixture()
+        self.service.set_selected_profile(self.book_slug, "m4b")
+
+        def encode(**kwargs):
+            kwargs["output"].write_bytes(b"old-intact-m4b")
+            return ({"streams": [{"codec_type": "audio"}], "chapters": [{}]}, {"name": "fake-ffmpeg"})
+
+        with mock.patch.object(self.service, "_validated_release", return_value=(book, chapters)), \
+             mock.patch.object(self.service, "_encode_audio", side_effect=encode):
+            exported = self.service.export(self.book_slug, release)
+        delivery_output = Path(exported["delivery"]["output"]["path"])
+        Path(chapters[0]["audio_path"]).unlink()
+
+        def validate_after_master_removed(_release):
+            if not Path(chapters[0]["audio_path"]).is_file():
+                raise MasteringExportError(
+                    "master_identity_mismatch", "Точная identity master не подтверждена."
+                )
+            return book, chapters
+
+        restarted = BookDeliveryService(
+            workspace_root=self.workspace,
+            exports_root=self.workspace / "exports",
+            masters_root=self.workspace / "masters",
+        )
+        with mock.patch.object(restarted, "_validated_release", side_effect=validate_after_master_removed):
+            status = restarted.status(self.book_slug, release)
+
+        self.assertTrue(delivery_output.is_file(), "The historical delivery itself remains intact.")
+        self.assertEqual(status["decision"], "BOOK_INCOMPLETE")
+        self.assertFalse(status["book_ready"])
+        self.assertIn("master_identity_mismatch", status["blockers"])
         self.assertIsNone(status["delivery"])
         self.assertEqual(status["provider_requests"], 0)
         self.assertFalse(status["remote_request_sent"])
