@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 from audio_qa_review import path_identity, sha256_file
 from backends.common import inspect_pcm_wav
+from book_sound_design import chapter_cue_for_book, import_book_sound
 from mastering_export import (
     BOUNDARY_POLICY,
     EXPORT_SCHEMA_VERSION,
@@ -460,6 +461,100 @@ class MasteringExportTests(unittest.TestCase):
         with_rights = copy.deepcopy(book)
         with_rights["rights_provenance"] = {"third_party_assets": ["music"], "verified": False}
         self.assertIn("unproven_third_party_assets", build_book_export_state(with_rights, [one])["blockers"])
+
+    def test_chapter_cue_rights_are_checked_from_immutable_master_authority(self):
+        book = canonical_book_authority(self.book)
+        candidates = [
+            {"job_id": "chapter-ch001", "candidate_identity": "1", "chapter_cue": {
+                "origin": "USER_IMPORTED", "rights": "USER_PROVIDED_UNVERIFIED",
+            }},
+            {"job_id": "chapter-ch002", "candidate_identity": "2", "chapter_cue": None},
+        ]
+        self.assertIn(
+            "chapter_cue_rights_unverified",
+            build_book_export_state(book, candidates)["blockers"],
+        )
+        candidates[0]["chapter_cue"] = {
+            "origin": "USER_IMPORTED",
+            "rights": "USER_CONFIRMED_AUDIOBOOK_USE",
+            "sha256": "custom-audio-sha",
+            "rights_provenance": {
+                "confirmed": True,
+                "verification_method": "OWNER_ATTESTATION",
+                "attestation": "I_CONFIRM_RIGHTS_TO_USE_AND_COMMERCIALLY_DISTRIBUTE_IN_THIS_AUDIOBOOK",
+                "source_sha256": "custom-audio-sha",
+                "commercial_audiobook_distribution": True,
+                "standalone_distribution": False,
+            },
+            "production_policy": {
+                "allowed_scope": "INCORPORATED_IN_AUDIOBOOK_CHAPTER_SOUNDTRACK_ONLY",
+                "raw_asset_export_allowed": False,
+                "separate_cue_export_allowed": False,
+                "include_raw_asset_in_release": False,
+            },
+        }
+        self.assertNotIn(
+            "chapter_cue_rights_unverified",
+            build_book_export_state(book, candidates)["blockers"],
+        )
+
+    def test_confirmed_custom_sound_flows_through_master_authority_and_fails_closed_on_tamper(self):
+        source = self.root / "my-chapter-cue.wav"
+        self._write_wav(source, seconds=0.1)
+        imported = import_book_sound(
+            self.root, self.book_slug, source,
+            label="Мой звук", rights_confirmed=True,
+        )
+        cue = chapter_cue_for_book(self.root, self.book_slug)
+        self.assertEqual(cue["sound_id"], imported["sound_id"])
+
+        assembly = json.loads(self.assembly_manifest.read_text(encoding="utf-8"))
+        assembly["chapter_cue"] = cue
+        self.assembly_manifest.write_text(json.dumps(assembly), encoding="utf-8")
+        self.authority = self._resolve_assembly()
+        master = self._master_authority()
+        self.assertEqual(master["chapter_cue"], cue)
+
+        book = copy.deepcopy(self.book)
+        book["cover"] = {"sha256": "cover-sha"}
+        candidates = [
+            {"job_id": self.job_id, "candidate_identity": "1", "chapter_cue": master["chapter_cue"]},
+            {"job_id": "chapter-ch002", "candidate_identity": "2", "chapter_cue": None},
+        ]
+        state = build_book_export_state(canonical_book_authority(book), candidates)
+        self.assertTrue(state["ready"])
+        self.assertNotIn("chapter_cue_rights_unverified", state["blockers"])
+
+        for mutate in ("source_sha256", "raw_asset_export_allowed"):
+            changed = copy.deepcopy(candidates)
+            if mutate == "source_sha256":
+                changed[0]["chapter_cue"]["rights_provenance"]["source_sha256"] = "changed"
+            else:
+                changed[0]["chapter_cue"]["production_policy"]["raw_asset_export_allowed"] = True
+            with self.subTest(mutate=mutate):
+                self.assertIn(
+                    "chapter_cue_rights_unverified",
+                    build_book_export_state(canonical_book_authority(book), changed)["blockers"],
+                )
+        candidates[0]["chapter_cue"] = {
+            "origin": "APPLE_GARAGEBAND_DIGITAL_MATERIAL",
+            "rights": "APPLE_LICENSED_AUDIO_PROJECT_USE",
+            "rights_provenance": {
+                "verified": True,
+                "commercial_audiobook_distribution": True,
+                "standalone_distribution": False,
+            },
+            "production_policy": {
+                "allowed_scope": "INCORPORATED_IN_AUDIOBOOK_CHAPTER_SOUNDTRACK_ONLY",
+                "raw_asset_export_allowed": False,
+                "separate_cue_export_allowed": False,
+                "include_raw_asset_in_release": False,
+            },
+        }
+        self.assertNotIn(
+            "chapter_cue_rights_unverified",
+            build_book_export_state(book, candidates)["blockers"],
+        )
 
     def test_too_many_book_files_fail_closed(self):
         book = copy.deepcopy(self.book)

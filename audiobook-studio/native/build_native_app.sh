@@ -38,6 +38,7 @@ archive_staging_extras() {
 
 mkdir -p "$contents/MacOS" "$contents/Resources" "$module_cache/clang" "$module_cache/swift"
 cp "$script_dir/Info.plist" "$contents/Info.plist"
+cp "$script_dir/AudiobookStudio.icns" "$contents/Resources/AudiobookStudio.icns"
 print -u2 -- "Swift compiler: $(xcrun --find swiftc)"
 print -u2 -- "macOS SDK: $sdk_path ($sdk_version)"
 print -u2 -- "Module cache: $module_cache"
@@ -50,6 +51,8 @@ xcrun swiftc \
   "$script_dir/DilonNativeFlowController.swift" \
   "$script_dir/DilonIdentityReviewController.swift" \
   "$script_dir/DilonNativeCard.swift" \
+  "$script_dir/ContentQualityPanel.swift" \
+  "$script_dir/OwnerProductionFlowPanel.swift" \
   "$script_dir/AudiobookStudioApp.swift" \
   -parse-as-library \
   -target "$target_arch-apple-macosx$deployment_target" \

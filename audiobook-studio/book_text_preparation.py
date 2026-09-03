@@ -9,13 +9,28 @@ import os
 import re
 import shutil
 import tempfile
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from book_library import BookLibrary, BookLibraryError, sha256_bytes, sha256_file
+from book_library import (
+    BookLibrary,
+    BookLibraryError,
+    author_pronunciation_identity,
+    sha256_bytes,
+    sha256_file,
+)
+from content_quality_lexicon import (
+    PROFILE_AUDIOBOOK_PRE_SYNTHESIS,
+    PROFILE_AUDIOBOOK_TTS_TECHNICAL,
+    ContentQualityError,
+    ContentQualityLexicon,
+    combined_gate_state,
+)
 from preparation_contract import (
+    CONTENT_QUALITY_GATE_VERSION,
     NORMALIZATION_RULES_VERSION,
     PREPARATION_SCHEMA_VERSION,
     SEGMENTATION_RULES_VERSION,
@@ -26,10 +41,17 @@ from production_authority_lock import production_authority_lock
 NORMALIZED_RELATIVE_PATH = Path("prepared/normalized.txt")
 STRUCTURE_RELATIVE_PATH = Path("prepared/structure.json")
 SEGMENTS_RELATIVE_PATH = Path("prepared/segments.json")
+CONTENT_QUALITY_RELATIVE_PATH = Path("prepared/content-quality.json")
 TARGET_SEGMENT_CHARS = 900
 HARD_SEGMENT_CHARS = 1200
 PREVIEW_MAX_CHARS = 320
-PREPARATION_STATES = {"NOT_PREPARED", "READY", "STALE", "SOURCE_INTEGRITY_ERROR"}
+PREPARATION_STATES = {
+    "NOT_PREPARED",
+    "READY",
+    "STALE",
+    "SOURCE_INTEGRITY_ERROR",
+    "BLOCKED_CONTENT_QUALITY",
+}
 
 _RUSSIAN_ORDINAL_UNITS = (
     "первая", "вторая", "третья", "четвёртая", "четвертая", "пятая",
@@ -58,6 +80,11 @@ _EXPLICIT_CHAPTER = re.compile(
     re.IGNORECASE,
 )
 _NUMERIC_CHAPTER = re.compile(r"^\s*(\d{1,3})[.)]\s+(.{1,120}?)\s*$")
+_SPECIAL_SECTION = re.compile(
+    r"^\s*(?:введение|предисловие|пролог|заключение|эпилог|послесловие)"
+    r"(?:\s*[.\-—–:]\s*.+)?\s*$",
+    re.IGNORECASE,
+)
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?…])\s+")
 
 
@@ -116,6 +143,37 @@ def normalize_working_text(value: str) -> str:
     return normalized + "\n"
 
 
+def apply_author_pronunciation(
+    text: str,
+    *,
+    author: str,
+    author_pronunciation: str,
+) -> tuple[str, int]:
+    """Apply author pronunciation only to the prepared provider derivative.
+
+    Exact whole-name occurrences are replaced before provider-neutral
+    segmentation. The immutable source and editable TTS working copy remain
+    untouched; provider adapters retain responsibility for their own markup.
+    """
+    canonical_author = unicodedata.normalize("NFC", author.strip())
+    spoken_author = unicodedata.normalize("NFC", author_pronunciation.strip())
+    if not canonical_author or not spoken_author:
+        raise BookTextPreparationError("Author pronunciation metadata is empty.")
+    if (
+        len(spoken_author) > 300
+        or any(character in spoken_author for character in "\r\n\0")
+        or any(unicodedata.category(character) == "Cc" for character in spoken_author)
+    ):
+        raise BookTextPreparationError("Author pronunciation metadata is unsafe.")
+    if canonical_author == spoken_author:
+        return text, 0
+    pattern = re.compile(
+        rf"(?<!\w){re.escape(canonical_author)}(?!\w)",
+        re.IGNORECASE | re.UNICODE,
+    )
+    return pattern.subn(lambda _match: spoken_author, text)
+
+
 def _is_heading_boundary(lines: list[str], index: int) -> bool:
     before = index == 0 or not lines[index - 1].strip()
     after = index == len(lines) - 1 or not lines[index + 1].strip()
@@ -144,6 +202,8 @@ def detect_chapters(normalized_text: str) -> list[dict[str, Any]]:
         if match:
             title = match.group(2).strip() or line.strip()
             headings.append((index, title, line.strip()))
+        elif _SPECIAL_SECTION.fullmatch(line):
+            headings.append((index, line.strip(), line.strip()))
     if not headings:
         headings = _numeric_progression(lines)
     if not headings:
@@ -289,13 +349,17 @@ class BookTextPreparationService:
         *,
         now: Callable[[], str] | None = None,
         workspace_root: Path | None = None,
+        content_quality: ContentQualityLexicon | None = None,
     ) -> None:
         self.library = library
         self._now = now or _utc_now
         self._workspace_root = Path(workspace_root or library.books_root.parent)
+        self._content_quality = content_quality or ContentQualityLexicon()
 
     def status(self, book_id: str | Path) -> dict[str, Any]:
         details = self.library.book_details(book_id)
+        book = self.library.load_book_profile(book_id)
+        preparation = book.get("preparation") if isinstance(book.get("preparation"), dict) else {}
         return {
             "schema_version": PREPARATION_SCHEMA_VERSION,
             "book_id": details["book_id"],
@@ -313,6 +377,15 @@ class BookTextPreparationService:
             "normalized_path": details["normalized_path"],
             "structure_path": details["structure_path"],
             "segments_path": details["segments_path"],
+            "content_quality_gate_version": preparation.get("content_quality_gate_version"),
+            "content_quality_state": preparation.get("content_quality_state"),
+            "content_quality_gate_fingerprint": preparation.get("content_quality_gate_fingerprint"),
+            "content_quality_evidence_path": preparation.get("content_quality_evidence_path"),
+            "content_quality_evidence_sha256": preparation.get("content_quality_evidence_sha256"),
+            "provider_requests": 0,
+            "model_calls": 0,
+            "paid_execution": False,
+            "billing_changed": False,
             "remote_request_sent": False,
         }
 
@@ -339,6 +412,14 @@ class BookTextPreparationService:
     def _prepare_locked(self, book_id: str, asset_root: Path) -> dict[str, Any]:
         book = self.library.load_book_profile(book_id)
         details = self.library.book_details(book_id)
+        if (
+            details.get("source_integrity") == "DOWNLOAD_REQUIRED"
+            or details.get("tts_working_copy_status") == "DOWNLOAD_REQUIRED"
+            or details.get("preparation_status") == "DOWNLOAD_REQUIRED"
+        ):
+            raise BookTextPreparationError(
+                "DOWNLOAD_REQUIRED: download the book files from iCloud before preparing text."
+            )
         if details["source_integrity"] != "OK":
             raise BookTextPreparationError("SOURCE_INTEGRITY_ERROR: immutable source integrity must be OK.")
         tts = book.get("tts_working_copy") if isinstance(book.get("tts_working_copy"), dict) else {}
@@ -356,9 +437,90 @@ class BookTextPreparationService:
             raise BookTextPreparationError("TTS working copy must use strict UTF-8 encoding.") from error
         working_sha = sha256_bytes(working_bytes)
         source_sha = sha256_file(source_path)
-        normalized_text = normalize_working_text(working_text)
+        normalized_working_text = normalize_working_text(working_text)
+        author = str(book.get("author") or "")
+        author_pronunciation = str(book.get("author_pronunciation") or author)
+        normalized_text, author_pronunciation_matches = apply_author_pronunciation(
+            normalized_working_text,
+            author=author,
+            author_pronunciation=author_pronunciation,
+        )
         normalized_bytes = normalized_text.encode("utf-8")
         normalized_sha = sha256_bytes(normalized_bytes)
+        pronunciation_identity = author_pronunciation_identity(book)
+
+        try:
+            editorial_scan = self._content_quality.scan_for_book(
+                working_text,
+                profile=PROFILE_AUDIOBOOK_PRE_SYNTHESIS,
+                workspace_root=self._workspace_root,
+                book_slug=str(book.get("slug") or Path(book_id).stem),
+            )
+            technical_scan = self._content_quality.scan_for_book(
+                normalized_text,
+                profile=PROFILE_AUDIOBOOK_TTS_TECHNICAL,
+                workspace_root=self._workspace_root,
+                book_slug=str(book.get("slug") or Path(book_id).stem),
+            )
+            content_quality_state = combined_gate_state((editorial_scan, technical_scan))
+            content_quality_gate_fingerprint = self._content_quality.gate_fingerprint(
+                workspace_root=self._workspace_root,
+                book_slug=str(book.get("slug") or Path(book_id).stem),
+                working_copy_sha256=working_sha,
+                normalized_sha256=normalized_sha,
+            )
+        except ContentQualityError as error:
+            raise BookTextPreparationError(
+                f"CONTENT_QUALITY_{error.code}: {error.message}"
+            ) from error
+
+        content_quality_evidence: dict[str, Any] = {
+            "schema_version": 1,
+            "gate_version": CONTENT_QUALITY_GATE_VERSION,
+            "book_slug": str(book.get("slug") or Path(book_id).stem),
+            "working_copy_sha256": working_sha,
+            "normalized_sha256": normalized_sha,
+            "state": content_quality_state,
+            "gate_fingerprint": content_quality_gate_fingerprint,
+            "editorial": editorial_scan,
+            "technical": technical_scan,
+            "provider_requests": 0,
+            "remote_request_sent": False,
+            "model_calls": 0,
+            "paid_execution": False,
+            "billing_changed": False,
+        }
+
+        previous = book.get("preparation") if isinstance(book.get("preparation"), dict) else {}
+        if content_quality_state == "BLOCKED":
+            return {
+                "schema_version": PREPARATION_SCHEMA_VERSION,
+                "book_id": book_id,
+                "slug": str(book.get("slug") or Path(book_id).stem),
+                "source_integrity": "OK",
+                "working_copy_sha256": working_sha,
+                "preparation_status": "BLOCKED_CONTENT_QUALITY",
+                "preparation_revision": previous.get("revision"),
+                "preparation_identity": previous.get("identity_sha256"),
+                "prepared_at": previous.get("prepared_at"),
+                "normalized_sha256": normalized_sha,
+                "chapter_count": 0,
+                "segment_count": 0,
+                "jobs": [],
+                "normalized_path": None,
+                "structure_path": None,
+                "segments_path": None,
+                "content_quality_gate_version": CONTENT_QUALITY_GATE_VERSION,
+                "content_quality_state": content_quality_state,
+                "content_quality_gate_fingerprint": content_quality_gate_fingerprint,
+                "content_quality_evidence": content_quality_evidence,
+                "provider_requests": 0,
+                "model_calls": 0,
+                "paid_execution": False,
+                "billing_changed": False,
+                "remote_request_sent": False,
+            }
+
         chapters = detect_chapters(normalized_text)
         all_segments: list[dict[str, Any]] = []
         for chapter in chapters:
@@ -370,14 +532,17 @@ class BookTextPreparationService:
 
         identity_payload = {
             "working_copy_sha256": working_sha,
+            "author_pronunciation_identity_sha256": pronunciation_identity,
             "preparation_schema_version": PREPARATION_SCHEMA_VERSION,
             "normalization_rules_version": NORMALIZATION_RULES_VERSION,
             "segmentation_rules_version": SEGMENTATION_RULES_VERSION,
+            "content_quality_gate_version": CONTENT_QUALITY_GATE_VERSION,
+            "content_quality_gate_fingerprint": content_quality_gate_fingerprint,
             "target_segment_chars": TARGET_SEGMENT_CHARS,
             "hard_segment_chars": HARD_SEGMENT_CHARS,
         }
         identity_sha = _canonical_hash(identity_payload)
-        previous = book.get("preparation") if isinstance(book.get("preparation"), dict) else {}
+        content_quality_evidence["preparation_identity"] = identity_sha
         revision = int(previous.get("revision") or 0) + 1
         prepared_at = self._now()
         preview_text = _preview_text(normalized_text)
@@ -398,7 +563,11 @@ class BookTextPreparationService:
         structure_payload = {
             "schema_version": PREPARATION_SCHEMA_VERSION,
             "preparation_identity": identity_sha,
+            "author_pronunciation_identity_sha256": pronunciation_identity,
+            "author_pronunciation_matches": author_pronunciation_matches,
             "normalization_rules_version": NORMALIZATION_RULES_VERSION,
+            "content_quality_gate_version": CONTENT_QUALITY_GATE_VERSION,
+            "content_quality_gate_fingerprint": content_quality_gate_fingerprint,
             "chapters": [{
                 "id": chapter["id"],
                 "index": chapter["index"],
@@ -413,7 +582,11 @@ class BookTextPreparationService:
         segments_payload = {
             "schema_version": PREPARATION_SCHEMA_VERSION,
             "preparation_identity": identity_sha,
+            "author_pronunciation_identity_sha256": pronunciation_identity,
+            "author_pronunciation_matches": author_pronunciation_matches,
             "segmentation_rules_version": SEGMENTATION_RULES_VERSION,
+            "content_quality_gate_version": CONTENT_QUALITY_GATE_VERSION,
+            "content_quality_gate_fingerprint": content_quality_gate_fingerprint,
             "target_segment_chars": TARGET_SEGMENT_CHARS,
             "hard_segment_chars": HARD_SEGMENT_CHARS,
             "segments": all_segments,
@@ -454,9 +627,16 @@ class BookTextPreparationService:
             "prepared_at": prepared_at,
             "working_copy_sha256": working_sha,
             "source_sha256": source_sha,
+            "author_pronunciation_identity_sha256": pronunciation_identity,
+            "author_pronunciation_matches": author_pronunciation_matches,
             "identity_sha256": identity_sha,
             "normalization_rules_version": NORMALIZATION_RULES_VERSION,
             "segmentation_rules_version": SEGMENTATION_RULES_VERSION,
+            "content_quality_gate_version": CONTENT_QUALITY_GATE_VERSION,
+            "content_quality_state": content_quality_state,
+            "content_quality_gate_fingerprint": content_quality_gate_fingerprint,
+            "content_quality_evidence_path": CONTENT_QUALITY_RELATIVE_PATH.as_posix(),
+            "content_quality_evidence_sha256": None,
             "target_segment_chars": TARGET_SEGMENT_CHARS,
             "hard_segment_chars": HARD_SEGMENT_CHARS,
             "normalized_sha256": normalized_sha,
@@ -479,10 +659,24 @@ class BookTextPreparationService:
             (staging / "normalized.txt").write_bytes(normalized_bytes)
             _atomic_write_json(staging / "structure.json", structure_payload)
             _atomic_write_json(staging / "segments.json", segments_payload)
+            _atomic_write_json(staging / "content-quality.json", content_quality_evidence)
+            preparation["content_quality_evidence_sha256"] = sha256_file(
+                staging / "content-quality.json"
+            )
             if sha256_file(staging / "normalized.txt") != normalized_sha:
                 raise BookTextPreparationError("Normalized text verification failed.")
             if sha256_file(source_path) != source_sha or sha256_file(working_path) != working_sha:
                 raise BookTextPreparationError("Book source or working copy changed during preparation.")
+            current_gate = self._content_quality.gate_fingerprint(
+                workspace_root=self._workspace_root,
+                book_slug=str(book.get("slug") or Path(book_id).stem),
+                working_copy_sha256=working_sha,
+                normalized_sha256=normalized_sha,
+            )
+            if current_gate != content_quality_gate_fingerprint:
+                raise BookTextPreparationError(
+                    "Content Quality lexicon/resolution state changed during preparation."
+                )
             if final.exists():
                 os.replace(final, backup)
             os.replace(staging, final)

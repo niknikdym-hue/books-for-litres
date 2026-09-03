@@ -127,7 +127,8 @@ class UniversalBridgeTests(unittest.TestCase):
         service = mock.Mock()
         service.prepare.return_value = {"decision": "READY_FOR_CONFIRMATION", "remote_request_sent": False}
         service.execute.return_value = {"state": "CONSUMED", "remote_request_sent": True}
-        with mock.patch.object(bridge, "_yandex_chapter_service", return_value=service):
+        with mock.patch.object(bridge, "_yandex_chapter_service_for_profile", return_value=service) as for_profile, \
+             mock.patch.object(bridge, "_yandex_chapter_service_for_plan", return_value=service) as for_plan:
             with mock.patch("builtins.print"):
                 self.assertEqual(bridge.main([
                     "--prepare-yandex-chapter-run",
@@ -140,6 +141,7 @@ class UniversalBridgeTests(unittest.TestCase):
                     job_id="chapter-ch001",
                     profile_id="yandex_lera",
                 )
+                for_profile.assert_called_once_with("yandex_lera")
                 service.execute.assert_not_called()
 
                 self.assertEqual(bridge.main([
@@ -151,6 +153,23 @@ class UniversalBridgeTests(unittest.TestCase):
                     plan_id="a" * 32,
                     plan_digest="b" * 64,
                 )
+                for_plan.assert_called_once_with("a" * 32)
+
+    def test_approved_yandex_voice_selection_persists_per_book_offline(self):
+        for profile_id in ("yandex_lera", "yandex_ermil", "yandex_kirill", "yandex_anton"):
+            with self.subTest(profile_id=profile_id), mock.patch(
+                "backends.yandex_client.YandexSpeechKitBackend._request",
+                side_effect=AssertionError("network request attempted"),
+            ) as request:
+                result = bridge.set_book_voice(book_name="demo-book", profile_id=profile_id)
+                saved = bridge.BOOK_LIBRARY.load_book_profile("demo-book")
+                self.assertEqual(saved["selected_profile_id"], profile_id)
+                self.assertEqual(result["selected_profile_id"], profile_id)
+                self.assertEqual(result["provider_requests"], 0)
+                self.assertFalse(result["remote_request_sent"])
+                self.assertFalse(result["paid_execution"])
+                self.assertFalse(result["billing_changed"])
+                request.assert_not_called()
 
     def test_mastering_and_litres_export_commands_are_separate_offline_actions(self):
         mastering_result = {"mastering": {"decision": "ALREADY_MASTERED"}, "provider_requests": 0, "remote_request_sent": False}
@@ -652,6 +671,44 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertEqual(imported["selected_profile_id"], "yandex_lera")
         self.assertEqual(imported["source_integrity"], "OK")
         self.assertFalse(snapshot["remote_request_sent"])
+
+    def test_archive_book_bridge_is_recoverable_and_offline(self):
+        source = self.workspace / "archive-bridge-source.txt"
+        source.write_text("Книга для безопасного локального архива.\n", encoding="utf-8")
+        added = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--add-book", "--source-file", str(source),
+            "--title", "Archive Bridge Book", "--author", "Author", "--slug", "archive-bridge-book",
+        )
+        self.assertEqual(added.returncode, 0, added.stderr)
+        original_profile = self.workspace / "books/archive-bridge-book.json"
+        original_assets = self.workspace / "books/archive-bridge-book"
+        profile_bytes = original_profile.read_bytes()
+        source_bytes = (original_assets / "source/original.txt").read_bytes()
+
+        archived = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--archive-book", "--book", "archive-bridge-book",
+        )
+
+        self.assertEqual(archived.returncode, 0, archived.stderr)
+        result = json.loads(archived.stdout)
+        self.assertTrue(result["archived"])
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["paid_execution"])
+        self.assertFalse(result["billing_changed"])
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse(original_profile.exists())
+        self.assertFalse(original_assets.exists())
+        self.assertEqual(Path(result["profile_path"]).read_bytes(), profile_bytes)
+        self.assertEqual((Path(result["asset_path"]) / "source/original.txt").read_bytes(), source_bytes)
+
+        restarted = run_script(ROOT / "audiobook_studio_app_runner.py", "--ui-snapshot")
+        self.assertEqual(restarted.returncode, 0, restarted.stderr)
+        self.assertNotIn(
+            "archive-bridge-book.json",
+            [book["id"] for book in json.loads(restarted.stdout)["books"]],
+        )
 
     def test_prepare_book_text_status_and_snapshot_are_offline_and_restart_safe(self):
         source = self.workspace / "text-preparation-source.txt"

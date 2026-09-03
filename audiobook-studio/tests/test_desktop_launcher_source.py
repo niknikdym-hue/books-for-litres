@@ -1,9 +1,12 @@
 from pathlib import Path
+import re
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "native" / "install_desktop_launcher.sh"
+UPDATER = ROOT / "native" / "update_desktop_from_github.sh"
+WORKFLOW = ROOT.parent / ".github" / "workflows" / "audiobook-studio-offline.yml"
 OBSOLETE_LAUNCHER = ROOT / "native" / "DesktopLauncher.swift"
 
 
@@ -39,6 +42,85 @@ class DesktopInstallSourceTests(unittest.TestCase):
         self.assertIn('mv "$desktop_app" "$archive_previous"', installer)
         self.assertIn('mv "$desktop_staging" "$desktop_app"', installer)
         self.assertIn('mv "$archive_previous" "$desktop_app" || true', installer)
+
+    def test_owner_update_builds_locally_instead_of_delivering_downloaded_app_archive(self) -> None:
+        updater = UPDATER.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn('repository_url="https://github.com/niknikdym-hue/books-for-litres.git"', updater)
+        self.assertIn('source_ref="refs/heads/main"', updater)
+        self.assertIn(
+            'reviewed_source_sha="${AUDIOBOOK_STUDIO_REVIEWED_RELEASE_SHA:-${1:-}}"',
+            updater,
+        )
+        self.assertIn(
+            '/usr/bin/git -C "$checkout_root" fetch -q --no-tags --depth 1 origin "$source_ref"',
+            updater,
+        )
+        self.assertIn(
+            'source_sha="$(/usr/bin/git -C "$checkout_root" rev-parse --verify '
+            "'FETCH_HEAD^{commit}')\"",
+            updater,
+        )
+        self.assertIn('[[ "$source_sha" == "$reviewed_source_sha" ]]', updater)
+        self.assertIn('/usr/bin/git -C "$checkout_root" checkout -q --detach "$source_sha"', updater)
+        self.assertIn('[[ "$actual_sha" == "$source_sha" ]] || fail "source identity mismatch"', updater)
+        self.assertIn('/bin/zsh "$source_root/native/build_native_app.sh" "$candidate_app"', updater)
+        self.assertIn('/bin/zsh "$source_root/native/install_desktop_launcher.sh" "$candidate_app"', updater)
+        self.assertIn('/usr/bin/open "$desktop_app"', updater)
+        self.assertNotIn(".zip", updater.lower())
+        self.assertNotIn("unzip", updater.lower())
+        self.assertNotIn("upload-artifact", workflow)
+        self.assertNotIn("Audiobook-Studio-preview.zip", workflow)
+        self.assertIn("Validate owner local updater", workflow)
+        self.assertIn("/bin/zsh -n native/update_desktop_from_github.sh", workflow)
+
+    def test_owner_update_requires_exact_reviewed_current_main_instead_of_aging_pin(self) -> None:
+        updater = UPDATER.read_text(encoding="utf-8")
+
+        self.assertIsNone(
+            re.search(r'^readonly source_sha="[0-9a-f]{40}"$', updater, re.MULTILINE),
+            "The updater must not pin an aging install target.",
+        )
+        self.assertIn(
+            'fail "set AUDIOBOOK_STUDIO_REVIEWED_RELEASE_SHA to the exact reviewed current-main commit"',
+            updater,
+        )
+        self.assertIn(
+            'fail "reviewed release is not current GitHub main (current: $source_sha)"',
+            updater,
+        )
+        reviewed_gate = updater.index('[[ "${#reviewed_source_sha}" -eq 40')
+        fetch_main = updater.index('/usr/bin/git -C "$checkout_root" fetch')
+        identity_gate = updater.index('[[ "$source_sha" == "$reviewed_source_sha" ]]')
+        checkout = updater.index('/usr/bin/git -C "$checkout_root" checkout')
+        build = updater.index('/bin/zsh "$source_root/native/build_native_app.sh"')
+        self.assertLess(reviewed_gate, fetch_main)
+        self.assertLess(fetch_main, identity_gate)
+        self.assertLess(identity_gate, checkout)
+        self.assertLess(checkout, build)
+        self.assertIn('print -- "Source ref: $source_ref"', updater)
+        self.assertIn('print -- "Source: $source_sha"', updater)
+
+    def test_owner_update_is_offline_for_studio_execution_and_preserves_production_data(self) -> None:
+        updater = UPDATER.read_text(encoding="utf-8")
+
+        self.assertIn("OPENAI_API_KEY='' YANDEX_API_KEY='' YANDEX_CLOUD_API_KEY=''", updater)
+        self.assertIn('assert value.get("provider_requests") == 0', updater)
+        self.assertIn('assert value.get("remote_request_sent") is False', updater)
+        self.assertIn('assert value.get("model_calls") == 0', updater)
+        self.assertIn('assert value.get("paid_execution") is False', updater)
+        self.assertIn('assert value.get("billing_changed") is False', updater)
+        self.assertIn('book_sound_design.py', updater)
+        self.assertIn('book_sound_runner.py', updater)
+        self.assertIn('for directory in backends contracts', updater)
+        self.assertNotIn('rm -rf "$runtime_root/books"', updater)
+        self.assertNotIn('rm -rf "$runtime_root/renders"', updater)
+        self.assertNotIn('rm -rf "$runtime_root/cache"', updater)
+        self.assertNotIn('rm -rf "$runtime_root/qa"', updater)
+        self.assertNotIn('rm -rf "$runtime_root/billing"', updater)
+        self.assertIn("rollback_runtime", updater)
+        self.assertIn('archive_root="$HOME/Library/Application Support/Audiobook Studio/Archives"', updater)
 
 
 if __name__ == "__main__":

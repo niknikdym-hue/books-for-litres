@@ -174,7 +174,7 @@ Dilon Voices — проект аудиокниг с профессиональн
 Opening credit:
 
 ```text
-Елена Дилон. Хватит себя обесценивать. Читает Dilon Voices.
+Елена Ди́лон. Хватит себя обесценивать. Читает Dilon Voices.
 ```
 
 Production voice:
@@ -289,6 +289,79 @@ WHOLE_BOOK_RELEASE_READY = FALSE
 PROVIDER_REQUESTS_DURING_PR35_PR37_PR38_OFFLINE_WORK = 0
 PAID_EXECUTION_DURING_PR35_PR37_PR38_OFFLINE_WORK = 0
 PRODUCTION_DESKTOP_DEPLOYED = FALSE
+```
+
+---
+
+## 9. Private application-level Yandex SpeechKit acceptance — 2026-09-03
+
+This bounded live acceptance used the normal Audiobook Studio bridge and the
+existing macOS Keychain credential.  The credential value was never exported,
+printed, copied into configuration, or persisted in repository artifacts.
+
+```text
+repository branch = brain/content-quality-lexicon-v1
+repository HEAD before evidence-only update = a3e61abd026228cbf1214e3fca23c5a88f7f9756
+authoritative origin/main = e1a7e1c2c0440476189fd7ba6945547da75ebb97
+Keychain service = AudiobookStudio-YandexSpeechKit
+Keychain account = elenadymova
+local health credentials_present = true
+local health remote_request_sent = false
+```
+
+The private production smoke contained one Russian execution segment only:
+
+```text
+book = private-yandex-live-smoke-20260903
+job = chapter-ch001
+profile = yandex_lera
+voice / role / speed = lera / neutral / 1.04
+text characters = 46
+plan_id = 1767a2f93ce24df6be7030aa2de7ae25
+plan_digest = 9ae893dd7fad02e550d566862368d4a99295a229605d1627974a67b885310a71
+PREPARE decision = READY_FOR_CONFIRMATION
+credential_available = true
+max_network_requests = 1
+estimated_remaining_cost = 0.21146666 RUB
+hard_limit = 20.00 RUB
+PREPARE remote_request_sent = false
+```
+
+The exact plan was executed once.  No retry was performed:
+
+```text
+plan final state = CONSUMED
+provider = yandex / yandex_speechkit_v3
+network_requests = 1 / 1
+segment = s0001
+provider request id = dae0adc4-8474-4adb-82d4-b097a4c6a9fd
+segment synthesis fingerprint = 84c1730e6ea378271e25f481ea71e72c97c12bf390678a800f9e9b179e3a50a0
+joined WAV SHA-256 = 24271d1807cac78e5a1a23b1ff31b02d766db8099482a78fa26e4ba5945b64d6
+joined WAV = PCM Int16 mono / 22050 Hz / 3.524943 s / 155494 bytes
+billing transaction id = 1d19495a0e5d7ee7805be6ea3d71138c534a15eaf7adbf0c523c0683d4809bfd
+billing actual_cost = 0.21146666 RUB
+billing cost_source = local_actual
+```
+
+The same output then entered the normal provider-neutral Audio QA authority
+resolver and scanner without any provider access:
+
+```text
+Audio QA synthesis fingerprint = f87705df3aa42aba7b284c5cdb1b25feb083593125bd15c2e9518e5dc9d3b05d
+Audio QA audio SHA-256 = 24271d1807cac78e5a1a23b1ff31b02d766db8099482a78fa26e4ba5945b64d6
+automatic_status = PASS
+manual_state = UNREVIEWED
+downstream_eligible = false
+Audio QA remote_request_sent = false
+```
+
+Acceptance verdict:
+
+```text
+APPLICATION_KEYCHAIN_TO_YANDEX_TO_AUDIO_QA = PASS
+TOTAL_PROVIDER_REQUESTS = 1
+AUTOMATIC_RETRIES = 0
+SECRET_DISCLOSURE = 0
 ```
 
 Главный принцип: каждый следующий action сокращает путь к production launch; принятые gates не переоткрываются без нового конкретного evidence-backed дефекта.

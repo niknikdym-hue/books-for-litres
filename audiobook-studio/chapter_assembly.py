@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping, Sequence
 from audio_qa_review import path_identity, sha256_file
 from backends.common import atomic_write_json, inspect_pcm_wav, utc_now_iso
 from book_library import BookLibraryError, normalize_slug
+from book_sound_design import chapter_cue_for_book
 from media_tools import FFmpegResolution, resolve_ffmpeg
 from production_authority_lock import production_authority_lock
 
@@ -26,6 +27,8 @@ ASSEMBLY_SCHEMA_VERSION = 1
 TARGET_SAMPLE_RATE_HZ = 48_000
 TARGET_CHANNELS = 1
 TARGET_SAMPLE_WIDTH_BYTES = 2
+CHAPTER_CUE_PAUSE_FRAMES = 12_000
+CHAPTER_CUE_PAUSE_CONTRACT = "chapter_cue_then_250ms_pause_then_speech_v2"
 
 
 class ChapterAssemblyError(RuntimeError):
@@ -352,9 +355,20 @@ class ChapterAssemblyService:
     def _resolution(self) -> FFmpegResolution:
         return resolve_ffmpeg(self.workspace_root)
 
-    def _identity(self, payload: Mapping[str, Any], ffmpeg: FFmpegResolution) -> str:
+    def _identity(
+        self,
+        payload: Mapping[str, Any],
+        ffmpeg: FFmpegResolution,
+        chapter_cue: Mapping[str, Any] | None,
+    ) -> str:
         input_rates = self._input_rates(payload)
-        conversion_required = any(rate != TARGET_SAMPLE_RATE_HZ for rate in input_rates)
+        conversion_required = any(rate != TARGET_SAMPLE_RATE_HZ for rate in input_rates) or bool(
+            chapter_cue is not None
+            and (
+                int(chapter_cue["sample_rate_hz"]) != TARGET_SAMPLE_RATE_HZ
+                or int(chapter_cue["channels"]) != TARGET_CHANNELS
+            )
+        )
         contract = {
             "schema_version": ASSEMBLY_SCHEMA_VERSION,
             "input": payload,
@@ -376,6 +390,16 @@ class ChapterAssemblyService:
                 "pause_contract": payload.get("pause_contract", "source_is_joined_chapter_v1"),
             },
         }
+        # Preserve the exact legacy assembly identity when the author leaves the
+        # optional chapter cue disabled. Enabling/changing a cue intentionally
+        # creates a new downstream assembly identity without re-synthesizing TTS.
+        if chapter_cue is not None:
+            contract["chapter_cue"] = chapter_cue
+            contract["chapter_cue_join"] = {
+                "pause_contract": CHAPTER_CUE_PAUSE_CONTRACT,
+                "pause_frames": CHAPTER_CUE_PAUSE_FRAMES,
+                "sample_rate_hz": TARGET_SAMPLE_RATE_HZ,
+            }
         return _canonical_hash(contract)
 
     @staticmethod
@@ -387,11 +411,20 @@ class ChapterAssemblyService:
     def prepare(self, value: Mapping[str, Any]) -> dict[str, Any]:
         payload, _, _ = self._validate_input(value)
         ffmpeg = self._resolution()
-        conversion_required = any(rate != TARGET_SAMPLE_RATE_HZ for rate in self._input_rates(payload))
+        chapter_cue = chapter_cue_for_book(self.workspace_root, str(payload["book_slug"]))
+        conversion_required = any(
+            rate != TARGET_SAMPLE_RATE_HZ for rate in self._input_rates(payload)
+        ) or bool(
+            chapter_cue is not None
+            and (
+                int(chapter_cue["sample_rate_hz"]) != TARGET_SAMPLE_RATE_HZ
+                or int(chapter_cue["channels"]) != TARGET_CHANNELS
+            )
+        )
         blockers: list[str] = []
         if conversion_required and not ffmpeg.available:
             blockers.append("missing_ffmpeg")
-        assembly_identity = self._identity(payload, ffmpeg)
+        assembly_identity = self._identity(payload, ffmpeg, chapter_cue)
         output_dir = self._output_dir(payload, assembly_identity)
         existing = self._read_ready(output_dir, assembly_identity)
         decision = "ALREADY_ASSEMBLED" if existing is not None else (
@@ -408,6 +441,7 @@ class ChapterAssemblyService:
             ),
             "assembly_identity": assembly_identity,
             "input": payload,
+            "chapter_cue": chapter_cue,
             "target": self._target_facts(),
             "ffmpeg": ffmpeg.to_dict(),
             "output_path": existing.get("output", {}).get("path") if existing else None,
@@ -438,10 +472,14 @@ class ChapterAssemblyService:
         destination: Path,
         *,
         sample_rate_hz: int,
+        channels: int,
         ffmpeg: FFmpegResolution,
     ) -> dict[str, Any]:
         arguments: list[str] = []
-        converted = sample_rate_hz != TARGET_SAMPLE_RATE_HZ
+        converted = (
+            sample_rate_hz != TARGET_SAMPLE_RATE_HZ
+            or channels != TARGET_CHANNELS
+        )
         if converted:
             if not ffmpeg.available or ffmpeg.path is None:
                 raise ChapterAssemblyError("missing_ffmpeg", "Для нормализации требуется FFmpeg.")
@@ -508,6 +546,14 @@ class ChapterAssemblyService:
             target.writeframes(b"")
         return sum(per_input_frames), per_input_frames
 
+    @staticmethod
+    def _write_chapter_cue_pause(path: Path) -> None:
+        with wave.open(str(path), "wb") as output:
+            output.setnchannels(TARGET_CHANNELS)
+            output.setsampwidth(TARGET_SAMPLE_WIDTH_BYTES)
+            output.setframerate(TARGET_SAMPLE_RATE_HZ)
+            output.writeframes(b"\x00\x00" * CHAPTER_CUE_PAUSE_FRAMES)
+
     def assemble(
         self,
         value: Mapping[str, Any],
@@ -540,6 +586,12 @@ class ChapterAssemblyService:
             ) or prepared
 
         payload, sources, manifests = self._validate_input(prepared["input"])
+        chapter_cue = prepared["chapter_cue"]
+        if chapter_cue_for_book(self.workspace_root, str(payload["book_slug"])) != chapter_cue:
+            raise ChapterAssemblyError(
+                "chapter_cue_changed_during_assembly",
+                "Выбор звука перед главой изменился после подготовки сборки.",
+            )
         assembly_identity = prepared["assembly_identity"]
         output_dir = self._output_dir(payload, assembly_identity)
         parent = output_dir.parent
@@ -558,38 +610,90 @@ class ChapterAssemblyService:
                     facts = self._normalize_source(
                         source, normalized,
                         sample_rate_hz=int(item["wav"]["sample_rate_hz"]),
+                        channels=int(item["wav"]["channels"]),
                         ffmpeg=ffmpeg,
                     )
                     facts.update({"position": index, "segment_id": item["segment_id"]})
                     normalization.append(facts)
                     normalized_paths.append(normalized)
+                if chapter_cue is not None:
+                    cue_source = _require_real_path(
+                        Path(chapter_cue["path"]), root=self.workspace_root, label="Звук перед главой"
+                    )
+                    if sha256_file(cue_source) != chapter_cue["sha256"]:
+                        raise ChapterAssemblyError("chapter_cue_sha_mismatch", "Звук перед главой изменился.")
+                    cue_normalized = temporary / "normalized-chapter-cue.wav"
+                    cue_facts = self._normalize_source(
+                        cue_source,
+                        cue_normalized,
+                        sample_rate_hz=int(chapter_cue["sample_rate_hz"]),
+                        channels=int(chapter_cue["channels"]),
+                        ffmpeg=ffmpeg,
+                    )
+                    cue_facts.update({"position": 0, "segment_id": "__chapter_cue__", "role": "chapter_cue"})
+                    normalization.insert(0, cue_facts)
+                    normalized_paths.insert(0, cue_normalized)
+                    cue_pause = temporary / "chapter-cue-pause.wav"
+                    self._write_chapter_cue_pause(cue_pause)
+                    normalized_paths.insert(1, cue_pause)
                 output_frames, input_frames = self._concatenate_pcm(normalized_paths, temporary_wav)
                 concat = {
                     "version": "pcm16_mono_48000_ordered_frames_v1",
                     "ordered_input_count": len(normalized_paths),
                     "ordered_input_frames": input_frames,
                     "output_frames": output_frames,
-                    "pause_contract": payload["pause_contract"],
-                    "added_pause_frames": 0,
+                    "pause_contract": CHAPTER_CUE_PAUSE_CONTRACT if chapter_cue is not None else payload["pause_contract"],
+                    "added_pause_frames": CHAPTER_CUE_PAUSE_FRAMES if chapter_cue is not None else 0,
                 }
             else:
+                speech_target = temporary / "normalized-speech.wav" if chapter_cue is not None else temporary_wav
                 facts = self._normalize_source(
-                    sources[0], temporary_wav,
+                    sources[0], speech_target,
                     sample_rate_hz=int(payload["wav"]["sample_rate_hz"]),
+                    channels=int(payload["wav"]["channels"]),
                     ffmpeg=ffmpeg,
                 )
                 facts.update({"position": 1, "segment_id": payload["segment_id"]})
                 normalization.append(facts)
-                with wave.open(str(temporary_wav), "rb") as result_wave:
-                    output_frames = result_wave.getnframes()
-                concat = {
-                    "version": "source_is_joined_chapter_v1",
-                    "ordered_input_count": 1,
-                    "ordered_input_frames": [output_frames],
-                    "output_frames": output_frames,
-                    "pause_contract": "source_is_joined_chapter_v1",
-                    "added_pause_frames": 0,
-                }
+                if chapter_cue is not None:
+                    cue_source = _require_real_path(
+                        Path(chapter_cue["path"]), root=self.workspace_root, label="Звук перед главой"
+                    )
+                    if sha256_file(cue_source) != chapter_cue["sha256"]:
+                        raise ChapterAssemblyError("chapter_cue_sha_mismatch", "Звук перед главой изменился.")
+                    cue_normalized = temporary / "normalized-chapter-cue.wav"
+                    cue_facts = self._normalize_source(
+                        cue_source,
+                        cue_normalized,
+                        sample_rate_hz=int(chapter_cue["sample_rate_hz"]),
+                        channels=int(chapter_cue["channels"]),
+                        ffmpeg=ffmpeg,
+                    )
+                    cue_facts.update({"position": 0, "segment_id": "__chapter_cue__", "role": "chapter_cue"})
+                    normalization.insert(0, cue_facts)
+                    cue_pause = temporary / "chapter-cue-pause.wav"
+                    self._write_chapter_cue_pause(cue_pause)
+                    normalized_paths.extend([cue_normalized, cue_pause, speech_target])
+                    output_frames, input_frames = self._concatenate_pcm(normalized_paths, temporary_wav)
+                    concat = {
+                        "version": "pcm16_mono_48000_ordered_frames_v1",
+                        "ordered_input_count": 3,
+                        "ordered_input_frames": input_frames,
+                        "output_frames": output_frames,
+                        "pause_contract": CHAPTER_CUE_PAUSE_CONTRACT,
+                        "added_pause_frames": CHAPTER_CUE_PAUSE_FRAMES,
+                    }
+                else:
+                    with wave.open(str(temporary_wav), "rb") as result_wave:
+                        output_frames = result_wave.getnframes()
+                    concat = {
+                        "version": "source_is_joined_chapter_v1",
+                        "ordered_input_count": 1,
+                        "ordered_input_frames": [output_frames],
+                        "output_frames": output_frames,
+                        "pause_contract": "source_is_joined_chapter_v1",
+                        "added_pause_frames": 0,
+                    }
 
             for item, source, snapshot in zip(
                 payload["ordered_inputs"] if payload["granularity"] == "segments" else [payload],
@@ -645,6 +749,7 @@ class ChapterAssemblyService:
                 "ordered_segment_ids": payload.get("ordered_segment_ids", [payload["segment_id"]]),
                 "ordered_inputs": payload["ordered_inputs"],
                 "input": payload,
+                "chapter_cue": chapter_cue,
                 "normalization": {
                     "required": any(item["required"] for item in normalization),
                     "performed": any(item["performed"] for item in normalization),
@@ -691,6 +796,11 @@ class ChapterAssemblyService:
                         "assembly_input_became_stale",
                         "Набор сегментов или QA-состояние изменились перед публикацией.",
                     )
+            if chapter_cue_for_book(self.workspace_root, str(payload["book_slug"])) != chapter_cue:
+                raise ChapterAssemblyError(
+                    "chapter_cue_changed_during_assembly",
+                    "Выбор звука перед главой изменился во время сборки.",
+                )
             try:
                 temporary.rename(output_dir)
             except OSError as error:

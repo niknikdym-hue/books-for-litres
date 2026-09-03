@@ -35,6 +35,7 @@ struct Book: Codable, Identifiable, Hashable {
     let slug: String?
     let title: String
     let author: String
+    let authorPronunciation: String?
     let jobs: [PreparedJob]
     let kind: String?
     let enabled: Bool?
@@ -60,6 +61,7 @@ struct Book: Codable, Identifiable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, slug, title, author, jobs, kind, enabled, status
+        case authorPronunciation = "author_pronunciation"
         case selectedBackend = "selected_backend"
         case selectedProfileID = "selected_profile_id"
         case sourceFilename = "source_filename"
@@ -120,11 +122,34 @@ struct BookTextPreparationResult: Codable {
     }
 }
 
+struct BookVoiceSelectionResult: Codable {
+    let bookID: String
+    let selectedProfileID: String
+    let voice: String
+    let role: String
+    let speed: String
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let paidExecution: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case voice, role, speed
+        case bookID = "book_id"
+        case selectedProfileID = "selected_profile_id"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case paidExecution = "paid_execution"
+        case billingChanged = "billing_changed"
+    }
+}
+
 struct BookImportResult: Codable {
     let bookID: String
     let slug: String
     let title: String
     let author: String
+    let authorPronunciation: String?
     let sourceSHA256: String?
     let sourcePath: String
     let sourceIntegrity: String
@@ -136,6 +161,7 @@ struct BookImportResult: Codable {
 
     enum CodingKeys: String, CodingKey {
         case slug, title, author
+        case authorPronunciation = "author_pronunciation"
         case bookID = "book_id"
         case sourceSHA256 = "source_sha256"
         case sourcePath = "source_path"
@@ -605,6 +631,95 @@ struct YandexChapterRunResult: Codable {
         case networkRequests = "network_requests"
         case maxNetworkRequests = "max_network_requests"
         case remoteRequestSent = "remote_request_sent"
+    }
+}
+
+struct YandexChapterProblemSegment: Codable, Identifiable {
+    let segmentID: String
+    let segmentNumber: Int
+    let text: String
+    let status: String
+    let requestID: String?
+    let message: String?
+    let retryApproved: Bool
+
+    var id: String { segmentID }
+
+    enum CodingKeys: String, CodingKey {
+        case text, status, message
+        case segmentID = "segment_id"
+        case segmentNumber = "segment_number"
+        case requestID = "request_id"
+        case retryApproved = "retry_approved"
+    }
+}
+
+struct YandexChapterProgress: Codable {
+    let schemaVersion: Int
+    let provider: String
+    let bookID: String
+    let jobID: String
+    let profileID: String
+    let manifestPath: String
+    let manifestExists: Bool
+    let totalSegments: Int
+    let completedSegments: Int
+    let cachedSegments: Int
+    let pendingSegments: Int
+    let ambiguousSegments: [YandexChapterProblemSegment]
+    let failedSegments: [YandexChapterProblemSegment]
+    let chapterReady: Bool
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let paidExecution: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case schemaVersion = "schema_version"
+        case bookID = "book_id"
+        case jobID = "job_id"
+        case profileID = "profile_id"
+        case manifestPath = "manifest_path"
+        case manifestExists = "manifest_exists"
+        case totalSegments = "total_segments"
+        case completedSegments = "completed_segments"
+        case cachedSegments = "cached_segments"
+        case pendingSegments = "pending_segments"
+        case ambiguousSegments = "ambiguous_segments"
+        case failedSegments = "failed_segments"
+        case chapterReady = "chapter_ready"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case paidExecution = "paid_execution"
+        case billingChanged = "billing_changed"
+    }
+}
+
+struct YandexRetryApprovalResult: Codable {
+    let schemaVersion: Int
+    let provider: String
+    let bookID: String
+    let jobID: String
+    let profileID: String
+    let segmentID: String
+    let state: String
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let paidExecution: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case provider, state
+        case schemaVersion = "schema_version"
+        case bookID = "book_id"
+        case jobID = "job_id"
+        case profileID = "profile_id"
+        case segmentID = "segment_id"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case paidExecution = "paid_execution"
+        case billingChanged = "billing_changed"
     }
 }
 

@@ -13,6 +13,7 @@ from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,7 +69,7 @@ class ChapterProductionTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def service(self, *, current: datetime = NOW) -> YandexChapterProductionService:
+    def service(self, *, current: datetime = NOW, profile_id: str = "yandex_lera") -> YandexChapterProductionService:
         settings = self.root / "cloud-billing.json"
         save_settings(settings, CloudBillingSettings())
         billing = CloudBillingService(
@@ -77,11 +78,18 @@ class ChapterProductionTests(unittest.TestCase):
             cache_path=self.root / "provider-cache.json",
             now=lambda: current,
         )
+        profiles = {
+            "yandex_lera": ("lera", "1.04"),
+            "yandex_ermil": ("ermil", "1.0"),
+            "yandex_kirill": ("kirill", "1.0"),
+            "yandex_anton": ("anton", "1.0"),
+        }
+        voice, speed = profiles[profile_id]
         backend = YandexSpeechKitBackend(
             YandexBackendConfig.from_mapping({
                 "output_root": str(self.root / "renders/yandex"),
                 "keychain_account": "tester",
-                "default_profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+                "default_profile": {"voice": voice, "role": "neutral", "speed": speed},
                 "segmentation": {"max_chars": 220, "max_words": 34},
             }),
             api_key="test-yandex-api-key-1234567890",
@@ -143,9 +151,35 @@ class ChapterProductionTests(unittest.TestCase):
                 service = self.service()
                 service.backend.profile = replace(service.backend.profile, **{field: value})
 
-                with self.assertRaisesRegex(ChapterProductionError, "frozen Lera/neutral/1.04"):
+                with self.assertRaisesRegex(ChapterProductionError, "selected approved voice"):
                     self.prepare(service)
                 self.assertEqual(self.requests, 0)
+
+    def test_every_approved_yandex_voice_reaches_exact_offline_plan(self) -> None:
+        expected = {
+            "yandex_lera": ("lera", "1.04"),
+            "yandex_ermil": ("ermil", "1.0"),
+            "yandex_kirill": ("kirill", "1.0"),
+            "yandex_anton": ("anton", "1.0"),
+        }
+        for profile_id, (voice, speed) in expected.items():
+            with self.subTest(profile_id=profile_id):
+                library = BookLibrary(self.books)
+                book = library.load_book_profile("chapter-book")
+                book["selected_backend"] = "yandex"
+                book["selected_profile_id"] = profile_id
+                library.replace_book_profile("chapter-book", book)
+                plan = self.service(profile_id=profile_id).prepare(
+                    book_name="chapter-book",
+                    job_id="chapter-ch001",
+                    profile_id=profile_id,
+                )
+                self.assertEqual(plan["profile_id"], profile_id)
+                self.assertEqual(plan["voice"], voice)
+                self.assertEqual(plan["role"], "neutral")
+                self.assertEqual(plan["speed"], speed)
+                self.assertFalse(plan["remote_request_sent"])
+        self.assertEqual(self.requests, 0)
 
     def test_execute_consumes_plan_and_never_exceeds_bound(self) -> None:
         service = self.service()
@@ -262,6 +296,137 @@ class ChapterProductionTests(unittest.TestCase):
         blocked = self.prepare(service)
         self.assertEqual(blocked["decision"], "BLOCKED")
         self.assertIn("ambiguous_segment_requires_resolution", blocked["blockers"])
+        self.assertEqual(self.requests, 0)
+
+    def test_progress_explains_partial_chapter_and_owner_can_authorize_retry_offline(self) -> None:
+        service = self.service()
+        book = service.library.load_book_for_execution("chapter-book")
+        text = "\n\n".join(segment["text"] for segment in book["jobs"]["chapter-ch001"]["segments"])
+        segments = service.backend.segment(text)
+        first, second = segments[:2]
+        job_dir = service._job_dir(book, "chapter-ch001")
+        segment_dir = job_dir / "segments"
+        segment_dir.mkdir(parents=True)
+        first_fingerprint = make_fingerprint(first.text, service.backend.profile)
+        first_wav = f"{first.segment_id}__{first_fingerprint[:12]}.wav"
+        (segment_dir / first_wav).write_bytes(wav_bytes())
+        second_fingerprint = make_fingerprint(second.text, service.backend.profile)
+        manifest_path = job_dir / "MANIFEST.json"
+        manifest_path.write_text(json.dumps({
+            "schema_version": 1,
+            "engine": "yandex_speechkit_v3",
+            "job_id": "chapter-ch001",
+            "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segmentation": service.backend.manifest_segmentation(),
+            "request_routing": service.backend.request_routing_identity(),
+            "segments": {
+                first.segment_id: {
+                    "status": "DONE",
+                    "fingerprint": first_fingerprint,
+                    "wav": first_wav,
+                },
+                second.segment_id: {
+                    "status": "AMBIGUOUS",
+                    "fingerprint": second_fingerprint,
+                    "request_id": "ambiguous-request",
+                    "updated_at": "2026-08-23T11:59:00+00:00",
+                    "error": {"message": "timed out", "category": "network_ambiguous"},
+                },
+            },
+        }), encoding="utf-8")
+
+        progress = service.progress(
+            book_name="chapter-book", job_id="chapter-ch001", profile_id="yandex_lera"
+        )
+        self.assertEqual(progress["completed_segments"], 1)
+        self.assertEqual(progress["ambiguous_segments"][0]["segment_id"], second.segment_id)
+        self.assertEqual(progress["ambiguous_segments"][0]["segment_number"], 2)
+        self.assertFalse(progress["remote_request_sent"])
+        self.assertEqual(self.requests, 0)
+
+        approved = service.approve_ambiguous_retry(
+            book_name="chapter-book",
+            job_id="chapter-ch001",
+            profile_id="yandex_lera",
+            segment_id=second.segment_id,
+        )
+        self.assertEqual(approved["state"], "RETRY_APPROVED")
+        self.assertFalse(approved["remote_request_sent"])
+        self.assertEqual(self.requests, 0)
+        stored = json.loads(manifest_path.read_text(encoding="utf-8"))["segments"][second.segment_id]
+        self.assertEqual(stored["status"], "RETRY_APPROVED")
+        self.assertEqual(stored["attempt_history"][0]["request_id"], "ambiguous-request")
+        approved_progress = service.progress(
+            book_name="chapter-book", job_id="chapter-ch001", profile_id="yandex_lera"
+        )
+        self.assertTrue(approved_progress["ambiguous_segments"][0]["retry_approved"])
+        self.assertEqual(approved_progress["ambiguous_segments"][0]["segment_id"], second.segment_id)
+
+        retry_plan = self.prepare(service)
+        self.assertEqual(retry_plan["decision"], "READY_FOR_CONFIRMATION")
+        self.assertGreater(retry_plan["max_network_requests"], 0)
+        self.assertEqual(self.requests, 0)
+
+    def test_inflight_retry_records_unknown_cost_before_permission_and_is_idempotent(self) -> None:
+        service = self.service()
+        book = service.library.load_book_for_execution("chapter-book")
+        text = "\n\n".join(segment["text"] for segment in book["jobs"]["chapter-ch001"]["segments"])
+        segment = service.backend.segment(text)[0]
+        fingerprint = make_fingerprint(segment.text, service.backend.profile)
+        job_dir = service._job_dir(book, "chapter-ch001")
+        job_dir.mkdir(parents=True)
+        manifest_path = job_dir / "MANIFEST.json"
+        manifest_path.write_text(json.dumps({
+            "schema_version": 1,
+            "engine": "yandex_speechkit_v3",
+            "job_id": "chapter-ch001",
+            "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segmentation": service.backend.manifest_segmentation(),
+            "request_routing": service.backend.request_routing_identity(),
+            "segments": {segment.segment_id: {
+                "status": "IN_FLIGHT",
+                "fingerprint": fingerprint,
+                "request_id": "request-persisted-before-crash",
+                "updated_at": "2026-08-23T11:59:00+00:00",
+            }},
+        }), encoding="utf-8")
+
+        # Simulate a second crash after the ledger write but before retry
+        # authority reaches the manifest. Repeating the owner action must reuse
+        # the same transaction rather than hiding or duplicating the charge.
+        with mock.patch("chapter_production.atomic_write_json", side_effect=OSError("crash")):
+            with self.assertRaises(OSError):
+                service.approve_ambiguous_retry(
+                    book_name="chapter-book",
+                    job_id="chapter-ch001",
+                    profile_id="yandex_lera",
+                    segment_id=segment.segment_id,
+                )
+        first_ledger = json.loads((self.root / "ledger.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(first_ledger["transactions"]), 1)
+        transaction = first_ledger["transactions"][0]
+        self.assertEqual(transaction["request_id"], "request-persisted-before-crash")
+        self.assertIsNone(transaction["actual_cost"])
+        self.assertEqual(transaction["cost_source"], "unavailable")
+        self.assertEqual(
+            json.loads(manifest_path.read_text(encoding="utf-8"))["segments"][segment.segment_id]["status"],
+            "IN_FLIGHT",
+        )
+
+        approved = service.approve_ambiguous_retry(
+            book_name="chapter-book",
+            job_id="chapter-ch001",
+            profile_id="yandex_lera",
+            segment_id=segment.segment_id,
+        )
+        self.assertFalse(approved["billing_changed"])
+        self.assertEqual(approved["billing_transaction_id"], transaction["transaction_id"])
+        final_ledger = json.loads((self.root / "ledger.json").read_text(encoding="utf-8"))
+        self.assertEqual(final_ledger["transactions"], first_ledger["transactions"])
+        stored = json.loads(manifest_path.read_text(encoding="utf-8"))["segments"][segment.segment_id]
+        self.assertEqual(stored["status"], "RETRY_APPROVED")
+        self.assertEqual(stored["billing_transaction_id"], transaction["transaction_id"])
+        self.assertEqual(stored["attempt_history"][-1]["cost_source"], "unavailable")
         self.assertEqual(self.requests, 0)
 
     def test_completed_inflight_segments_resume_without_provider_requests(self) -> None:
@@ -577,6 +742,10 @@ class ChapterProductionTests(unittest.TestCase):
         with self.assertRaisesRegex(ChapterProductionError, "no longer executable"):
             service.execute(plan_id=plan["plan_id"], plan_digest=plan["plan_digest"])
         self.assertEqual(self.requests, 1)
+        ledger = json.loads((self.root / "ledger.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(ledger["transactions"]), 1)
+        self.assertIsNone(ledger["transactions"][0]["actual_cost"])
+        self.assertEqual(ledger["transactions"][0]["cost_source"], "unavailable")
 
     def test_cache_only_plan_materializes_with_zero_provider_requests(self) -> None:
         first_service = self.service()

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
-import importlib.util
 import json
 import os
 import stat
@@ -21,6 +20,7 @@ from workspace_paths import load_workspace_paths
 from cloud_billing import CloudBillingService, decimal_text, decimal_value, save_settings
 from book_library import BookLibrary, BookLibraryError, normalize_slug
 from book_text_preparation import BookTextPreparationService
+from content_quality_execution import hold_current_content_quality
 from chapter_production import YandexChapterProductionService
 from chapter_assembly import (
     ChapterAssemblyService,
@@ -35,6 +35,7 @@ from mastering_export import (
     resolve_current_assembly,
     resolve_current_master,
 )
+from book_delivery import BookDeliveryError, BookDeliveryService
 from paid_run import PaidRunService
 from audio_qa_authority import (
     AudioQAAuthority,
@@ -67,6 +68,60 @@ ENGINES = (
     ("openai", "OpenAI TTS — облако"),
 )
 
+_YANDEX_LOCAL_SAMPLE_PATTERNS = {
+    "yandex_lera": "renders-yandex/demo/*/speechkit-demo__lera-neutral-1.04.wav",
+    "yandex_ermil": "casting/yandex-male-short/*/02-ermil.wav",
+    "yandex_kirill": "casting/yandex-male-short/*/05-kirill.wav",
+    "yandex_anton": "casting/yandex-male-short/*/06-anton.wav",
+}
+
+
+def _safe_local_voice_sample(profile_id: str) -> Path | None:
+    """Find an already-recorded casting sample without synthesis or network I/O."""
+    pattern = _YANDEX_LOCAL_SAMPLE_PATTERNS.get(profile_id)
+    if pattern is None:
+        return None
+    root = WORKSPACE_PATHS.runtime_root
+    try:
+        resolved_root = root.resolve(strict=True)
+    except OSError:
+        return None
+    for candidate in sorted(root.glob(pattern), reverse=True):
+        try:
+            relative = candidate.relative_to(root)
+            cursor = root
+            if root.is_symlink():
+                continue
+            unsafe_component = False
+            for component in relative.parts:
+                cursor = cursor / component
+                if cursor.is_symlink():
+                    unsafe_component = True
+                    break
+            if unsafe_component or not candidate.is_file():
+                continue
+            flags = candidate.stat().st_flags
+            if flags & getattr(stat, "SF_DATALESS", 0x40000000):
+                continue
+            resolved = candidate.resolve(strict=True)
+            if not resolved.is_relative_to(resolved_root):
+                continue
+            return resolved
+        except (AttributeError, OSError, ValueError):
+            continue
+    return None
+
+
+def _with_local_voice_samples(profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for original in profiles:
+        profile = dict(original)
+        sample = _safe_local_voice_sample(str(profile.get("profile_id", "")))
+        profile["sample_audio_available"] = sample is not None
+        profile["sample_audio_path"] = str(sample) if sample is not None else None
+        result.append(profile)
+    return result
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Audiobook Studio universal app bridge")
@@ -74,7 +129,9 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--list-engines", action="store_true")
     mode.add_argument("--list-books", action="store_true")
     mode.add_argument("--add-book", action="store_true")
+    mode.add_argument("--archive-book", action="store_true")
     mode.add_argument("--book-details", action="store_true")
+    mode.add_argument("--set-book-voice", action="store_true")
     mode.add_argument("--prepare-book-text", action="store_true")
     mode.add_argument("--book-preparation-status", action="store_true")
     mode.add_argument("--list-jobs", action="store_true")
@@ -89,6 +146,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--run-yandex-demo", action="store_true")
     mode.add_argument("--prepare-yandex-chapter-run", action="store_true")
     mode.add_argument("--execute-yandex-chapter-plan", action="store_true")
+    mode.add_argument("--yandex-chapter-progress", action="store_true")
+    mode.add_argument("--approve-yandex-ambiguous-retry", action="store_true")
     mode.add_argument("--openai-status", action="store_true")
     mode.add_argument("--openai-credential-status", action="store_true")
     mode.add_argument("--openai-pricing-status", action="store_true")
@@ -113,11 +172,15 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--create-litres-export", action="store_true")
     mode.add_argument("--reconcile-litres-release-authority", action="store_true")
     mode.add_argument("--reconcile-all-litres-release-authorities", action="store_true")
+    mode.add_argument("--delivery-selection-status", action="store_true")
+    mode.add_argument("--set-delivery-profile", action="store_true")
+    mode.add_argument("--create-book-delivery", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--source-file", default="")
     parser.add_argument("--title", default="")
     parser.add_argument("--author", default="")
+    parser.add_argument("--author-pronunciation", default="")
     parser.add_argument("--slug", default="")
     parser.add_argument("--job", default="")
     parser.add_argument("--speaker", default="")
@@ -129,8 +192,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hard-limit-rub", default="")
     parser.add_argument("--plan-id", default="")
     parser.add_argument("--plan-digest", default="")
+    parser.add_argument("--segment-id", default="")
     parser.add_argument("--audio-path", default="")
     parser.add_argument("--manifest-path", default="")
+    parser.add_argument("--delivery-profile-id", choices=("chapters", "m4b", "mp3", "hq_archive"), default="")
     parser.add_argument("--reviewed-audio-sha256", default="")
     parser.add_argument("--reviewed-path-identity", default="")
     parser.add_argument("--reviewed-fingerprint", default="")
@@ -158,6 +223,14 @@ def _require(value: str, option: str) -> str:
     return value
 
 
+def _content_quality_execution(book_name: str):
+    return hold_current_content_quality(
+        library=BOOK_LIBRARY,
+        workspace_root=WORKSPACE_PATHS.root,
+        book_name=book_name,
+    )
+
+
 def _billing_service() -> CloudBillingService:
     return CloudBillingService(
         settings_path=WORKSPACE_PATHS.cloud_billing_settings,
@@ -182,6 +255,7 @@ def _paid_run_service() -> PaidRunService:
         billing=billing,
         books_dir=WORKSPACE_PATHS.books_root,
         plans_dir=WORKSPACE_PATHS.paid_run_plans,
+        content_quality_guard=_content_quality_execution,
     )
 
 
@@ -200,7 +274,48 @@ def _yandex_chapter_service() -> YandexChapterProductionService:
         billing=billing,
         books_dir=WORKSPACE_PATHS.books_root,
         plans_dir=WORKSPACE_PATHS.paid_run_plans,
+        content_quality_guard=_content_quality_execution,
     )
+
+
+def _approved_yandex_profile(profile_id: str) -> dict[str, Any]:
+    matches = [
+        profile for profile in load_voice_library(provider="yandex")
+        if profile["profile_id"] == profile_id
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("Выбранный голос не входит в утверждённую библиотеку Yandex.")
+    return matches[0]
+
+
+def _yandex_chapter_service_for_profile(profile_id: str) -> YandexChapterProductionService:
+    from backends.yandex_speechkit import YandexSpeechKitBackend, YandexVoiceProfile
+
+    profile = _approved_yandex_profile(profile_id)
+    billing = _billing_service()
+    offline_backend, pricing, _ = _load_yandex_offline()
+    config = replace(
+        offline_backend.config,
+        profile=YandexVoiceProfile.from_mapping(profile),
+    )
+    backend = YandexSpeechKitBackend(config, billing_ledger=billing.ledger)
+    return YandexChapterProductionService(
+        backend=backend,
+        pricing=pricing,
+        billing=billing,
+        books_dir=WORKSPACE_PATHS.books_root,
+        plans_dir=WORKSPACE_PATHS.paid_run_plans,
+        content_quality_guard=_content_quality_execution,
+    )
+
+
+def _yandex_chapter_service_for_plan(plan_id: str) -> YandexChapterProductionService:
+    from paid_run import PaidRunPlanStore
+
+    plan = PaidRunPlanStore(WORKSPACE_PATHS.paid_run_plans).load(plan_id)
+    if plan.get("provider") != "yandex":
+        raise RuntimeError("План не относится к Yandex SpeechKit.")
+    return _yandex_chapter_service_for_profile(_require(str(plan.get("profile_id") or ""), "plan profile_id"))
 
 
 def _audio_qa_service() -> AudioQAReviewService:
@@ -226,6 +341,45 @@ def _litres_export_service() -> LitresExportService:
         workspace_root=WORKSPACE_PATHS.root,
         exports_root=WORKSPACE_PATHS.exports_root,
     )
+
+
+def _book_delivery_service() -> BookDeliveryService:
+    return BookDeliveryService(
+        workspace_root=WORKSPACE_PATHS.root,
+        exports_root=WORKSPACE_PATHS.exports_root,
+        masters_root=WORKSPACE_PATHS.masters_root,
+    )
+
+
+def book_delivery_current(
+    *, action: str, book_name: str, delivery_profile_id: str = "",
+) -> dict[str, Any]:
+    """Read, select, or build an offline book delivery format."""
+    profile_path = BOOK_LIBRARY.resolve_book_profile(book_name)
+    book_slug = profile_path.stem
+    book = BOOK_LIBRARY.load_book_for_execution(book_name)
+    service = _book_delivery_service()
+    if action == "set":
+        service.set_selected_profile(book_slug, delivery_profile_id or None)
+    release_service = _litres_export_service()
+    release_manifest = release_service.current_book_release(book)
+    release_progress = release_manifest or release_service.book_release_progress(book)
+    if action == "export":
+        if release_manifest is None:
+            raise BookDeliveryError(
+                "book_not_ready",
+                "Сборка станет доступна, когда все главы будут приняты и подготовлены.",
+            )
+        service.export(book_slug, release_manifest)
+    result = service.status(book_slug, release_progress)
+    return {
+        "schema_version": 1,
+        "delivery": result,
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "paid_execution": False,
+        "billing_changed": False,
+    }
 
 
 def reconcile_litres_release_authority(*, book_name: str) -> dict[str, Any]:
@@ -490,7 +644,7 @@ def _audio_qa_authority(
             fail_on_invalid_report=selected_manifest is not None,
         )
     if provider == "yandex":
-        backend, _, _ = _load_yandex_offline()
+        backend = _yandex_chapter_service_for_profile(profile_id).backend
         relative = Path(slug) / job_id / profile_id / "MANIFEST.json"
         configured_root = Path(backend.config.output_root).expanduser().absolute()
         workspace_alias = WORKSPACE_PATHS.yandex_output_root.expanduser().absolute()
@@ -1097,25 +1251,60 @@ def _load_yandex_offline() -> tuple[Any, Any, str]:
 
 
 def _load_qwen_runtime_catalog() -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
-    spec = importlib.util.spec_from_file_location("audiobook_studio_qwen_catalog", STUDIO_DIR / "studio.py")
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Не удалось загрузить каталог книг Qwen.")
-    studio = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(studio)
-    return BOOK_LIBRARY.list_book_summaries(), list(studio.load_voices())
+    # Catalog rendering must not import the Qwen generation runtime. Besides
+    # making the main window needlessly slow, importing studio.py loads NumPy
+    # and the model environment before the owner has chosen Qwen. On macOS a
+    # File Provider placeholder inside that environment can otherwise leave
+    # the native UI waiting forever. The small tracked registry is the same
+    # source used by studio.load_voices(); model dependencies remain lazy until
+    # an explicit Qwen execution.
+    try:
+        payload = json.loads((STUDIO_DIR / "voices.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError("Не удалось загрузить локальный каталог голосов Qwen.") from error
+    voices = payload.get("voices") if isinstance(payload, dict) else None
+    if not isinstance(voices, list) or not voices:
+        raise RuntimeError("Локальный каталог голосов Qwen пуст или повреждён.")
+    return BOOK_LIBRARY.list_book_summaries(), [dict(voice) for voice in voices]
 
 
-def add_book(*, source_file: str, title: str, author: str, slug: str) -> dict[str, Any]:
+def add_book(
+    *, source_file: str, title: str, author: str, slug: str,
+    author_pronunciation: str = "",
+) -> dict[str, Any]:
     return BOOK_LIBRARY.import_text_book(
         source_file=Path(_require(source_file, "--source-file")),
         title=_require(title, "--title"),
         author=_require(author, "--author"),
         slug=_require(slug, "--slug"),
+        author_pronunciation=author_pronunciation or None,
     )
 
 
 def book_details(book_name: str) -> dict[str, Any]:
     return BOOK_LIBRARY.book_details(_require(book_name, "--book"))
+
+
+def set_book_voice(*, book_name: str, profile_id: str) -> dict[str, Any]:
+    profile = _approved_yandex_profile(_require(profile_id, "--profile-id"))
+    book_id = _require(book_name, "--book")
+    book = BOOK_LIBRARY.load_book_profile(book_id)
+    book["selected_backend"] = "yandex"
+    book["selected_profile_id"] = profile["profile_id"]
+    BOOK_LIBRARY.replace_book_profile(book_id, book)
+    return {
+        "schema_version": 1,
+        "book_id": BOOK_LIBRARY.resolve_book_profile(book_id).name,
+        "selected_backend": "yandex",
+        "selected_profile_id": profile["profile_id"],
+        "voice": profile["voice"],
+        "role": profile["role"],
+        "speed": profile["speed"],
+        "provider_requests": 0,
+        "remote_request_sent": False,
+        "paid_execution": False,
+        "billing_changed": False,
+    }
 
 
 def prepare_book_text(book_name: str) -> dict[str, Any]:
@@ -1132,6 +1321,7 @@ def voice_library_listing(engine: str) -> dict[str, Any]:
         profiles = normalize_qwen_profiles(raw_qwen_voices)
     else:
         profiles = load_voice_library(provider=engine)
+    profiles = _with_local_voice_samples(profiles)
     return {
         "engine": engine,
         "voices": profiles,
@@ -1150,7 +1340,9 @@ def _print_voice_listing(result: dict[str, Any], output_format: str) -> None:
 def ui_snapshot() -> dict[str, Any]:
     books, raw_qwen_voices = _load_qwen_runtime_catalog()
     qwen_voices = [{"id": str(voice["id"]), "label": str(voice["id"])} for voice in raw_qwen_voices]
-    profiles = load_voice_library(qwen_loader=lambda: raw_qwen_voices)
+    profiles = _with_local_voice_samples(
+        load_voice_library(qwen_loader=lambda: raw_qwen_voices)
+    )
     estimate = yandex_demo_estimate()
     _, pricing, _ = _load_yandex_offline()
     cloud_billing = billing_status(current_job_estimates={
@@ -1283,12 +1475,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_file=args.source_file,
             title=args.title,
             author=args.author,
+            author_pronunciation=args.author_pronunciation,
             slug=args.slug,
         ), ensure_ascii=False, indent=2))
         return 0
 
+    if args.archive_book:
+        print(json.dumps(
+            BOOK_LIBRARY.archive_book(_require(args.book, "--book")),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
     if args.book_details:
         print(json.dumps(book_details(args.book), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.set_book_voice:
+        print(json.dumps(set_book_voice(
+            book_name=args.book,
+            profile_id=args.profile_id,
+        ), ensure_ascii=False, indent=2))
         return 0
 
     if args.prepare_book_text:
@@ -1331,13 +1539,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.run_qwen:
-        return _delegate(
-            QWEN_RUNNER,
-            "--run",
-            "--book", _require(args.book, "--book"),
-            "--job", _require(args.job, "--job"),
-            "--speaker", _require(args.speaker, "--speaker"),
-        )
+        book_name = _require(args.book, "--book")
+        with _content_quality_execution(book_name):
+            return _delegate(
+                QWEN_RUNNER,
+                "--run",
+                "--book", book_name,
+                "--job", _require(args.job, "--job"),
+                "--speaker", _require(args.speaker, "--speaker"),
+            )
 
     if args.run_yandex_demo:
         # Legacy bounded diagnostic smoke; the production chapter route below
@@ -1345,11 +1555,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _delegate(YANDEX_RUNNER, "--demo")
 
     if args.prepare_yandex_chapter_run:
+        selected_profile_id = _require(args.profile_id, "--profile-id")
         print(json.dumps(
-            _yandex_chapter_service().prepare(
+            _yandex_chapter_service_for_profile(selected_profile_id).prepare(
                 book_name=_require(args.book, "--book"),
                 job_id=_require(args.job, "--job"),
-                profile_id=_require(args.profile_id, "--profile-id"),
+                profile_id=selected_profile_id,
             ),
             ensure_ascii=False,
             indent=2,
@@ -1357,10 +1568,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.execute_yandex_chapter_plan:
+        selected_plan_id = _require(args.plan_id, "--plan-id")
         print(json.dumps(
-            _yandex_chapter_service().execute(
-                plan_id=_require(args.plan_id, "--plan-id"),
+            _yandex_chapter_service_for_plan(selected_plan_id).execute(
+                plan_id=selected_plan_id,
                 plan_digest=_require(args.plan_digest, "--plan-digest"),
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if args.yandex_chapter_progress:
+        selected_profile_id = _require(args.profile_id, "--profile-id")
+        print(json.dumps(
+            _yandex_chapter_service_for_profile(selected_profile_id).progress(
+                book_name=_require(args.book, "--book"),
+                job_id=_require(args.job, "--job"),
+                profile_id=selected_profile_id,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if args.approve_yandex_ambiguous_retry:
+        selected_profile_id = _require(args.profile_id, "--profile-id")
+        print(json.dumps(
+            _yandex_chapter_service_for_profile(selected_profile_id).approve_ambiguous_retry(
+                book_name=_require(args.book, "--book"),
+                job_id=_require(args.job, "--job"),
+                profile_id=selected_profile_id,
+                segment_id=_require(args.segment_id, "--segment-id"),
             ),
             ensure_ascii=False,
             indent=2,
@@ -1456,6 +1695,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(reconcile_all_litres_release_authorities(), ensure_ascii=False, indent=2))
         return 0
 
+    if args.delivery_selection_status or args.set_delivery_profile or args.create_book_delivery:
+        action = (
+            "status" if args.delivery_selection_status else
+            "set" if args.set_delivery_profile else
+            "export"
+        )
+        print(json.dumps(book_delivery_current(
+            action=action,
+            book_name=_require(args.book, "--book"),
+            delivery_profile_id=args.delivery_profile_id,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
     if args.openai_status:
         return _delegate(OPENAI_RUNNER, "--status")
 
@@ -1475,13 +1727,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     if args.run_openai:
-        return _delegate(
-            OPENAI_RUNNER,
-            "--run",
-            "--book", _require(args.book, "--book"),
-            "--job", _require(args.job, "--job"),
-            "--profile-id", _require(args.profile_id, "--profile-id"),
-        )
+        book_name = _require(args.book, "--book")
+        with _content_quality_execution(book_name):
+            return _delegate(
+                OPENAI_RUNNER,
+                "--run",
+                "--book", book_name,
+                "--job", _require(args.job, "--job"),
+                "--profile-id", _require(args.profile_id, "--profile-id"),
+            )
 
     if args.prepare_paid_run:
         if _require(args.provider, "--provider") != "openai":

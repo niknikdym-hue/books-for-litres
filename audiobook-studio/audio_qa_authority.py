@@ -273,8 +273,8 @@ def resolve_yandex_authority(
 ) -> AudioQAAuthority:
     from backends.yandex_speechkit import make_fingerprint
 
-    if profile_id != "yandex_lera":
-        raise AudioQAAuthorityError("Current Yandex QA supports only yandex_lera production output.")
+    if not profile_id.startswith("yandex_"):
+        raise AudioQAAuthorityError("Yandex QA requires an approved Yandex profile identity.")
     book, job, text = _job(library, book_name, job_id)
     current_segments = backend.segment(text)
     manifest_path = None

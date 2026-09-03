@@ -86,6 +86,15 @@ jobs:
       - name: Swift native contract
         run: python -m unittest discover -s tests -p 'test_native_contracts.py' -v
 
+      - name: Validate owner local updater
+        run: |
+          /bin/zsh -n native/update_desktop_from_github.sh
+          test -x /usr/bin/git
+          test -x /usr/bin/xcrun
+          test -x /usr/bin/codesign
+          test -x /usr/bin/ditto
+          test -x /usr/bin/open
+
       - name: Build and strictly codesign native app
         run: native/build_native_app.sh "$RUNNER_TEMP/Audiobook Studio.app"
 

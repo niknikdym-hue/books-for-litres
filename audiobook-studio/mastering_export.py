@@ -325,6 +325,7 @@ def resolve_current_assembly(
         "profile_id": _safe_id(manifest.get("input", {}).get("profile_id"), "profile_id"),
         "input_granularity": manifest.get("input_granularity"),
         "ordered_inputs": manifest.get("ordered_inputs"),
+        "chapter_cue": manifest.get("chapter_cue"),
         "provider_requests": 0,
     }
 
@@ -719,6 +720,7 @@ class MasteringService:
                     "path_identity": payload["path_identity"],
                     "wav": payload["wav"],
                     "ordered_inputs": payload.get("ordered_inputs"),
+                    "chapter_cue": payload.get("chapter_cue"),
                 },
                 "ffmpeg": _resolution_identity(ffmpeg),
                 "analysis_pass": {
@@ -925,6 +927,7 @@ def resolve_current_master(
         "provider": _safe_id(manifest.get("provider"), "provider"),
         "profile_id": _safe_id(manifest.get("profile_id"), "profile_id"),
         "assembly_identity": manifest.get("input", {}).get("assembly_identity"),
+        "chapter_cue": manifest.get("input", {}).get("chapter_cue"),
         "provider_requests": 0,
     }
 
@@ -993,6 +996,54 @@ def build_book_export_state(
     rights = book_authority.get("rights_provenance")
     if isinstance(rights, Mapping) and rights.get("third_party_assets") and rights.get("verified") is not True:
         blockers.append("unproven_third_party_assets")
+    for candidate in ordered:
+        cue = candidate.get("chapter_cue")
+        if cue is None:
+            continue
+        if not isinstance(cue, Mapping):
+            blockers.append("chapter_cue_rights_unverified")
+            break
+        origin = cue.get("origin")
+        if origin == "STUDIO_GENERATED":
+            verified = cue.get("rights") == "PROJECT_ORIGINAL_GENERATED_AUDIO"
+        elif origin == "APPLE_GARAGEBAND_DIGITAL_MATERIAL":
+            provenance = cue.get("rights_provenance")
+            policy = cue.get("production_policy")
+            verified = bool(
+                cue.get("rights") == "APPLE_LICENSED_AUDIO_PROJECT_USE"
+                and isinstance(provenance, Mapping)
+                and provenance.get("verified") is True
+                and provenance.get("commercial_audiobook_distribution") is True
+                and provenance.get("standalone_distribution") is False
+                and isinstance(policy, Mapping)
+                and policy.get("allowed_scope") == "INCORPORATED_IN_AUDIOBOOK_CHAPTER_SOUNDTRACK_ONLY"
+                and policy.get("raw_asset_export_allowed") is False
+                and policy.get("separate_cue_export_allowed") is False
+                and policy.get("include_raw_asset_in_release") is False
+            )
+        elif origin == "USER_IMPORTED":
+            provenance = cue.get("rights_provenance")
+            policy = cue.get("production_policy")
+            verified = bool(
+                cue.get("rights") == "USER_CONFIRMED_AUDIOBOOK_USE"
+                and isinstance(provenance, Mapping)
+                and provenance.get("confirmed") is True
+                and provenance.get("verification_method") == "OWNER_ATTESTATION"
+                and provenance.get("attestation") == "I_CONFIRM_RIGHTS_TO_USE_AND_COMMERCIALLY_DISTRIBUTE_IN_THIS_AUDIOBOOK"
+                and provenance.get("source_sha256") == cue.get("sha256")
+                and provenance.get("commercial_audiobook_distribution") is True
+                and provenance.get("standalone_distribution") is False
+                and isinstance(policy, Mapping)
+                and policy.get("allowed_scope") == "INCORPORATED_IN_AUDIOBOOK_CHAPTER_SOUNDTRACK_ONLY"
+                and policy.get("raw_asset_export_allowed") is False
+                and policy.get("separate_cue_export_allowed") is False
+                and policy.get("include_raw_asset_in_release") is False
+            )
+        else:
+            verified = False
+        if not verified:
+            blockers.append("chapter_cue_rights_unverified")
+            break
     return {
         "expected_chapters": len(expected),
         "ready_chapters": len(ordered),
@@ -2281,6 +2332,47 @@ class LitresExportService:
         if output.get("sha256") != sha256_file(mp3) or output.get("path_identity") != path_identity(mp3):
             raise MasteringExportError("export_identity_mismatch", "MP3 export identity изменилась.")
         return prepared
+
+    def current_book_release(self, book_value: Mapping[str, Any]) -> dict[str, Any] | None:
+        """Return only an exact-current complete release package, read-only.
+
+        Whole-book delivery formats use this accepted chapter-package authority
+        instead of rediscovering arbitrary audio files.
+        """
+        book = self._validated_book(book_value)
+        pointer_path = self._profile_root(book["slug"]) / "CURRENT.json"
+        if not pointer_path.is_file() or pointer_path.is_symlink():
+            return None
+        try:
+            pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+            manifest_path = _require_regular_path(
+                Path(pointer["manifest_path"]), root=self.workspace_root,
+                label="Whole-book release manifest",
+            )
+            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = self._read_export(manifest_path.parent, raw.get("export_identity"))
+            if (
+                manifest is None
+                or manifest.get("whole_book", {}).get("ready") is not True
+                or _canonical_json(manifest.get("book")) != _canonical_json(book)
+            ):
+                return None
+            self._revalidate_candidate_masters(book, manifest.get("chapters") or [])
+            return manifest
+        except (OSError, ValueError, KeyError, TypeError, MasteringExportError):
+            return None
+
+    def book_release_progress(self, book_value: Mapping[str, Any]) -> dict[str, Any]:
+        """Return current per-chapter release progress without publishing anything."""
+        book = self._validated_book(book_value)
+        candidates = self._load_current_candidates(book)
+        whole_book = build_book_export_state(book, candidates)
+        return {
+            "book": book,
+            "chapters": candidates,
+            "whole_book": whole_book,
+            "status": "RELEASE_READY" if whole_book["ready"] else "INCOMPLETE",
+        }
 
     def _package_cover_is_valid(
         self,

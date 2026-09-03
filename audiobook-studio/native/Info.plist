@@ -8,8 +8,10 @@
   <string>Audiobook Studio</string>
   <key>CFBundleExecutable</key>
   <string>Audiobook Studio</string>
-  <key>CFBundleIdentifier</key>
-  <string>ru.elena.audiobookstudio</string>
+	<key>CFBundleIdentifier</key>
+	<string>ru.elena.audiobookstudio</string>
+	<key>CFBundleIconFile</key>
+	<string>AudiobookStudio</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

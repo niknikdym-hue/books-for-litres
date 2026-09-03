@@ -18,11 +18,14 @@ sys.path.insert(0, str(ROOT))
 
 from audio_qa_review import path_identity, sha256_file
 from chapter_assembly import (
+    CHAPTER_CUE_PAUSE_FRAMES,
+    CHAPTER_CUE_PAUSE_CONTRACT,
     ChapterAssemblyError,
     ChapterAssemblyService,
     assembly_input_from_qa,
     assembly_input_from_qa_segments,
 )
+from book_sound_design import chapter_cue_for_book, import_book_sound
 from media_tools import FFmpegResolution
 
 
@@ -75,16 +78,17 @@ class ChapterAssemblyTests(unittest.TestCase):
         self.temporary.cleanup()
 
     @staticmethod
-    def _write_wav(path: Path, rate: int, seconds: float = 0.1) -> None:
+    def _write_wav(path: Path, rate: int, seconds: float = 0.1, channels: int = 1) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         frames = int(rate * seconds)
         with wave.open(str(path), "wb") as output:
-            output.setnchannels(1)
+            output.setnchannels(channels)
             output.setsampwidth(2)
             output.setframerate(rate)
             output.writeframes(b"".join(
                 struct.pack("<h", ((index % 100) - 50) * 100)
                 for index in range(frames)
+                for _ in range(channels)
             ))
 
     @staticmethod
@@ -108,8 +112,9 @@ class ChapterAssemblyTests(unittest.TestCase):
             " print('ffmpeg version deterministic-test'); raise SystemExit(0)\n"
             "src=pathlib.Path(sys.argv[sys.argv.index('-i')+1]); dst=pathlib.Path(sys.argv[-1])\n"
             "with wave.open(str(src),'rb') as r:\n"
-            " data=r.readframes(r.getnframes()); old=r.getframerate(); samples=[x[0] for x in struct.iter_unpack('<h',data)]\n"
-            "count=max(1,round(len(samples)*48000/old)); converted=[samples[min(len(samples)-1,(i*old)//48000)] for i in range(count)]\n"
+            " data=r.readframes(r.getnframes()); old=r.getframerate(); channels=r.getnchannels(); samples=[x[0] for x in struct.iter_unpack('<h',data)]\n"
+            "mono=[round(sum(samples[i:i+channels])/channels) for i in range(0,len(samples),channels)]\n"
+            "count=max(1,round(len(mono)*48000/old)); converted=[mono[min(len(mono)-1,(i*old)//48000)] for i in range(count)]\n"
             "with wave.open(str(dst),'wb') as w:\n"
             " w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000); w.writeframes(b''.join(struct.pack('<h',x) for x in converted))\n",
             encoding="utf-8",
@@ -187,6 +192,116 @@ class ChapterAssemblyTests(unittest.TestCase):
             result = self.service.assemble(self._input())
         self.assertFalse(result["normalization"]["performed"])
         self.assertEqual(result["output"]["sha256"], sha256_file(self.source))
+
+    def test_selected_cue_is_followed_by_exact_natural_pause_then_approved_speech(self):
+        self._write_wav(self.source, 48_000)
+        self.record["identity"]["audio_sha256"] = sha256_file(self.source)
+        self.record["wav"] = self._facts(self.source)
+        cue_source = self.root / "owner-cue.wav"
+        self._write_wav(cue_source, 48_000, seconds=1.0)
+        status = import_book_sound(
+            self.root, "demo-book", cue_source, label="Owner cue", rights_confirmed=True
+        )
+        cue_path = Path(status["selected"]["path"])
+        with wave.open(str(cue_path), "rb") as cue:
+            cue_samples = cue.readframes(cue.getnframes())
+            cue_frames = cue.getnframes()
+        with wave.open(str(self.source), "rb") as speech:
+            speech_samples = speech.readframes(speech.getnframes())
+        with mock.patch.object(
+            self.service, "_resolution", return_value=FFmpegResolution(False, None, None, "unavailable")
+        ):
+            result = self.service.assemble(self._input())
+        with wave.open(result["output"]["path"], "rb") as assembled:
+            output = assembled.readframes(assembled.getnframes())
+        pause_bytes = b"\x00\x00" * CHAPTER_CUE_PAUSE_FRAMES
+        self.assertEqual(output, cue_samples + pause_bytes + speech_samples)
+        self.assertEqual(result["pause_contract"], CHAPTER_CUE_PAUSE_CONTRACT)
+        self.assertEqual(result["concat"]["added_pause_frames"], CHAPTER_CUE_PAUSE_FRAMES)
+        self.assertEqual(result["concat"]["ordered_input_frames"], [cue_frames, CHAPTER_CUE_PAUSE_FRAMES, 4_800])
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+
+    def test_48000_stereo_custom_cue_is_normalized_to_mono_before_assembly(self):
+        self._write_wav(self.source, 48_000)
+        self.record["identity"]["audio_sha256"] = sha256_file(self.source)
+        self.record["wav"] = self._facts(self.source)
+        cue_source = self.root / "owner-stereo-cue.wav"
+        self._write_wav(cue_source, 48_000, seconds=1.0, channels=2)
+        imported = import_book_sound(
+            self.root,
+            "demo-book",
+            cue_source,
+            label="Owner stereo cue",
+            rights_confirmed=True,
+        )
+        self.assertEqual(imported["selected"]["sample_rate_hz"], 48_000)
+        self.assertEqual(imported["selected"]["channels"], 2)
+
+        with mock.patch.object(
+            self.service,
+            "_resolution",
+            return_value=FFmpegResolution(False, None, None, "unavailable"),
+        ):
+            blocked = self.service.prepare(self._input())
+        self.assertEqual(blocked["decision"], "BLOCKED")
+        self.assertEqual(blocked["blockers"], ["missing_ffmpeg"])
+
+        with mock.patch.object(self.service, "_resolution", return_value=self._available()):
+            result = self.service.assemble(self._input())
+
+        cue_normalization = next(
+            item
+            for item in result["normalization"]["segments"]
+            if item.get("role") == "chapter_cue"
+        )
+        self.assertTrue(cue_normalization["required"])
+        self.assertTrue(cue_normalization["performed"])
+        self.assertEqual(cue_normalization["wav"]["sample_rate_hz"], 48_000)
+        self.assertEqual(cue_normalization["wav"]["channels"], 1)
+        self.assertIn("-ac", cue_normalization["arguments"])
+        self.assertEqual(result["output"]["wav"]["channels"], 1)
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+
+    def test_cue_selection_change_after_prepare_never_publishes_old_identity(self):
+        self._write_wav(self.source, 48_000)
+        self.record["identity"]["audio_sha256"] = sha256_file(self.source)
+        self.record["wav"] = self._facts(self.source)
+        first_cue = self.root / "first-stereo-cue.wav"
+        second_cue = self.root / "second-cue.wav"
+        self._write_wav(first_cue, 48_000, seconds=1.0, channels=2)
+        self._write_wav(second_cue, 44_100, seconds=0.75)
+        import_book_sound(
+            self.root,
+            "demo-book",
+            first_cue,
+            label="First cue",
+            rights_confirmed=True,
+        )
+        first_snapshot = chapter_cue_for_book(self.root, "demo-book")
+        import_book_sound(
+            self.root,
+            "demo-book",
+            second_cue,
+            label="Second cue",
+            rights_confirmed=True,
+        )
+        second_snapshot = chapter_cue_for_book(self.root, "demo-book")
+        self.assertNotEqual(first_snapshot["sound_id"], second_snapshot["sound_id"])
+
+        # PREPARE observes A; the next lookup observes the user's newer B.
+        # The third value makes this regression fail against the former code,
+        # which silently assembled B under A's identity and then compared B=B.
+        with mock.patch.object(self.service, "_resolution", return_value=self._available()), mock.patch(
+            "chapter_assembly.chapter_cue_for_book",
+            side_effect=[first_snapshot, second_snapshot, second_snapshot],
+        ) as cue_lookup, self.assertRaises(ChapterAssemblyError) as raised:
+            self.service.assemble(self._input())
+
+        self.assertEqual(raised.exception.code, "chapter_cue_changed_during_assembly")
+        self.assertEqual(cue_lookup.call_count, 2)
+        self.assertFalse(any((self.root / "chapters").rglob("MANIFEST.json")))
 
     def test_missing_ffmpeg_blocks_conversion_but_not_input_qa(self):
         with mock.patch.object(self.service, "_resolution", return_value=FFmpegResolution(False, None, None, "unavailable")):
