@@ -143,6 +143,18 @@ class BookTextPreparationTests(unittest.TestCase):
         self.assertEqual([item["title"] for item in chapters], ["До", "После"])
         self.assertEqual(chapters[1]["heading"], "Глава четвертая. После")
 
+    def test_named_opening_and_closing_sections_are_independent_chapters(self):
+        chapters = detect_chapters(
+            "Введение\n\nНачальный текст.\n\n"
+            "Глава первая. Основная часть\n\nТекст главы.\n\n"
+            "Заключение. Вернуть себе полный размер\n\nФинальный текст.\n"
+        )
+        self.assertEqual(
+            [item["title"] for item in chapters],
+            ["Введение", "Основная часть", "Заключение. Вернуть себе полный размер"],
+        )
+        self.assertEqual(chapters[-1]["heading"], "Заключение. Вернуть себе полный размер")
+
     def test_compound_russian_ordinals_after_twentieth_are_detected(self):
         chapters = detect_chapters(
             "Глава двадцатая. Двадцать\n\nТекст 20.\n\n"

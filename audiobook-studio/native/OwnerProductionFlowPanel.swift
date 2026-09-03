@@ -178,6 +178,16 @@ final class BookSoundController: NSObject, ObservableObject, NSSoundDelegate {
         )
     }
 
+    func restartExcerptSelection() {
+        guard let status else { return }
+        stopPreview()
+        let fullDuration = status.selected.sourceDurationSeconds
+            ?? status.options.first(where: { $0.soundID == status.soundID })?.durationSeconds
+            ?? status.selected.durationSeconds
+        clipStartSeconds = 0
+        clipDurationSeconds = min(3.0, fullDuration)
+    }
+
     func chooseGenre(_ genre: String) {
         selectedGenre = genre
     }
@@ -447,7 +457,7 @@ struct OwnerProductionFlowPanel: View {
         Group {
             if activeStep == .chapterSound {
                 HStack {
-                    Label("Шаг 3 из 7 · Звук перед главами", systemImage: "music.note")
+                    Label("Шаг 3 из 7 · Заставка перед главами", systemImage: "music.note")
                         .font(.callout.weight(.semibold))
                     Spacer()
                     Button("Подробнее") { onOpenHelp(activeStep) }
@@ -478,7 +488,7 @@ struct OwnerProductionFlowPanel: View {
             }
 
             if activeStep == .text {
-                Section("1. Проверьте текст") {
+                Section("1. Подготовьте текст и главы") {
                 if let review = textController.ttsReview {
                     HStack {
                         Label(
@@ -495,15 +505,48 @@ struct OwnerProductionFlowPanel: View {
                         navigationButton("Дальше: проверить ударения", destination: .pronunciation)
                             .buttonStyle(.borderedProminent)
                     }
+                    if !model.chapterJobs.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Найденные главы · \(model.chapterJobs.count)")
+                                .font(.headline)
+                            ForEach(model.chapterJobs) { job in
+                                HStack {
+                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                                    Text(job.label)
+                                    Spacer()
+                                }
+                            }
+                        }
+                        .padding(10)
+                        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                    }
                     Text("Здесь можно исправить текст, который услышит читатель. Оригинал книги останется без изменений.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Ничего выделять и отмечать не нужно", systemImage: "cursorarrow")
+                            .font(.callout.weight(.semibold))
+                        Text("Обычная правка: просто исправьте текст. Новая глава: напишите её название на отдельной строке. Затем нажмите одну кнопку сохранения.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("Сохранить текст и обновить главы") {
+                        textController.saveWorkingCopy {
+                            model.prepareBookTextAfterSave()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(textController.isLoading || !textController.workingTextHasUnsavedChanges)
                     TextEditor(text: $textController.workingTextDraft)
                         .frame(minHeight: 180)
                         .font(.body)
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
                     HStack {
-                        Button("Сохранить изменения") { textController.saveWorkingCopy() }
+                        Button("Сохранить текст и обновить главы") {
+                            textController.saveWorkingCopy {
+                                model.prepareBookTextAfterSave()
+                            }
+                        }
                             .buttonStyle(.borderedProminent)
                             .disabled(textController.isLoading || !textController.workingTextHasUnsavedChanges)
                         Button("Отменить правки") { textController.discardWorkingCopyDraft() }
@@ -529,12 +572,12 @@ struct OwnerProductionFlowPanel: View {
                         )
                     }
                     if review.preparationStatus != "READY" {
-                        Button(review.preparationStatus == "STALE" ? "Подготовить текст заново" : "Подготовить текст") {
+                        Button(review.preparationStatus == "STALE" ? "Обновить список глав" : "Подготовить текст и найти главы") {
                             model.requestBookTextPreparation()
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isPreparingBookText || textController.workingTextHasUnsavedChanges)
-                        Text("После правок сохраните текст и подготовьте главы заново. Запись сама не начнётся.")
+                        Text("Studio обновит главы офлайн. Запись сама не начнётся.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -544,9 +587,9 @@ struct OwnerProductionFlowPanel: View {
                     Label("Сначала нужно восстановить целостность исходного текста", systemImage: "exclamationmark.shield.fill")
                         .foregroundStyle(.red)
                 } else {
-                    Text("Первый шаг — подготовить рабочую копию текста для диктора.")
+                    Text("Первый шаг — проверить текст и найти в нём введение и все главы. Озвучка сама не начнётся.")
                         .foregroundStyle(.secondary)
-                    Button("Подготовить текст") { model.requestBookTextPreparation() }
+                    Button("Подготовить текст и найти главы") { model.requestBookTextPreparation() }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isPreparingBookText)
                 }
@@ -555,14 +598,32 @@ struct OwnerProductionFlowPanel: View {
 
             if activeStep == .pronunciation {
                 Section("2. Проверьте ударения") {
-                Text("Заставка: «Елена Ди́лон. Хватит себя обесценивать. Читает Dilon Voices.»")
-                    .font(.callout.weight(.medium))
-                Text("Ударение в фамилии уже закреплено на первом слоге: ДИлон.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                GroupBox("Как поставить ударение в слове из книги") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("1. Введите ниже одно слово из текста — выделять его в редакторе не нужно.")
+                        Text("2. Нажмите «Показать варианты ударения».")
+                        Text("3. Выберите правильный вариант и сохраните его для всей книги.")
+                        Text("Например: введите «звонит» → выберите «звони́т». Studio применит это произношение при записи.")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.callout)
+                    .padding(.vertical, 4)
+                }
+                if let book = model.selectedBook {
+                    DisclosureGroup("Ударение в имени автора — уже заполнено") {
+                        LabeledContent("Автор", value: book.author)
+                        LabeledContent(
+                            "Произношение",
+                            value: book.authorPronunciation ?? book.author
+                        )
+                        Text("Это отдельная настройка имени автора. Ниже добавляются ударения для слов внутри книги.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 HStack {
-                    TextField("Слово, например: замок", text: $textController.stressWord)
-                    Button("Варианты ударения") { textController.loadStressCandidates() }
+                    TextField("Введите одно слово из текста, например: звонит", text: $textController.stressWord)
+                    Button("Показать варианты ударения") { textController.loadStressCandidates() }
                         .disabled(
                             textController.isLoading
                             || textController.stressWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -579,7 +640,7 @@ struct OwnerProductionFlowPanel: View {
                     HStack {
                         Text("Выбрано: \(preview.display)").bold()
                         Spacer()
-                        Button("Запомнить для этой книги") { textController.saveStressForBook() }
+                        Button("Сохранить ударение для всей книги") { textController.saveStressForBook() }
                             .buttonStyle(.borderedProminent)
                     }
                     Text("Studio сама передаст выбранное ударение диктору.")
@@ -593,12 +654,14 @@ struct OwnerProductionFlowPanel: View {
                         }
                     }
                 }
-                navigationButton("Дальше: звук перед главами", destination: .chapterSound)
+                Button("Вернуться к тексту книги") { activeStep = .text }
+                    .buttonStyle(.link)
+                navigationButton("Дальше: заставка перед главами", destination: .chapterSound)
                 }
             }
 
             if activeStep == .chapterSound {
-                Section("3. Выберите звук перед главами — по желанию") {
+                Section("3. Заставка перед главами — необязательно") {
                 if let status = soundController.status {
                     Toggle(
                         "Добавлять короткий звук перед каждой главой",
@@ -613,8 +676,8 @@ struct OwnerProductionFlowPanel: View {
                             .foregroundStyle(.secondary)
                             .frame(width: 36, height: 36)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Без звукового оформления").font(.headline)
-                            Text("Главы начнутся сразу с голоса. Это вариант по умолчанию.")
+                            Text("Без заставки").font(.headline)
+                            Text("Каждая глава начнётся сразу с голоса. Это вариант по умолчанию.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -754,13 +817,16 @@ struct OwnerProductionFlowPanel: View {
                                         soundController.saveExcerpt()
                                     }
                                     .buttonStyle(.borderedProminent)
+                                    Button("Выбрать фрагмент заново", systemImage: "arrow.counterclockwise") {
+                                        soundController.restartExcerptSelection()
+                                    }
                                     Button("Прослушать сохранённый фрагмент", systemImage: "play.fill") {
                                         soundController.preview(status.selected)
                                     }
-                                    Text("Можно взять начало, середину или конец записи.")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
                                 }
+                                Text("«Выбрать фрагмент заново» вернёт ползунки к началу. Настройте их и нажмите «Сохранить фрагмент». Чтобы убрать заставку совсем, выберите «Без заставки» выше.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                             .padding(.top, 4)
                         }

@@ -176,6 +176,7 @@ class BookLibrary:
         source_file: Path,
         title: str,
         author: str,
+        author_pronunciation: str | None = None,
         slug: str,
     ) -> dict[str, Any]:
         source_file = Path(source_file)
@@ -202,6 +203,10 @@ class BookLibrary:
         normalized_slug = normalize_slug(slug)
         normalized_title = _required_text(title, "Title")
         normalized_author = _required_text(author, "Author")
+        normalized_author_pronunciation = _required_text(
+            author_pronunciation or normalized_author,
+            "Author pronunciation",
+        )
         profile_path = self.books_root / f"{normalized_slug}.json"
         asset_root = self.books_root / normalized_slug
         self.books_root.mkdir(parents=True, exist_ok=True)
@@ -232,6 +237,7 @@ class BookLibrary:
                 "slug": normalized_slug,
                 "title": normalized_title,
                 "author": normalized_author,
+                "author_pronunciation": normalized_author_pronunciation,
                 "language": "Russian",
                 "default_speaker": "Vivian",
                 "selected_backend": "yandex",
@@ -507,6 +513,11 @@ class BookLibrary:
             "slug": slug,
             "title": str(book["title"]),
             "author": str(book["author"]),
+            "author_pronunciation": (
+                str(book["author_pronunciation"])
+                if isinstance(book.get("author_pronunciation"), str)
+                else None
+            ),
             "kind": str(book.get("kind") or "legacy"),
             "enabled": True,
             "status": "READY" if jobs else "NO_PREPARED_JOBS",

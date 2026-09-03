@@ -13,7 +13,9 @@ from backends.yandex_speechkit import (
     YandexSpeechKitError,
     make_fingerprint,
     shared_cache_execution_lock,
+    utc_now_iso,
 )
+from backends.yandex_types import atomic_write_json
 from book_library import BookLibrary, BookLibraryError
 from cloud_billing import CloudBillingService, decimal_text, decimal_value
 from paid_run import PaidRunPlanStore
@@ -261,6 +263,196 @@ class YandexChapterProductionService:
             elif state == "FAILED":
                 blockers.append("failed_segment_requires_resolution")
         return list(dict.fromkeys(blockers))
+
+    def progress(self, *, book_name: str, job_id: str, profile_id: str) -> dict[str, Any]:
+        """Return an offline, human-readable snapshot of one chapter attempt."""
+        approved_profile = _approved_profile(profile_id)
+        profile_path, book, _job, text = self._load_chapter(book_name, job_id)
+        if book.get("selected_backend") != "yandex" or book.get("selected_profile_id") != profile_id:
+            raise ChapterProductionError(
+                "Selected Yandex profile does not match the voice saved for this book.",
+                category="profile_selection_mismatch",
+            )
+        if (
+            self.backend.profile.voice,
+            self.backend.profile.role,
+            str(self.backend.profile.speed),
+        ) != (
+            str(approved_profile["voice"]),
+            str(approved_profile["role"]),
+            str(approved_profile["speed"]),
+        ):
+            raise ChapterProductionError("Configured Yandex profile is invalid.", category="invalid_profile")
+
+        job_dir = self._job_dir(
+            book,
+            job_id,
+            profile_id=profile_id,
+            canonical_book_slug=profile_path.stem,
+        )
+        manifest_path = job_dir / "MANIFEST.json"
+        segments = self.backend.segment(text)
+        entries: dict[str, Any] = {}
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise ChapterProductionError("Yandex manifest is unreadable.", category="manifest_mismatch") from error
+            if not isinstance(manifest, dict) or not isinstance(manifest.get("segments"), dict):
+                raise ChapterProductionError("Yandex manifest is invalid.", category="manifest_mismatch")
+            entries = manifest["segments"]
+
+        completed = 0
+        cached = 0
+        ambiguous: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        for number, segment in enumerate(segments, start=1):
+            fingerprint = make_fingerprint(segment.text, self.backend.profile)
+            entry = entries.get(segment.segment_id)
+            if not isinstance(entry, dict) or entry.get("fingerprint") != fingerprint:
+                continue
+            status = str(entry.get("status") or "")
+            if status in {"DONE", "CACHED"}:
+                completed += 1
+                cached += int(status == "CACHED")
+                continue
+            if status not in {"AMBIGUOUS", "IN_FLIGHT", "FAILED", "RETRY_APPROVED"}:
+                continue
+            error = entry.get("error") if isinstance(entry.get("error"), dict) else {}
+            item = {
+                "segment_id": segment.segment_id,
+                "segment_number": number,
+                "text": segment.text,
+                "status": status,
+                "request_id": entry.get("request_id"),
+                "message": error.get("message"),
+                "retry_approved": status == "RETRY_APPROVED",
+            }
+            if status in {"AMBIGUOUS", "IN_FLIGHT", "RETRY_APPROVED"}:
+                ambiguous.append(item)
+            elif status == "FAILED":
+                failed.append(item)
+
+        unresolved = len(ambiguous) + len(failed)
+        return {
+            "schema_version": 1,
+            "provider": "yandex",
+            "book_id": profile_path.stem,
+            "job_id": job_id,
+            "profile_id": profile_id,
+            "manifest_path": str(manifest_path),
+            "manifest_exists": manifest_path.exists(),
+            "total_segments": len(segments),
+            "completed_segments": completed,
+            "cached_segments": cached,
+            "pending_segments": max(0, len(segments) - completed - unresolved),
+            "ambiguous_segments": ambiguous,
+            "failed_segments": failed,
+            "chapter_ready": bool(manifest_path.exists() and completed == len(segments)),
+            "provider_requests": 0,
+            "remote_request_sent": False,
+            "paid_execution": False,
+            "billing_changed": False,
+        }
+
+    def approve_ambiguous_retry(
+        self,
+        *,
+        book_name: str,
+        job_id: str,
+        profile_id: str,
+        segment_id: str,
+    ) -> dict[str, Any]:
+        """Record explicit owner consent to prepare a new request; never contact the provider."""
+        profile_path, book, _job, text = self._load_chapter(book_name, job_id)
+        approved_profile = _approved_profile(profile_id)
+        if book.get("selected_backend") != "yandex" or book.get("selected_profile_id") != profile_id:
+            raise ChapterProductionError(
+                "Selected Yandex profile does not match the voice saved for this book.",
+                category="profile_selection_mismatch",
+            )
+        if (
+            self.backend.profile.voice,
+            self.backend.profile.role,
+            str(self.backend.profile.speed),
+        ) != (
+            str(approved_profile["voice"]),
+            str(approved_profile["role"]),
+            str(approved_profile["speed"]),
+        ):
+            raise ChapterProductionError("Configured Yandex profile is invalid.", category="invalid_profile")
+        job_dir = self._job_dir(
+            book,
+            job_id,
+            profile_id=profile_id,
+            canonical_book_slug=profile_path.stem,
+        )
+        manifest_path = job_dir / "MANIFEST.json"
+        current = {segment.segment_id: segment for segment in self.backend.segment(text)}
+        segment = current.get(segment_id)
+        if segment is None:
+            raise ChapterProductionError("Problem segment no longer belongs to this chapter.", category="segment_changed")
+        with production_authority_lock(
+            self.workspace_root,
+            provider="yandex",
+            book_slug=profile_path.stem,
+            job_id=job_id,
+            profile_id=profile_id,
+            exclusive=True,
+        ), shared_cache_execution_lock(self.backend.config.output_root):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise ChapterProductionError("Yandex manifest is unavailable.", category="manifest_mismatch") from error
+            entries = manifest.get("segments") if isinstance(manifest, dict) else None
+            entry = entries.get(segment_id) if isinstance(entries, dict) else None
+            fingerprint = make_fingerprint(segment.text, self.backend.profile)
+            if (
+                not isinstance(entry, dict)
+                or entry.get("fingerprint") != fingerprint
+                or entry.get("status") not in {"AMBIGUOUS", "IN_FLIGHT"}
+            ):
+                raise ChapterProductionError(
+                    "Problem segment is no longer awaiting owner resolution.",
+                    category="resolution_not_required",
+                )
+            if self.backend.recoverable_inflight_source(
+                job_dir,
+                segment_id=segment_id,
+                fingerprint=fingerprint,
+            ):
+                raise ChapterProductionError(
+                    "A recoverable audio file exists; retry is blocked.",
+                    category="recoverable_audio_exists",
+                )
+            history = list(entry.get("attempt_history") or [])
+            history.append({
+                "status": entry.get("status"),
+                "request_id": entry.get("request_id"),
+                "updated_at": entry.get("updated_at"),
+                "error": entry.get("error"),
+                "resolution": "OWNER_APPROVED_NEW_REQUEST",
+                "resolved_at": utc_now_iso(),
+            })
+            entry["attempt_history"] = history
+            entry["status"] = "RETRY_APPROVED"
+            entry["retry_approved_at"] = utc_now_iso()
+            entry["previous_ambiguous_error"] = entry.pop("error", None)
+            entries[segment_id] = entry
+            atomic_write_json(manifest_path, manifest)
+        return {
+            "schema_version": 1,
+            "provider": "yandex",
+            "book_id": profile_path.stem,
+            "job_id": job_id,
+            "profile_id": profile_id,
+            "segment_id": segment_id,
+            "state": "RETRY_APPROVED",
+            "provider_requests": 0,
+            "remote_request_sent": False,
+            "paid_execution": False,
+            "billing_changed": False,
+        }
 
     @staticmethod
     def _validate_plan_header(plan: Mapping[str, Any], plan_digest: str) -> None:

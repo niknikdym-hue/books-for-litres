@@ -689,7 +689,7 @@ class YandexSpeechKitBackend:
                 )
 
             request_id = str(uuid.uuid4())
-            entries[seg.segment_id] = {
+            replacement_entry = {
                 "status": "IN_FLIGHT",
                 "text": seg.text,
                 "pause_after_ms": seg.pause_after_ms,
@@ -699,6 +699,10 @@ class YandexSpeechKitBackend:
                 "wav": wav_path.name,
                 "updated_at": utc_now_iso(),
             }
+            if existing.get("status") == "RETRY_APPROVED":
+                replacement_entry["attempt_history"] = list(existing.get("attempt_history") or [])
+                replacement_entry["retry_approved_at"] = existing.get("retry_approved_at")
+            entries[seg.segment_id] = replacement_entry
             atomic_write_json(manifest_path, manifest)
 
             try:
@@ -714,6 +718,16 @@ class YandexSpeechKitBackend:
                     "error": e.to_dict(),
                     "updated_at": utc_now_iso(),
                 })
+                if e.category == "network_ambiguous":
+                    entries[seg.segment_id]["billing_transaction_id"] = self._record_billing_event(
+                        job_id=job_id,
+                        segment=seg,
+                        request_id=request_id,
+                        fingerprint=fingerprint,
+                        timestamp=utc_now_iso(),
+                        pricing=pricing,
+                        cost_known=False,
+                    )
                 atomic_write_json(manifest_path, manifest)
                 raise
 

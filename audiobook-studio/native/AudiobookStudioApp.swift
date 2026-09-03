@@ -101,8 +101,10 @@ final class StudioModel: ObservableObject {
     @Published var paidPlan: PaidRunPlan?
     @Published var paidStatusText = ""
     @Published var yandexChapterPlan: YandexChapterRunPlan?
+    @Published var yandexChapterProgress: YandexChapterProgress?
     @Published var yandexChapterStatusText = ""
     @Published var showYandexChapterConfirmation = false
+    @Published var showYandexRetryConfirmation = false
     @Published var remainingPaidSegments: Int?
     @Published var hardLimitText = ""
     @Published var openAIHardLimitText = "1.00"
@@ -117,6 +119,8 @@ final class StudioModel: ObservableObject {
     private var pendingOpenAIAction: PendingOpenAIAction?
     private var pendingBookTextPreparationID: String?
     private var yandexChapterPlanSelection: YandexChapterSelection?
+    private var pendingYandexRetrySelection: YandexChapterSelection?
+    private var pendingYandexRetrySegmentID: String?
     private var openAIQASelection: OpenAIExecutionSelection?
     private var executionSelectionGeneration: UInt64 = 0
     private var bookProfileSelections: [String: String] = [:]
@@ -214,7 +218,13 @@ final class StudioModel: ObservableObject {
         }
     }
 
-    func addBook(sourceURL: URL, title: String, author: String, slug: String) async -> Bool {
+    func addBook(
+        sourceURL: URL,
+        title: String,
+        author: String,
+        authorPronunciation: String,
+        slug: String
+    ) async -> Bool {
         isAddingBook = true
         defer { isAddingBook = false }
         let accessing = sourceURL.startAccessingSecurityScopedResource()
@@ -222,7 +232,10 @@ final class StudioModel: ObservableObject {
         do {
             let result: BookImportResult = try await runBridgeJSON([
                 "--add-book", "--source-file", sourceURL.path,
-                "--title", title, "--author", author, "--slug", slug,
+                "--title", title,
+                "--author", author,
+                "--author-pronunciation", authorPronunciation,
+                "--slug", slug,
             ])
             guard !result.remoteRequestSent else {
                 throw BridgeError.message("Add Book нарушил offline contract.")
@@ -236,33 +249,35 @@ final class StudioModel: ObservableObject {
         }
     }
 
-    func requestBookTextPreparation() {
+    private func selectedBookIDForTextPreparation() -> String? {
         guard let book = selectedBook, book.kind == "production" else {
             errorMessage = "Подготовка текста доступна только для книг, добавленных в Studio."
-            return
+            return nil
+        }
+        if book.sourceIntegrity == "DOWNLOAD_REQUIRED"
+            || book.preparationStatus == "DOWNLOAD_REQUIRED" {
+            errorMessage = "Часть файлов книги находится только в iCloud. В Finder выберите папку книги и нажмите «Загрузить сейчас», затем повторите проверку."
+            return nil
         }
         guard book.sourceIntegrity == "OK" else {
             errorMessage = "Целостность исходного файла не подтверждена. Подготовка заблокирована."
-            return
+            return nil
         }
-        pendingBookTextPreparationID = book.id
+        return book.id
+    }
+
+    func requestBookTextPreparation() {
+        guard let bookID = selectedBookIDForTextPreparation() else { return }
+        pendingBookTextPreparationID = bookID
         showBookTextPreparationConfirmation = true
     }
 
-    func cancelBookTextPreparation() {
-        pendingBookTextPreparationID = nil
-        showBookTextPreparationConfirmation = false
+    func prepareBookTextAfterSave() {
+        guard let bookID = selectedBookIDForTextPreparation() else { return }
+        performBookTextPreparation(bookID: bookID)
     }
 
-    func confirmBookTextPreparation() {
-        guard let bookID = pendingBookTextPreparationID,
-              selectedBookID == bookID,
-              selectedBook?.kind == "production" else {
-            cancelBookTextPreparation()
-            errorMessage = "Выбранная книга изменилась. Начните подготовку текста заново."
-            return
-        }
-        cancelBookTextPreparation()
+    private func performBookTextPreparation(bookID: String) {
         Task {
             isPreparingBookText = true
             defer { isPreparingBookText = false }
@@ -282,6 +297,23 @@ final class StudioModel: ObservableObject {
                 showError(error)
             }
         }
+    }
+
+    func cancelBookTextPreparation() {
+        pendingBookTextPreparationID = nil
+        showBookTextPreparationConfirmation = false
+    }
+
+    func confirmBookTextPreparation() {
+        guard let bookID = pendingBookTextPreparationID,
+              selectedBookID == bookID,
+              selectedBook?.kind == "production" else {
+            cancelBookTextPreparation()
+            errorMessage = "Выбранная книга изменилась. Начните подготовку текста заново."
+            return
+        }
+        cancelBookTextPreparation()
+        performBookTextPreparation(bookID: bookID)
     }
 
     func begin() {
@@ -446,6 +478,7 @@ final class StudioModel: ObservableObject {
                     ? "Studio использовала уже готовую главу без нового обращения."
                     : "Глава записана. Новых обращений: \(result.networkRequests)."
                 errorMessage = nil
+                await refreshYandexChapterProgress(expectedSelection: plannedSelection)
                 await loadAudioQA(
                     provider: "yandex",
                     selection: plannedSelection,
@@ -456,8 +489,101 @@ final class StudioModel: ObservableObject {
             } catch {
                 yandexChapterPlan = nil
                 yandexChapterPlanSelection = nil
-                yandexChapterStatusText = ""
                 showYandexChapterConfirmation = false
+                await refreshYandexChapterProgress(expectedSelection: plannedSelection)
+                if let progress = yandexChapterProgress,
+                   let problem = progress.ambiguousSegments.first {
+                    yandexChapterStatusText = "Запись остановлена: готово \(progress.completedSegments) из \(progress.totalSegments). Автоповтора не было."
+                    technicalDetails = error.localizedDescription
+                    errorMessage = "Запись остановилась на части \(problem.segmentNumber). Уже готовые части сохранены. Откройте карточку «Запись остановлена», чтобы решить, продолжать ли запись."
+                } else {
+                    yandexChapterStatusText = ""
+                    showError(error)
+                }
+            }
+        }
+    }
+
+    func refreshYandexChapterProgress() async {
+        guard let selection = currentYandexChapterSelection() else {
+            yandexChapterProgress = nil
+            return
+        }
+        await refreshYandexChapterProgress(expectedSelection: selection)
+    }
+
+    private func refreshYandexChapterProgress(expectedSelection: YandexChapterSelection) async {
+        do {
+            let progress: YandexChapterProgress = try await runBridgeJSON([
+                "--yandex-chapter-progress",
+                "--book", expectedSelection.bookID,
+                "--job", expectedSelection.jobID,
+                "--profile-id", expectedSelection.profileID,
+            ])
+            guard currentYandexChapterSelection() == expectedSelection else { return }
+            guard progress.providerRequests == 0,
+                  !progress.remoteRequestSent,
+                  !progress.paidExecution,
+                  !progress.billingChanged else {
+                throw BridgeError.message("Проверка состояния главы нарушила offline contract.")
+            }
+            yandexChapterProgress = progress
+        } catch {
+            guard currentYandexChapterSelection() == expectedSelection else { return }
+            yandexChapterProgress = nil
+            technicalDetails = error.localizedDescription
+        }
+    }
+
+    func requestYandexAmbiguousRetry(_ problem: YandexChapterProblemSegment) {
+        guard let selection = currentYandexChapterSelection(),
+              yandexChapterProgress?.ambiguousSegments.contains(where: { $0.segmentID == problem.segmentID }) == true else {
+            errorMessage = "Проблемная часть изменилась. Обновите состояние главы."
+            return
+        }
+        pendingYandexRetrySelection = selection
+        pendingYandexRetrySegmentID = problem.segmentID
+        showYandexRetryConfirmation = true
+    }
+
+    func cancelYandexAmbiguousRetry() {
+        pendingYandexRetrySelection = nil
+        pendingYandexRetrySegmentID = nil
+        showYandexRetryConfirmation = false
+    }
+
+    func confirmYandexAmbiguousRetry() {
+        guard let selection = pendingYandexRetrySelection,
+              let segmentID = pendingYandexRetrySegmentID,
+              currentYandexChapterSelection() == selection else {
+            cancelYandexAmbiguousRetry()
+            errorMessage = "Выбор книги, главы или диктора изменился."
+            return
+        }
+        cancelYandexAmbiguousRetry()
+        Task {
+            isRunning = true
+            defer { isRunning = false }
+            do {
+                let result: YandexRetryApprovalResult = try await runBridgeJSON([
+                    "--approve-yandex-ambiguous-retry",
+                    "--book", selection.bookID,
+                    "--job", selection.jobID,
+                    "--profile-id", selection.profileID,
+                    "--segment-id", segmentID,
+                ])
+                guard currentYandexChapterSelection() == selection else { return }
+                guard result.state == "RETRY_APPROVED",
+                      result.providerRequests == 0,
+                      !result.remoteRequestSent,
+                      !result.paidExecution,
+                      !result.billingChanged else {
+                    throw BridgeError.message("Разрешение повтора нарушило offline contract.")
+                }
+                await refreshYandexChapterProgress(expectedSelection: selection)
+                yandexChapterStatusText = "Повтор разрешён локально. Сейчас Studio покажет обновлённую стоимость; запись ещё не началась."
+                prepareYandexChapterRun()
+            } catch {
                 showError(error)
             }
         }
@@ -736,9 +862,13 @@ final class StudioModel: ObservableObject {
         paidPlan = nil
         yandexChapterPlan = nil
         yandexChapterPlanSelection = nil
+        yandexChapterProgress = nil
+        pendingYandexRetrySelection = nil
+        pendingYandexRetrySegmentID = nil
         yandexChapterStatusText = ""
         showPaidConfirmation = false
         showYandexChapterConfirmation = false
+        showYandexRetryConfirmation = false
         audioQA = nil
         audioQAPlaybackIdentity = nil
         downstreamApprovedOutput = nil
@@ -1783,6 +1913,49 @@ private struct StudioOnboardingView: View {
     }
 }
 
+private struct YandexRecoverySection: View {
+    let progress: YandexChapterProgress
+    let problem: YandexChapterProblemSegment
+    let onContinue: () -> Void
+    let onRefresh: () -> Void
+
+    var body: some View {
+        Section("Запись остановлена") {
+            Label(
+                "Готово \(progress.completedSegments) из \(progress.totalSegments) частей",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.headline)
+            .foregroundStyle(.orange)
+            Text("Введение ещё не записано полностью. Все готовые части сохранены и повторно оплачиваться не будут.")
+            LabeledContent("Остановлено на части", value: "\(problem.segmentNumber) из \(progress.totalSegments)")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Текст книги, на котором остановилась запись")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text("«\(problem.text)»")
+                    .font(.callout)
+            }
+            Text("Ответ Yandex не был получен из-за сетевого тайм-аута. Studio не может знать, был ли этот запрос учтён провайдером, поэтому автоматический повтор запрещён.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Button(
+                    problem.retryApproved ? "Подготовить продолжение записи" : "Разрешить повтор и продолжить",
+                    action: onContinue
+                )
+                .buttonStyle(.borderedProminent)
+                Button("Проверить состояние ещё раз", action: onRefresh)
+            }
+            Text(problem.retryApproved
+                ? "Повтор этой части уже разрешён. После восстановления подключения Studio покажет свежую стоимость и попросит отдельное подтверждение платной записи."
+                : "После разрешения Studio сначала покажет новую стоимость оставшихся частей. Запись начнётся только после вашего следующего подтверждения.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 @MainActor
 struct StudioView: View {
     @ObservedObject var model: StudioModel
@@ -1794,6 +1967,7 @@ struct StudioView: View {
     @State private var selectedSourceURL: URL?
     @State private var newBookTitle = ""
     @State private var newBookAuthor = ""
+    @State private var newBookAuthorPronunciation = ""
     @State private var newBookSlug = ""
     @State private var activeOwnerStep: OwnerProductionStep = .text
     @State private var acknowledgedOwnerSteps: Set<OwnerProductionStep> = []
@@ -1804,6 +1978,10 @@ struct StudioView: View {
 
     private var dilonSelectionKey: String {
         "\(model.selectedBookID)\u{1f}\(model.selectedJobID)"
+    }
+
+    private var yandexProgressSelectionKey: String {
+        "\(model.engine.rawValue)\u{1f}\(model.selectedBookID)\u{1f}\(model.selectedJobID)\u{1f}\(model.selectedProfileID)"
     }
 
     private func syncDilonSelection() {
@@ -1845,6 +2023,24 @@ struct StudioView: View {
         case .chapter, .review: return .recording
         case .release: return .export
         }
+    }
+
+    private func recoverySection(
+        progress: YandexChapterProgress,
+        problem: YandexChapterProblemSegment
+    ) -> AnyView {
+        AnyView(YandexRecoverySection(
+            progress: progress,
+            problem: problem,
+            onContinue: {
+                if problem.retryApproved {
+                    model.begin()
+                } else {
+                    model.requestYandexAmbiguousRetry(problem)
+                }
+            },
+            onRefresh: { Task { await model.refreshYandexChapterProgress() } }
+        ))
     }
 
     @ViewBuilder
@@ -2100,6 +2296,13 @@ struct StudioView: View {
                     }
 
                     if activeOwnerStep == .review,
+                       model.engine == .yandex,
+                       let progress = model.yandexChapterProgress,
+                       let problem = progress.ambiguousSegments.first {
+                        recoverySection(progress: progress, problem: problem)
+                    }
+
+                    if activeOwnerStep == .review,
                        model.engine == .yandex, let plan = model.yandexChapterPlan {
                         Section("Параметры задачи") {
                             Text("\(plan.characters.formatted()) символов · \(plan.totalSegments) частей для записи")
@@ -2253,6 +2456,9 @@ struct StudioView: View {
             .task(id: dilonSelectionKey) {
                 syncDilonSelection()
             }
+            .task(id: yandexProgressSelectionKey) {
+                await model.refreshYandexChapterProgress()
+            }
             .onChange(of: model.selectedBookID) { _, _ in
                 model.cancelBookTextPreparation()
                 model.selectDefaultJob()
@@ -2293,6 +2499,16 @@ struct StudioView: View {
                     Text("Yandex SpeechKit\nГлава: \(plan.jobLabel)\nГолос: \(plan.voice.capitalized) · \(plan.role) · \(plan.speed)\nЧастей записи: \(plan.totalSegments)\nНовых платных обращений: максимум \(plan.maxNetworkRequests)\nОценка: \(formattedMoney(plan.estimatedRemainingCost, currency: plan.currency, source: "local_estimate"))\nЛимит Studio: \(formattedMoney(plan.hardLimit, currency: plan.currency, source: "local_actual"))")
                 }
             }
+            .confirmationDialog(
+                "Разрешить новый запрос для проблемной части?",
+                isPresented: $model.showYandexRetryConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Разрешить подготовку повтора") { model.confirmYandexAmbiguousRetry() }
+                Button("Отмена", role: .cancel) { model.cancelYandexAmbiguousRetry() }
+            } message: {
+                Text("Предыдущий запрос завершился неопределённо и мог быть учтён Yandex. Это действие пока ничего не отправляет: Studio только снимет блокировку и покажет обновлённую стоимость. Новый платный запуск потребует отдельного подтверждения.")
+            }
             .modifier(OpenAIConfirmationDialogs(model: model))
             .confirmationDialog(
                 "Подготовить текст книги?",
@@ -2318,6 +2534,7 @@ struct StudioView: View {
                     selectedSourceURL = url
                     newBookTitle = url.deletingPathExtension().lastPathComponent
                     newBookAuthor = ""
+                    newBookAuthorPronunciation = ""
                     newBookSlug = suggestedBookSlug(newBookTitle)
                     showAddBookSheet = true
                 case let .failure(error):
@@ -2330,6 +2547,7 @@ struct StudioView: View {
                     sourceURL: selectedSourceURL,
                     title: $newBookTitle,
                     author: $newBookAuthor,
+                    authorPronunciation: $newBookAuthorPronunciation,
                     slug: $newBookSlug,
                     isPresented: $showAddBookSheet
                 )
@@ -2886,6 +3104,7 @@ private struct AddBookSheet: View {
     let sourceURL: URL?
     @Binding var title: String
     @Binding var author: String
+    @Binding var authorPronunciation: String
     @Binding var slug: String
     @Binding var isPresented: Bool
 
@@ -2896,6 +3115,15 @@ private struct AddBookSheet: View {
             LabeledContent("TXT-файл", value: sourceURL?.lastPathComponent ?? "Не выбран")
             TextField("Название", text: $title)
             TextField("Автор", text: $author)
+                .onChange(of: author) { oldValue, newValue in
+                    if authorPronunciation.isEmpty || authorPronunciation == oldValue {
+                        authorPronunciation = newValue
+                    }
+                }
+            TextField("Как диктор должен произнести имя автора", text: $authorPronunciation)
+            Text("Поставьте ударение прямо в имени: например, «Еле́на Ди́лон».")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             DisclosureGroup("Дополнительно") {
                 TextField("Короткое имя книги", text: $slug)
                 Text("Обычно менять его не нужно.")
@@ -2915,6 +3143,7 @@ private struct AddBookSheet: View {
                             sourceURL: sourceURL,
                             title: title,
                             author: author,
+                            authorPronunciation: authorPronunciation,
                             slug: slug
                         ) {
                             isPresented = false
@@ -2925,6 +3154,7 @@ private struct AddBookSheet: View {
                 .disabled(
                     sourceURL == nil || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || authorPronunciation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || slug.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || model.isAddingBook
                 )

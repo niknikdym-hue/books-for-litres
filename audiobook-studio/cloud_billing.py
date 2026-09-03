@@ -10,6 +10,7 @@ import fcntl
 import hashlib
 import json
 import re
+import stat
 import subprocess
 import urllib.error
 import urllib.parse
@@ -39,6 +40,15 @@ OPENAI_COSTS_ENDPOINT = "https://api.openai.com/v1/organization/costs"
 OPENAI_AUDIO_USAGE_ENDPOINT = "https://api.openai.com/v1/organization/usage/audio_speeches"
 DEFAULT_OPENAI_HARD_LIMIT_USD = Decimal("1.00")
 _ACCOUNT_ID = re.compile(r"^[A-Za-z0-9_-]{1,50}$")
+
+
+def _is_dataless_file(path: Path) -> bool:
+    """Return true for an iCloud placeholder whose bytes are not local yet."""
+    try:
+        flags = path.stat().st_flags
+    except (AttributeError, OSError):
+        return False
+    return bool(flags & getattr(stat, "SF_DATALESS", 0x40000000))
 
 
 class BillingError(RuntimeError):
@@ -206,6 +216,11 @@ class BillingLedger:
     def _load_unlocked(self) -> dict[str, Any]:
         if not self.path.exists():
             return {"schema_version": SCHEMA_VERSION, "transactions": []}
+        if _is_dataless_file(self.path):
+            raise BillingError(
+                "Cloud Billing ledger must be downloaded from iCloud.",
+                category="ledger_download_required",
+            )
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
@@ -731,7 +746,18 @@ class CloudBillingService:
 
     def _spent_fields(self, provider: str, now_text: str) -> tuple[dict[str, Any], list[str]]:
         currency = PROVIDER_CURRENCIES[provider]
-        summary = self.ledger.summarize(provider, currency=currency)
+        try:
+            summary = self.ledger.summarize(provider, currency=currency)
+        except BillingError as error:
+            if error.category != "ledger_download_required":
+                raise
+            return ({
+                "spent": None,
+                "spent_source": "unavailable",
+                "spent_as_of": now_text,
+                "known_local_actual_spend": None,
+                "unknown_cost_events": None,
+            }, ["billing_ledger_download_required", "local_actual_spend_unavailable"])
         warnings: list[str] = []
         if summary["unknown_count"]:
             warnings.append("local_actual_spend_incomplete")
@@ -797,19 +823,25 @@ class CloudBillingService:
                     warnings.append("provider_balance_stale")
         elif provider == "openai" and self.settings.openai_confirmed_balance_usd is not None:
             since = self.settings.openai_confirmed_at
-            summary = self.ledger.summarize("openai", currency="USD", since=since)
             warnings.append("openai_balance_may_exclude_usage_outside_audiobook_studio")
-            if summary["unknown_count"]:
-                warnings.append("openai_local_spend_since_confirmation_incomplete")
+            try:
+                summary = self.ledger.summarize("openai", currency="USD", since=since)
+            except BillingError as error:
+                if error.category != "ledger_download_required":
+                    raise
+                warnings.append("openai_local_spend_since_confirmation_unavailable")
             else:
-                remaining = self.settings.openai_confirmed_balance_usd - summary["known_total"]
-                remaining_source = "local_estimate"
-                remaining_as_of = now_text
-                confirmed = parse_timestamp(since, "openai.confirmed_at")
-                stale = (now - confirmed).total_seconds() > self.settings.user_balance_stale_after_seconds
-                freshness = "stale" if stale else "current"
-                if stale:
-                    warnings.append("user_confirmed_balance_stale")
+                if summary["unknown_count"]:
+                    warnings.append("openai_local_spend_since_confirmation_incomplete")
+                else:
+                    remaining = self.settings.openai_confirmed_balance_usd - summary["known_total"]
+                    remaining_source = "local_estimate"
+                    remaining_as_of = now_text
+                    confirmed = parse_timestamp(since, "openai.confirmed_at")
+                    stale = (now - confirmed).total_seconds() > self.settings.user_balance_stale_after_seconds
+                    freshness = "stale" if stale else "current"
+                    if stale:
+                        warnings.append("user_confirmed_balance_stale")
 
         if remaining is None:
             warnings.append("remaining_unavailable")

@@ -500,7 +500,7 @@ final class ContentQualityController: ObservableObject {
         }
     }
 
-    func saveWorkingCopy() {
+    func saveWorkingCopy(onSaved: (@MainActor () -> Void)? = nil) {
         guard let review = ttsReview, !currentBookID.isEmpty else { return }
         guard !workingTextDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "Рабочий текст озвучки не может быть пустым."
@@ -526,6 +526,7 @@ final class ContentQualityController: ObservableObject {
                 try assertOffline(result)
                 draftBaseSHA = ""
                 await reload(bookID: currentBookID)
+                onSaved?()
             } catch {
                 try? FileManager.default.removeItem(at: temporary)
                 errorMessage = error.localizedDescription

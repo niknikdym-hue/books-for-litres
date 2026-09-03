@@ -73,6 +73,11 @@ _EXPLICIT_CHAPTER = re.compile(
     re.IGNORECASE,
 )
 _NUMERIC_CHAPTER = re.compile(r"^\s*(\d{1,3})[.)]\s+(.{1,120}?)\s*$")
+_SPECIAL_SECTION = re.compile(
+    r"^\s*(?:введение|предисловие|пролог|заключение|эпилог|послесловие)"
+    r"(?:\s*[.\-—–:]\s*.+)?\s*$",
+    re.IGNORECASE,
+)
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?…])\s+")
 
 
@@ -159,6 +164,8 @@ def detect_chapters(normalized_text: str) -> list[dict[str, Any]]:
         if match:
             title = match.group(2).strip() or line.strip()
             headings.append((index, title, line.strip()))
+        elif _SPECIAL_SECTION.fullmatch(line):
+            headings.append((index, line.strip(), line.strip()))
     if not headings:
         headings = _numeric_progression(lines)
     if not headings:

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
-import importlib.util
 import json
 import os
 import stat
@@ -69,6 +68,60 @@ ENGINES = (
     ("openai", "OpenAI TTS — облако"),
 )
 
+_YANDEX_LOCAL_SAMPLE_PATTERNS = {
+    "yandex_lera": "renders-yandex/demo/*/speechkit-demo__lera-neutral-1.04.wav",
+    "yandex_ermil": "casting/yandex-male-short/*/02-ermil.wav",
+    "yandex_kirill": "casting/yandex-male-short/*/05-kirill.wav",
+    "yandex_anton": "casting/yandex-male-short/*/06-anton.wav",
+}
+
+
+def _safe_local_voice_sample(profile_id: str) -> Path | None:
+    """Find an already-recorded casting sample without synthesis or network I/O."""
+    pattern = _YANDEX_LOCAL_SAMPLE_PATTERNS.get(profile_id)
+    if pattern is None:
+        return None
+    root = WORKSPACE_PATHS.runtime_root
+    try:
+        resolved_root = root.resolve(strict=True)
+    except OSError:
+        return None
+    for candidate in sorted(root.glob(pattern), reverse=True):
+        try:
+            relative = candidate.relative_to(root)
+            cursor = root
+            if root.is_symlink():
+                continue
+            unsafe_component = False
+            for component in relative.parts:
+                cursor = cursor / component
+                if cursor.is_symlink():
+                    unsafe_component = True
+                    break
+            if unsafe_component or not candidate.is_file():
+                continue
+            flags = candidate.stat().st_flags
+            if flags & getattr(stat, "SF_DATALESS", 0x40000000):
+                continue
+            resolved = candidate.resolve(strict=True)
+            if not resolved.is_relative_to(resolved_root):
+                continue
+            return resolved
+        except (AttributeError, OSError, ValueError):
+            continue
+    return None
+
+
+def _with_local_voice_samples(profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for original in profiles:
+        profile = dict(original)
+        sample = _safe_local_voice_sample(str(profile.get("profile_id", "")))
+        profile["sample_audio_available"] = sample is not None
+        profile["sample_audio_path"] = str(sample) if sample is not None else None
+        result.append(profile)
+    return result
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Audiobook Studio universal app bridge")
@@ -76,6 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--list-engines", action="store_true")
     mode.add_argument("--list-books", action="store_true")
     mode.add_argument("--add-book", action="store_true")
+    mode.add_argument("--archive-book", action="store_true")
     mode.add_argument("--book-details", action="store_true")
     mode.add_argument("--set-book-voice", action="store_true")
     mode.add_argument("--prepare-book-text", action="store_true")
@@ -92,6 +146,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--run-yandex-demo", action="store_true")
     mode.add_argument("--prepare-yandex-chapter-run", action="store_true")
     mode.add_argument("--execute-yandex-chapter-plan", action="store_true")
+    mode.add_argument("--yandex-chapter-progress", action="store_true")
+    mode.add_argument("--approve-yandex-ambiguous-retry", action="store_true")
     mode.add_argument("--openai-status", action="store_true")
     mode.add_argument("--openai-credential-status", action="store_true")
     mode.add_argument("--openai-pricing-status", action="store_true")
@@ -124,6 +180,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-file", default="")
     parser.add_argument("--title", default="")
     parser.add_argument("--author", default="")
+    parser.add_argument("--author-pronunciation", default="")
     parser.add_argument("--slug", default="")
     parser.add_argument("--job", default="")
     parser.add_argument("--speaker", default="")
@@ -135,6 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hard-limit-rub", default="")
     parser.add_argument("--plan-id", default="")
     parser.add_argument("--plan-digest", default="")
+    parser.add_argument("--segment-id", default="")
     parser.add_argument("--audio-path", default="")
     parser.add_argument("--manifest-path", default="")
     parser.add_argument("--delivery-profile-id", choices=("chapters", "m4b", "mp3", "hq_archive"), default="")
@@ -1193,20 +1251,33 @@ def _load_yandex_offline() -> tuple[Any, Any, str]:
 
 
 def _load_qwen_runtime_catalog() -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
-    spec = importlib.util.spec_from_file_location("audiobook_studio_qwen_catalog", STUDIO_DIR / "studio.py")
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Не удалось загрузить каталог книг Qwen.")
-    studio = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(studio)
-    return BOOK_LIBRARY.list_book_summaries(), list(studio.load_voices())
+    # Catalog rendering must not import the Qwen generation runtime. Besides
+    # making the main window needlessly slow, importing studio.py loads NumPy
+    # and the model environment before the owner has chosen Qwen. On macOS a
+    # File Provider placeholder inside that environment can otherwise leave
+    # the native UI waiting forever. The small tracked registry is the same
+    # source used by studio.load_voices(); model dependencies remain lazy until
+    # an explicit Qwen execution.
+    try:
+        payload = json.loads((STUDIO_DIR / "voices.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError("Не удалось загрузить локальный каталог голосов Qwen.") from error
+    voices = payload.get("voices") if isinstance(payload, dict) else None
+    if not isinstance(voices, list) or not voices:
+        raise RuntimeError("Локальный каталог голосов Qwen пуст или повреждён.")
+    return BOOK_LIBRARY.list_book_summaries(), [dict(voice) for voice in voices]
 
 
-def add_book(*, source_file: str, title: str, author: str, slug: str) -> dict[str, Any]:
+def add_book(
+    *, source_file: str, title: str, author: str, slug: str,
+    author_pronunciation: str = "",
+) -> dict[str, Any]:
     return BOOK_LIBRARY.import_text_book(
         source_file=Path(_require(source_file, "--source-file")),
         title=_require(title, "--title"),
         author=_require(author, "--author"),
         slug=_require(slug, "--slug"),
+        author_pronunciation=author_pronunciation or None,
     )
 
 
@@ -1250,6 +1321,7 @@ def voice_library_listing(engine: str) -> dict[str, Any]:
         profiles = normalize_qwen_profiles(raw_qwen_voices)
     else:
         profiles = load_voice_library(provider=engine)
+    profiles = _with_local_voice_samples(profiles)
     return {
         "engine": engine,
         "voices": profiles,
@@ -1268,7 +1340,9 @@ def _print_voice_listing(result: dict[str, Any], output_format: str) -> None:
 def ui_snapshot() -> dict[str, Any]:
     books, raw_qwen_voices = _load_qwen_runtime_catalog()
     qwen_voices = [{"id": str(voice["id"]), "label": str(voice["id"])} for voice in raw_qwen_voices]
-    profiles = load_voice_library(qwen_loader=lambda: raw_qwen_voices)
+    profiles = _with_local_voice_samples(
+        load_voice_library(qwen_loader=lambda: raw_qwen_voices)
+    )
     estimate = yandex_demo_estimate()
     _, pricing, _ = _load_yandex_offline()
     cloud_billing = billing_status(current_job_estimates={
@@ -1401,8 +1475,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_file=args.source_file,
             title=args.title,
             author=args.author,
+            author_pronunciation=args.author_pronunciation,
             slug=args.slug,
         ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.archive_book:
+        print(json.dumps(
+            BOOK_LIBRARY.archive_book(_require(args.book, "--book")),
+            ensure_ascii=False,
+            indent=2,
+        ))
         return 0
 
     if args.book_details:
@@ -1490,6 +1573,33 @@ def main(argv: Sequence[str] | None = None) -> int:
             _yandex_chapter_service_for_plan(selected_plan_id).execute(
                 plan_id=selected_plan_id,
                 plan_digest=_require(args.plan_digest, "--plan-digest"),
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if args.yandex_chapter_progress:
+        selected_profile_id = _require(args.profile_id, "--profile-id")
+        print(json.dumps(
+            _yandex_chapter_service_for_profile(selected_profile_id).progress(
+                book_name=_require(args.book, "--book"),
+                job_id=_require(args.job, "--job"),
+                profile_id=selected_profile_id,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if args.approve_yandex_ambiguous_retry:
+        selected_profile_id = _require(args.profile_id, "--profile-id")
+        print(json.dumps(
+            _yandex_chapter_service_for_profile(selected_profile_id).approve_ambiguous_retry(
+                book_name=_require(args.book, "--book"),
+                job_id=_require(args.job, "--job"),
+                profile_id=selected_profile_id,
+                segment_id=_require(args.segment_id, "--segment-id"),
             ),
             ensure_ascii=False,
             indent=2,

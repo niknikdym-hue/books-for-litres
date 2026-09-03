@@ -27,7 +27,7 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
         self.assertIn('Section("7. Соберите готовую аудиокнигу")', app)
         self.assertIn('Section("Путь к готовой аудиокниге")', panel)
         self.assertIn('if activeStep == .chapterSound', panel)
-        self.assertIn('Label("Шаг 3 из 7 · Звук перед главами", systemImage: "music.note")', panel)
+        self.assertIn('Label("Шаг 3 из 7 · Заставка перед главами", systemImage: "music.note")', panel)
         self.assertIn('chapter-sound-compact-step-header', panel)
         self.assertIn('enum OwnerProductionStep', panel)
         self.assertIn('Сейчас открыт шаг', panel)
@@ -38,14 +38,22 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
         self.assertIn('openHelp(.regeneration)', app)
         self.assertIn('Звук добавится после записи голоса', panel)
         for label in (
-            "1. Проверьте текст",
+            "1. Подготовьте текст и главы",
+            "Найденные главы",
+            "Ничего выделять и отмечать не нужно",
+            "Сохранить текст и обновить главы",
             "2. Проверьте ударения",
-            "3. Выберите звук перед главами — по желанию",
-            "Елена Ди́лон",
-            "ДИлон",
+            "3. Заставка перед главами — необязательно",
+            "Как поставить ударение в слове из книги",
+            "выделять его в редакторе не нужно",
+            "Показать варианты ударения",
+            "Сохранить ударение для всей книги",
+            "Ударение в имени автора — уже заполнено",
+            "Это отдельная настройка имени автора",
+            "Вернуться к тексту книги",
             "Добавлять короткий звук перед каждой главой",
             "Выбор хранится отдельно для каждой книги",
-            "Без звукового оформления",
+            "Без заставки",
             "Добавить свой звук…",
             "Предыдущий",
             "Следующий",
@@ -60,8 +68,12 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
             "Подтверждаю права и добавляю",
             "публиковать и распространять её, в том числе коммерчески",
             "Вы подтвердили право использовать этот звук",
+            "Выбрать фрагмент заново",
+            "Чтобы убрать заставку совсем, выберите «Без заставки» выше",
         ):
             self.assertIn(label, panel)
+        self.assertNotIn("Елена Ди́лон. Хватит себя обесценивать", panel)
+        self.assertIn("func restartExcerptSelection()", panel)
 
     def test_sidebar_help_onboarding_and_contextual_next_actions_are_native(self) -> None:
         app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
