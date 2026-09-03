@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 
@@ -47,8 +48,23 @@ class DesktopInstallSourceTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertIn('repository_url="https://github.com/niknikdym-hue/books-for-litres.git"', updater)
-        self.assertIn('source_sha="9874a722cb1cbf236054899f3c574b16368dcb4e"', updater)
-        self.assertIn('/usr/bin/git -C "$checkout_root" fetch -q --depth 1 origin "$source_sha"', updater)
+        self.assertIn('source_ref="refs/heads/main"', updater)
+        self.assertIn(
+            'reviewed_source_sha="${AUDIOBOOK_STUDIO_REVIEWED_RELEASE_SHA:-${1:-}}"',
+            updater,
+        )
+        self.assertIn(
+            '/usr/bin/git -C "$checkout_root" fetch -q --no-tags --depth 1 origin "$source_ref"',
+            updater,
+        )
+        self.assertIn(
+            'source_sha="$(/usr/bin/git -C "$checkout_root" rev-parse --verify '
+            "'FETCH_HEAD^{commit}')\"",
+            updater,
+        )
+        self.assertIn('[[ "$source_sha" == "$reviewed_source_sha" ]]', updater)
+        self.assertIn('/usr/bin/git -C "$checkout_root" checkout -q --detach "$source_sha"', updater)
+        self.assertIn('[[ "$actual_sha" == "$source_sha" ]] || fail "source identity mismatch"', updater)
         self.assertIn('/bin/zsh "$source_root/native/build_native_app.sh" "$candidate_app"', updater)
         self.assertIn('/bin/zsh "$source_root/native/install_desktop_launcher.sh" "$candidate_app"', updater)
         self.assertIn('/usr/bin/open "$desktop_app"', updater)
@@ -58,6 +74,33 @@ class DesktopInstallSourceTests(unittest.TestCase):
         self.assertNotIn("Audiobook-Studio-preview.zip", workflow)
         self.assertIn("Validate owner local updater", workflow)
         self.assertIn("/bin/zsh -n native/update_desktop_from_github.sh", workflow)
+
+    def test_owner_update_requires_exact_reviewed_current_main_instead_of_aging_pin(self) -> None:
+        updater = UPDATER.read_text(encoding="utf-8")
+
+        self.assertIsNone(
+            re.search(r'^readonly source_sha="[0-9a-f]{40}"$', updater, re.MULTILINE),
+            "The updater must not pin an aging install target.",
+        )
+        self.assertIn(
+            'fail "set AUDIOBOOK_STUDIO_REVIEWED_RELEASE_SHA to the exact reviewed current-main commit"',
+            updater,
+        )
+        self.assertIn(
+            'fail "reviewed release is not current GitHub main (current: $source_sha)"',
+            updater,
+        )
+        reviewed_gate = updater.index('[[ "${#reviewed_source_sha}" -eq 40')
+        fetch_main = updater.index('/usr/bin/git -C "$checkout_root" fetch')
+        identity_gate = updater.index('[[ "$source_sha" == "$reviewed_source_sha" ]]')
+        checkout = updater.index('/usr/bin/git -C "$checkout_root" checkout')
+        build = updater.index('/bin/zsh "$source_root/native/build_native_app.sh"')
+        self.assertLess(reviewed_gate, fetch_main)
+        self.assertLess(fetch_main, identity_gate)
+        self.assertLess(identity_gate, checkout)
+        self.assertLess(checkout, build)
+        self.assertIn('print -- "Source ref: $source_ref"', updater)
+        self.assertIn('print -- "Source: $source_sha"', updater)
 
     def test_owner_update_is_offline_for_studio_execution_and_preserves_production_data(self) -> None:
         updater = UPDATER.read_text(encoding="utf-8")

@@ -9,6 +9,7 @@ import shutil
 import stat
 import tempfile
 import unicodedata
+import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,7 +25,7 @@ from preparation_contract import (
 BOOK_SCHEMA_VERSION = 1
 SOURCE_RELATIVE_PATH = Path("source/original.txt")
 TTS_RELATIVE_PATH = Path("tts/working.txt")
-SOURCE_INTEGRITY_STATES = {"OK", "MISSING", "HASH_MISMATCH"}
+SOURCE_INTEGRITY_STATES = {"OK", "MISSING", "HASH_MISMATCH", "DOWNLOAD_REQUIRED"}
 MAX_SOURCE_FILE_BYTES = 20 * 1024 * 1024
 
 
@@ -42,6 +43,20 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _is_dataless_file(path: Path) -> bool:
+    """Return true without opening an iCloud/File Provider placeholder.
+
+    Reading a dataless file can synchronously start a download.  Library
+    inspection is an offline operation, so it must inspect the macOS file flag
+    before hashing or parsing any book asset.
+    """
+    try:
+        flags = path.stat().st_flags
+    except (AttributeError, OSError):
+        return False
+    return bool(flags & getattr(stat, "SF_DATALESS", 0x40000000))
 
 
 def normalize_slug(value: str) -> str:
@@ -66,6 +81,30 @@ def _required_text(value: str, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise BookLibraryError(f"{label} is required.")
     return value.strip()
+
+
+def _validate_author_pronunciation(value: str) -> str:
+    normalized = unicodedata.normalize("NFC", _required_text(value, "Author pronunciation"))
+    if len(normalized) > 300 or any(character in normalized for character in "\r\n\0"):
+        raise BookLibraryError("Author pronunciation must be one line of at most 300 characters.")
+    if any(unicodedata.category(character) == "Cc" for character in normalized):
+        raise BookLibraryError("Author pronunciation contains unsupported control characters.")
+    return normalized
+
+
+def author_pronunciation_identity(book: Mapping[str, Any]) -> str:
+    """Bind a prepared derivative to the exact author/pronunciation metadata."""
+    author = unicodedata.normalize("NFC", str(book.get("author") or "").strip())
+    pronunciation = unicodedata.normalize(
+        "NFC", str(book.get("author_pronunciation") or author).strip()
+    )
+    encoded = json.dumps(
+        {"author": author, "author_pronunciation": pronunciation},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return sha256_bytes(encoded)
 
 
 def _utc_now() -> str:
@@ -170,6 +209,117 @@ class BookLibrary:
         _atomic_write_json(path, payload)
         return path
 
+    def archive_book(self, book_id: str | Path) -> dict[str, Any]:
+        """Move one book into a private, recoverable archive without deleting it.
+
+        Both the registry profile and its sibling asset directory are moved on
+        the same filesystem.  A partially completed move is rolled back, and
+        symlinks are rejected so a crafted book ID cannot move data outside the
+        canonical library.
+        """
+        profile_path = self.resolve_book_profile(book_id)
+        slug = normalize_slug(profile_path.stem)
+        asset_root = self.books_root / slug
+
+        try:
+            profile_stat = profile_path.lstat()
+        except OSError as error:
+            raise BookLibraryError("Book profile cannot be archived.") from error
+        if profile_path.is_symlink() or not stat.S_ISREG(profile_stat.st_mode):
+            raise BookLibraryError("Book profile must be a regular file, not a link.")
+        if asset_root.exists() or asset_root.is_symlink():
+            try:
+                asset_stat = asset_root.lstat()
+            except OSError as error:
+                raise BookLibraryError("Book assets cannot be archived safely.") from error
+            if asset_root.is_symlink() or not stat.S_ISDIR(asset_stat.st_mode):
+                raise BookLibraryError("Book asset root must be a directory, not a link.")
+
+        archive_root = self.books_root / ".archive"
+        archive_parent = archive_root / slug
+        for path in (archive_root, archive_parent):
+            if path.exists() and path.is_symlink():
+                raise BookLibraryError("Book archive path cannot contain a symlink.")
+        try:
+            archive_parent.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise BookLibraryError("Book archive directory is unavailable.") from error
+
+        archived_at = _utc_now()
+        archive_id = (
+            datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            + "-"
+            + uuid.uuid4().hex[:12]
+        )
+        final_root = archive_parent / archive_id
+        pending_root = archive_parent / f".{archive_id}.pending"
+        if final_root.exists() or pending_root.exists():
+            raise BookLibraryError("A colliding book archive already exists.")
+        pending_root.mkdir()
+
+        archived_profile = pending_root / profile_path.name
+        archived_assets = pending_root / slug
+        profile_moved = False
+        assets_moved = False
+        try:
+            if asset_root.exists():
+                os.replace(asset_root, archived_assets)
+                assets_moved = True
+            os.replace(profile_path, archived_profile)
+            profile_moved = True
+            _atomic_write_json(pending_root / "archive.json", {
+                "schema_version": 1,
+                "book_id": profile_path.name,
+                "slug": slug,
+                "archived_at": archived_at,
+                "profile_filename": profile_path.name,
+                "asset_directory": slug if assets_moved else None,
+            })
+            os.replace(pending_root, final_root)
+        except Exception as error:
+            # Restore user data to its exact canonical paths if publication of
+            # the archive did not complete.  Never overwrite an intervening
+            # path: that would make recovery ambiguous.
+            rollback_errors: list[Exception] = []
+            if profile_moved and archived_profile.exists():
+                if profile_path.exists():
+                    rollback_errors.append(RuntimeError("canonical profile path appeared during rollback"))
+                else:
+                    try:
+                        os.replace(archived_profile, profile_path)
+                    except Exception as rollback_error:  # pragma: no cover - catastrophic filesystem failure
+                        rollback_errors.append(rollback_error)
+            if assets_moved and archived_assets.exists():
+                if asset_root.exists() or asset_root.is_symlink():
+                    rollback_errors.append(RuntimeError("canonical asset path appeared during rollback"))
+                else:
+                    try:
+                        os.replace(archived_assets, asset_root)
+                    except Exception as rollback_error:  # pragma: no cover - catastrophic filesystem failure
+                        rollback_errors.append(rollback_error)
+            if pending_root.exists() and not any(pending_root.iterdir()):
+                pending_root.rmdir()
+            if rollback_errors:
+                raise BookLibraryError(
+                    "Book archive failed and automatic recovery was incomplete."
+                ) from error
+            raise BookLibraryError("Book archive failed; the original book was restored.") from error
+
+        return {
+            "schema_version": 1,
+            "archived": True,
+            "book_id": profile_path.name,
+            "slug": slug,
+            "archived_at": archived_at,
+            "archive_path": str(final_root),
+            "profile_path": str(final_root / profile_path.name),
+            "asset_path": str(final_root / slug) if assets_moved else None,
+            "provider_requests": 0,
+            "paid_execution": False,
+            "billing_changed": False,
+            "remote_request_sent": False,
+        }
+
     def import_text_book(
         self,
         *,
@@ -203,9 +353,8 @@ class BookLibrary:
         normalized_slug = normalize_slug(slug)
         normalized_title = _required_text(title, "Title")
         normalized_author = _required_text(author, "Author")
-        normalized_author_pronunciation = _required_text(
+        normalized_author_pronunciation = _validate_author_pronunciation(
             author_pronunciation or normalized_author,
-            "Author pronunciation",
         )
         profile_path = self.books_root / f"{normalized_slug}.json"
         asset_root = self.books_root / normalized_slug
@@ -316,8 +465,21 @@ class BookLibrary:
         preparation = book.get("preparation") if isinstance(book.get("preparation"), dict) else None
         tts = book.get("tts_working_copy") if isinstance(book.get("tts_working_copy"), dict) else {}
         working_path = self._asset_path(slug, tts.get("path"))
-        working_sha = sha256_file(working_path) if working_path is not None and working_path.is_file() else None
-        if source_integrity != "OK":
+        working_download_required = bool(
+            working_path is not None
+            and working_path.is_file()
+            and _is_dataless_file(working_path)
+        )
+        working_sha = (
+            sha256_file(working_path)
+            if working_path is not None
+            and working_path.is_file()
+            and not working_download_required
+            else None
+        )
+        if source_integrity == "DOWNLOAD_REQUIRED" or working_download_required:
+            status = "DOWNLOAD_REQUIRED"
+        elif source_integrity != "OK":
             status = "SOURCE_INTEGRITY_ERROR"
         elif preparation is None:
             status = "NOT_PREPARED"
@@ -327,16 +489,37 @@ class BookLibrary:
             preparation.get("schema_version") != PREPARATION_SCHEMA_VERSION
             or preparation.get("normalization_rules_version") != NORMALIZATION_RULES_VERSION
             or preparation.get("segmentation_rules_version") != SEGMENTATION_RULES_VERSION
+            or preparation.get("author_pronunciation_identity_sha256")
+            != author_pronunciation_identity(book)
         ):
             status = "STALE"
         else:
             normalized_path = self._asset_path(slug, preparation.get("normalized_path"))
             structure_path = self._asset_path(slug, preparation.get("structure_path"))
             segments_path = self._asset_path(slug, preparation.get("segments_path"))
-            artifacts_present = all(
-                path is not None and path.is_file()
-                for path in (normalized_path, structure_path, segments_path)
+            artifact_paths = (normalized_path, structure_path, segments_path)
+            artifact_download_required = any(
+                path is not None and path.is_file() and _is_dataless_file(path)
+                for path in artifact_paths
             )
+            if artifact_download_required:
+                return {
+                    "preparation_status": "DOWNLOAD_REQUIRED",
+                    "working_copy_current_sha256": working_sha,
+                    "preparation_schema_version": preparation.get("schema_version"),
+                    "preparation_revision": preparation.get("revision"),
+                    "preparation_identity": preparation.get("identity_sha256"),
+                    "prepared_at": preparation.get("prepared_at"),
+                    "normalized_sha256": preparation.get("normalized_sha256"),
+                    "structure_sha256": preparation.get("structure_sha256"),
+                    "segments_sha256": preparation.get("segments_sha256"),
+                    "normalized_path": preparation.get("normalized_path"),
+                    "structure_path": preparation.get("structure_path"),
+                    "segments_path": preparation.get("segments_path"),
+                    "chapter_count": preparation.get("chapter_count", 0),
+                    "prepared_segment_count": preparation.get("segment_count", 0),
+                }
+            artifacts_present = all(path is not None and path.is_file() for path in artifact_paths)
             normalized_matches = bool(
                 normalized_path is not None
                 and normalized_path.is_file()
@@ -473,14 +656,20 @@ class BookLibrary:
         tts = book.get("tts_working_copy") if isinstance(book.get("tts_working_copy"), dict) else {}
         source_path = self._asset_path(slug, source.get("path"))
         expected_sha = source.get("sha256") if isinstance(source.get("sha256"), str) else None
-        if source_path is None or not source_path.is_file():
+        if source_path is not None and source_path.is_file() and _is_dataless_file(source_path):
+            source_integrity = "DOWNLOAD_REQUIRED"
+            current_source_sha = None
+        elif source_path is None or not source_path.is_file():
             source_integrity = "MISSING"
             current_source_sha = None
         else:
             current_source_sha = sha256_file(source_path)
             source_integrity = "OK" if expected_sha and current_source_sha == expected_sha else "HASH_MISMATCH"
         tts_path = self._asset_path(slug, tts.get("path"))
-        tts_status = "CREATED" if tts_path is not None and tts_path.is_file() else "MISSING"
+        if tts_path is not None and tts_path.is_file() and _is_dataless_file(tts_path):
+            tts_status = "DOWNLOAD_REQUIRED"
+        else:
+            tts_status = "CREATED" if tts_path is not None and tts_path.is_file() else "MISSING"
         preparation_facts = self._preparation_facts(
             slug=slug,
             book=book,

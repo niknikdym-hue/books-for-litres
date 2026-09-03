@@ -13,6 +13,7 @@ from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -364,6 +365,68 @@ class ChapterProductionTests(unittest.TestCase):
         retry_plan = self.prepare(service)
         self.assertEqual(retry_plan["decision"], "READY_FOR_CONFIRMATION")
         self.assertGreater(retry_plan["max_network_requests"], 0)
+        self.assertEqual(self.requests, 0)
+
+    def test_inflight_retry_records_unknown_cost_before_permission_and_is_idempotent(self) -> None:
+        service = self.service()
+        book = service.library.load_book_for_execution("chapter-book")
+        text = "\n\n".join(segment["text"] for segment in book["jobs"]["chapter-ch001"]["segments"])
+        segment = service.backend.segment(text)[0]
+        fingerprint = make_fingerprint(segment.text, service.backend.profile)
+        job_dir = service._job_dir(book, "chapter-ch001")
+        job_dir.mkdir(parents=True)
+        manifest_path = job_dir / "MANIFEST.json"
+        manifest_path.write_text(json.dumps({
+            "schema_version": 1,
+            "engine": "yandex_speechkit_v3",
+            "job_id": "chapter-ch001",
+            "profile": {"voice": "lera", "role": "neutral", "speed": "1.04"},
+            "segmentation": service.backend.manifest_segmentation(),
+            "request_routing": service.backend.request_routing_identity(),
+            "segments": {segment.segment_id: {
+                "status": "IN_FLIGHT",
+                "fingerprint": fingerprint,
+                "request_id": "request-persisted-before-crash",
+                "updated_at": "2026-08-23T11:59:00+00:00",
+            }},
+        }), encoding="utf-8")
+
+        # Simulate a second crash after the ledger write but before retry
+        # authority reaches the manifest. Repeating the owner action must reuse
+        # the same transaction rather than hiding or duplicating the charge.
+        with mock.patch("chapter_production.atomic_write_json", side_effect=OSError("crash")):
+            with self.assertRaises(OSError):
+                service.approve_ambiguous_retry(
+                    book_name="chapter-book",
+                    job_id="chapter-ch001",
+                    profile_id="yandex_lera",
+                    segment_id=segment.segment_id,
+                )
+        first_ledger = json.loads((self.root / "ledger.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(first_ledger["transactions"]), 1)
+        transaction = first_ledger["transactions"][0]
+        self.assertEqual(transaction["request_id"], "request-persisted-before-crash")
+        self.assertIsNone(transaction["actual_cost"])
+        self.assertEqual(transaction["cost_source"], "unavailable")
+        self.assertEqual(
+            json.loads(manifest_path.read_text(encoding="utf-8"))["segments"][segment.segment_id]["status"],
+            "IN_FLIGHT",
+        )
+
+        approved = service.approve_ambiguous_retry(
+            book_name="chapter-book",
+            job_id="chapter-ch001",
+            profile_id="yandex_lera",
+            segment_id=segment.segment_id,
+        )
+        self.assertFalse(approved["billing_changed"])
+        self.assertEqual(approved["billing_transaction_id"], transaction["transaction_id"])
+        final_ledger = json.loads((self.root / "ledger.json").read_text(encoding="utf-8"))
+        self.assertEqual(final_ledger["transactions"], first_ledger["transactions"])
+        stored = json.loads(manifest_path.read_text(encoding="utf-8"))["segments"][segment.segment_id]
+        self.assertEqual(stored["status"], "RETRY_APPROVED")
+        self.assertEqual(stored["billing_transaction_id"], transaction["transaction_id"])
+        self.assertEqual(stored["attempt_history"][-1]["cost_source"], "unavailable")
         self.assertEqual(self.requests, 0)
 
     def test_completed_inflight_segments_resume_without_provider_requests(self) -> None:

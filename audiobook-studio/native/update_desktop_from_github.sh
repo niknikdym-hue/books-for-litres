@@ -7,12 +7,15 @@ set -euo pipefail
 # - downloaded ad-hoc-signed .app archives are quarantined by Gatekeeper;
 # - this updater downloads SOURCE only, builds the app locally on the owner's Mac,
 #   then installs the locally-built bundle on Desktop;
+# - the caller supplies the exact reviewed-release SHA; it must still be current
+#   GitHub main, so neither an aging pin nor an unreviewed future commit can run;
 # - no TTS/provider/model/paid request is executed here;
 # - production books/renders/cache/QA/billing state are never copied from GitHub
 #   and are never deleted by this updater.
 
 readonly repository_url="https://github.com/niknikdym-hue/books-for-litres.git"
-readonly source_sha="9874a722cb1cbf236054899f3c574b16368dcb4e"
+readonly source_ref="refs/heads/main"
+readonly reviewed_source_sha="${AUDIOBOOK_STUDIO_REVIEWED_RELEASE_SHA:-${1:-}}"
 readonly workspace_root="${AUDIOBOOK_STUDIO_HOME:-$HOME/Documents/New project/Audiobook-Studio}"
 readonly runtime_root="$workspace_root/runtime/studio-workspace"
 readonly python_executable="${AUDIOBOOK_STUDIO_PYTHON:-$workspace_root/engines/qwen-mlx/.venv/bin/python}"
@@ -46,12 +49,18 @@ done
 [[ -d "$runtime_root" ]] || fail "runtime not found: $runtime_root"
 [[ ! -L "$runtime_root" ]] || fail "runtime must not be a symlink"
 [[ -x "$python_executable" ]] || fail "Studio Python not found: $python_executable"
+[[ "${#reviewed_source_sha}" -eq 40 && "$reviewed_source_sha" != *[^0-9a-f]* ]] \
+  || fail "set AUDIOBOOK_STUDIO_REVIEWED_RELEASE_SHA to the exact reviewed current-main commit"
 
 mkdir -p "$checkout_root"
 /usr/bin/git -C "$checkout_root" init -q
 /usr/bin/git -C "$checkout_root" remote add origin "$repository_url"
-/usr/bin/git -C "$checkout_root" fetch -q --depth 1 origin "$source_sha"
-/usr/bin/git -C "$checkout_root" checkout -q --detach FETCH_HEAD
+/usr/bin/git -C "$checkout_root" fetch -q --no-tags --depth 1 origin "$source_ref"
+source_sha="$(/usr/bin/git -C "$checkout_root" rev-parse --verify 'FETCH_HEAD^{commit}')"
+readonly source_sha
+[[ "$source_sha" == "$reviewed_source_sha" ]] \
+  || fail "reviewed release is not current GitHub main (current: $source_sha)"
+/usr/bin/git -C "$checkout_root" checkout -q --detach "$source_sha"
 actual_sha="$(/usr/bin/git -C "$checkout_root" rev-parse HEAD)"
 [[ "$actual_sha" == "$source_sha" ]] || fail "source identity mismatch"
 
@@ -178,4 +187,5 @@ trap cleanup EXIT
 
 /usr/bin/open "$desktop_app"
 print -- "Audiobook Studio updated and opened: $desktop_app"
+print -- "Source ref: $source_ref"
 print -- "Source: $source_sha"

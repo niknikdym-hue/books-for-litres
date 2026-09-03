@@ -425,18 +425,41 @@ class YandexChapterProductionService:
                     "A recoverable audio file exists; retry is blocked.",
                     category="recoverable_audio_exists",
                 )
+            # IN_FLIGHT proves that the request crossed the local send boundary,
+            # even if the process crashed before persisting a response. Record
+            # that possible charge before enabling another request. The ledger
+            # identity is request-scoped, so replay after a crash is idempotent.
+            billing_transaction_id, billing_changed = self.billing.ledger.record(
+                provider="yandex",
+                job_id=job_id,
+                segment_id=segment_id,
+                request_id=(
+                    str(entry["request_id"])
+                    if isinstance(entry.get("request_id"), str) and entry["request_id"]
+                    else None
+                ),
+                profile_id=profile_id,
+                timestamp=utc_now_iso(),
+                currency=self.pricing.currency,
+                actual_cost=None,
+                cost_source="unavailable",
+                fingerprint=fingerprint,
+            )
             history = list(entry.get("attempt_history") or [])
             history.append({
                 "status": entry.get("status"),
                 "request_id": entry.get("request_id"),
                 "updated_at": entry.get("updated_at"),
                 "error": entry.get("error"),
+                "billing_transaction_id": billing_transaction_id,
+                "cost_source": "unavailable",
                 "resolution": "OWNER_APPROVED_NEW_REQUEST",
                 "resolved_at": utc_now_iso(),
             })
             entry["attempt_history"] = history
             entry["status"] = "RETRY_APPROVED"
             entry["retry_approved_at"] = utc_now_iso()
+            entry["billing_transaction_id"] = billing_transaction_id
             entry["previous_ambiguous_error"] = entry.pop("error", None)
             entries[segment_id] = entry
             atomic_write_json(manifest_path, manifest)
@@ -451,7 +474,8 @@ class YandexChapterProductionService:
             "provider_requests": 0,
             "remote_request_sent": False,
             "paid_execution": False,
-            "billing_changed": False,
+            "billing_changed": billing_changed,
+            "billing_transaction_id": billing_transaction_id,
         }
 
     @staticmethod

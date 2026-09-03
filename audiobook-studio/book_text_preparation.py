@@ -9,12 +9,19 @@ import os
 import re
 import shutil
 import tempfile
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from book_library import BookLibrary, BookLibraryError, sha256_bytes, sha256_file
+from book_library import (
+    BookLibrary,
+    BookLibraryError,
+    author_pronunciation_identity,
+    sha256_bytes,
+    sha256_file,
+)
 from content_quality_lexicon import (
     PROFILE_AUDIOBOOK_PRE_SYNTHESIS,
     PROFILE_AUDIOBOOK_TTS_TECHNICAL,
@@ -134,6 +141,37 @@ def normalize_working_text(value: str) -> str:
     if not normalized.strip():
         raise BookTextPreparationError("TTS working copy is empty after conservative normalization.")
     return normalized + "\n"
+
+
+def apply_author_pronunciation(
+    text: str,
+    *,
+    author: str,
+    author_pronunciation: str,
+) -> tuple[str, int]:
+    """Apply author pronunciation only to the prepared provider derivative.
+
+    Exact whole-name occurrences are replaced before provider-neutral
+    segmentation. The immutable source and editable TTS working copy remain
+    untouched; provider adapters retain responsibility for their own markup.
+    """
+    canonical_author = unicodedata.normalize("NFC", author.strip())
+    spoken_author = unicodedata.normalize("NFC", author_pronunciation.strip())
+    if not canonical_author or not spoken_author:
+        raise BookTextPreparationError("Author pronunciation metadata is empty.")
+    if (
+        len(spoken_author) > 300
+        or any(character in spoken_author for character in "\r\n\0")
+        or any(unicodedata.category(character) == "Cc" for character in spoken_author)
+    ):
+        raise BookTextPreparationError("Author pronunciation metadata is unsafe.")
+    if canonical_author == spoken_author:
+        return text, 0
+    pattern = re.compile(
+        rf"(?<!\w){re.escape(canonical_author)}(?!\w)",
+        re.IGNORECASE | re.UNICODE,
+    )
+    return pattern.subn(lambda _match: spoken_author, text)
 
 
 def _is_heading_boundary(lines: list[str], index: int) -> bool:
@@ -391,9 +429,17 @@ class BookTextPreparationService:
             raise BookTextPreparationError("TTS working copy must use strict UTF-8 encoding.") from error
         working_sha = sha256_bytes(working_bytes)
         source_sha = sha256_file(source_path)
-        normalized_text = normalize_working_text(working_text)
+        normalized_working_text = normalize_working_text(working_text)
+        author = str(book.get("author") or "")
+        author_pronunciation = str(book.get("author_pronunciation") or author)
+        normalized_text, author_pronunciation_matches = apply_author_pronunciation(
+            normalized_working_text,
+            author=author,
+            author_pronunciation=author_pronunciation,
+        )
         normalized_bytes = normalized_text.encode("utf-8")
         normalized_sha = sha256_bytes(normalized_bytes)
+        pronunciation_identity = author_pronunciation_identity(book)
 
         try:
             editorial_scan = self._content_quality.scan_for_book(
@@ -478,6 +524,7 @@ class BookTextPreparationService:
 
         identity_payload = {
             "working_copy_sha256": working_sha,
+            "author_pronunciation_identity_sha256": pronunciation_identity,
             "preparation_schema_version": PREPARATION_SCHEMA_VERSION,
             "normalization_rules_version": NORMALIZATION_RULES_VERSION,
             "segmentation_rules_version": SEGMENTATION_RULES_VERSION,
@@ -508,6 +555,8 @@ class BookTextPreparationService:
         structure_payload = {
             "schema_version": PREPARATION_SCHEMA_VERSION,
             "preparation_identity": identity_sha,
+            "author_pronunciation_identity_sha256": pronunciation_identity,
+            "author_pronunciation_matches": author_pronunciation_matches,
             "normalization_rules_version": NORMALIZATION_RULES_VERSION,
             "content_quality_gate_version": CONTENT_QUALITY_GATE_VERSION,
             "content_quality_gate_fingerprint": content_quality_gate_fingerprint,
@@ -525,6 +574,8 @@ class BookTextPreparationService:
         segments_payload = {
             "schema_version": PREPARATION_SCHEMA_VERSION,
             "preparation_identity": identity_sha,
+            "author_pronunciation_identity_sha256": pronunciation_identity,
+            "author_pronunciation_matches": author_pronunciation_matches,
             "segmentation_rules_version": SEGMENTATION_RULES_VERSION,
             "content_quality_gate_version": CONTENT_QUALITY_GATE_VERSION,
             "content_quality_gate_fingerprint": content_quality_gate_fingerprint,
@@ -568,6 +619,8 @@ class BookTextPreparationService:
             "prepared_at": prepared_at,
             "working_copy_sha256": working_sha,
             "source_sha256": source_sha,
+            "author_pronunciation_identity_sha256": pronunciation_identity,
+            "author_pronunciation_matches": author_pronunciation_matches,
             "identity_sha256": identity_sha,
             "normalization_rules_version": NORMALIZATION_RULES_VERSION,
             "segmentation_rules_version": SEGMENTATION_RULES_VERSION,

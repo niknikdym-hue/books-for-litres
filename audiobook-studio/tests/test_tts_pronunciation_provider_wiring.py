@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -137,6 +138,55 @@ class TTSPronunciationProviderWiringTests(unittest.TestCase):
     def test_provider_markup_rejects_stray_acute_instead_of_guessing(self) -> None:
         with self.assertRaises(ValueError):
             yandex_text_markup("неверно \u0301слово")
+
+    def test_author_pronunciation_reaches_both_provider_payloads_without_mutating_source(self) -> None:
+        source = self.root / "author-book.txt"
+        source_text = "Глава 1.\n\nКнигу написала Елена Дымова.\n"
+        source.write_text(source_text, encoding="utf-8")
+        self.library.import_text_book(
+            source_file=source,
+            title="Author Book",
+            author="Елена Дымова",
+            author_pronunciation="Еле́на Ды́мова",
+            slug="author-book",
+        )
+        immutable_source = self.books / "author-book/source/original.txt"
+        working_copy = self.books / "author-book/tts/working.txt"
+        source_before = immutable_source.read_bytes()
+        working_before = working_copy.read_bytes()
+
+        lexicon = ContentQualityLexicon(user_store_path=self.root / "shared" / "user-rules-v1.json")
+        result = BookTextPreparationService(
+            self.library,
+            workspace_root=self.root,
+            content_quality=lexicon,
+            now=lambda: "2026-09-01T00:00:00+00:00",
+        ).prepare("author-book")
+        self.assertEqual(result["preparation_status"], "READY")
+        prepared = self.library.load_book_for_execution("author-book")
+        prepared_text = prepared["jobs"]["chapter-ch001"]["segments"][0]["text"]
+        self.assertIn("Еле́на Ды́мова", prepared_text)
+        self.assertNotIn("Елена Дымова", prepared_text)
+        self.assertEqual(immutable_source.read_bytes(), source_before)
+        self.assertEqual(working_copy.read_bytes(), working_before)
+
+        yandex = YandexSpeechKitBackend(
+            load_yandex_config(ROOT / "yandex-config.json"),
+            api_key="offline-not-used",
+        ).build_synthesis_payload(prepared_text)
+        self.assertIn("Ел+ена Д+ымова", yandex["text"])
+
+        openai_backend = OpenAITTSBackend(load_openai_config(ROOT / "openai-config.json"))
+        openai = openai_backend.build_synthesis_payload(prepared_text, "openai_cedar")
+        self.assertIn("Еле́на Ды́мова", openai["input"])
+        self.assertIn("Еле́на", openai["instructions"])
+        self.assertIn("Ды́мова", openai["instructions"])
+
+        profile_path = self.books / "author-book.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        profile["author_pronunciation"] = "Е́лена Дымова"
+        self.library.replace_book_profile("author-book", profile)
+        self.assertEqual(self.library.book_details("author-book")["preparation_status"], "STALE")
 
 
 if __name__ == "__main__":

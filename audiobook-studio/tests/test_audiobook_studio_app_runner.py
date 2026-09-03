@@ -672,6 +672,44 @@ class UniversalBridgeTests(unittest.TestCase):
         self.assertEqual(imported["source_integrity"], "OK")
         self.assertFalse(snapshot["remote_request_sent"])
 
+    def test_archive_book_bridge_is_recoverable_and_offline(self):
+        source = self.workspace / "archive-bridge-source.txt"
+        source.write_text("Книга для безопасного локального архива.\n", encoding="utf-8")
+        added = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--add-book", "--source-file", str(source),
+            "--title", "Archive Bridge Book", "--author", "Author", "--slug", "archive-bridge-book",
+        )
+        self.assertEqual(added.returncode, 0, added.stderr)
+        original_profile = self.workspace / "books/archive-bridge-book.json"
+        original_assets = self.workspace / "books/archive-bridge-book"
+        profile_bytes = original_profile.read_bytes()
+        source_bytes = (original_assets / "source/original.txt").read_bytes()
+
+        archived = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--archive-book", "--book", "archive-bridge-book",
+        )
+
+        self.assertEqual(archived.returncode, 0, archived.stderr)
+        result = json.loads(archived.stdout)
+        self.assertTrue(result["archived"])
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["paid_execution"])
+        self.assertFalse(result["billing_changed"])
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse(original_profile.exists())
+        self.assertFalse(original_assets.exists())
+        self.assertEqual(Path(result["profile_path"]).read_bytes(), profile_bytes)
+        self.assertEqual((Path(result["asset_path"]) / "source/original.txt").read_bytes(), source_bytes)
+
+        restarted = run_script(ROOT / "audiobook_studio_app_runner.py", "--ui-snapshot")
+        self.assertEqual(restarted.returncode, 0, restarted.stderr)
+        self.assertNotIn(
+            "archive-bridge-book.json",
+            [book["id"] for book in json.loads(restarted.stdout)["books"]],
+        )
+
     def test_prepare_book_text_status_and_snapshot_are_offline_and_restart_safe(self):
         source = self.workspace / "text-preparation-source.txt"
         source.write_text(
