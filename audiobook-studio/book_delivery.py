@@ -309,6 +309,7 @@ class BookDeliveryService:
         expected = ready = 0
         blockers: list[str] = []
         release_ready = False
+        expected_delivery_identity: str | None = None
         if isinstance(release_manifest, Mapping):
             whole = release_manifest.get("whole_book")
             if isinstance(whole, Mapping):
@@ -316,7 +317,29 @@ class BookDeliveryService:
                 ready = int(whole.get("ready_chapters") or 0)
                 release_ready = bool(whole.get("ready") is True and release_manifest.get("status") == "RELEASE_READY")
                 blockers = [str(item) for item in whole.get("blockers") or []]
+        if selected and selected != "chapters" and release_ready:
+            try:
+                release_book, release_chapters = self._validated_release(release_manifest)
+                if _book_slug(release_book.get("slug")) != _book_slug(book_slug):
+                    raise BookDeliveryError(
+                        "book_identity_mismatch", "Файлы выпуска относятся к другой книге."
+                    )
+                expected_delivery_identity = self._identity(selected, release_book, release_chapters)
+            except (BookDeliveryError, MasteringExportError) as error:
+                release_ready = False
+                if error.code not in blockers:
+                    blockers.append(error.code)
+            except (OSError, ValueError, KeyError, TypeError):
+                release_ready = False
+                if "invalid_release_authority" not in blockers:
+                    blockers.append("invalid_release_authority")
         current = self._current(book_slug, selected) if selected and selected != "chapters" else None
+        if (
+            current is not None
+            and expected_delivery_identity is not None
+            and current.get("delivery_identity") != expected_delivery_identity
+        ):
+            current = None
         if selected is None:
             decision = "SELECTION_REQUIRED"
         elif selected == "chapters":

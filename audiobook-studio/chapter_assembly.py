@@ -355,10 +355,20 @@ class ChapterAssemblyService:
     def _resolution(self) -> FFmpegResolution:
         return resolve_ffmpeg(self.workspace_root)
 
-    def _identity(self, payload: Mapping[str, Any], ffmpeg: FFmpegResolution) -> str:
+    def _identity(
+        self,
+        payload: Mapping[str, Any],
+        ffmpeg: FFmpegResolution,
+        chapter_cue: Mapping[str, Any] | None,
+    ) -> str:
         input_rates = self._input_rates(payload)
-        conversion_required = any(rate != TARGET_SAMPLE_RATE_HZ for rate in input_rates)
-        chapter_cue = chapter_cue_for_book(self.workspace_root, str(payload["book_slug"]))
+        conversion_required = any(rate != TARGET_SAMPLE_RATE_HZ for rate in input_rates) or bool(
+            chapter_cue is not None
+            and (
+                int(chapter_cue["sample_rate_hz"]) != TARGET_SAMPLE_RATE_HZ
+                or int(chapter_cue["channels"]) != TARGET_CHANNELS
+            )
+        )
         contract = {
             "schema_version": ASSEMBLY_SCHEMA_VERSION,
             "input": payload,
@@ -401,11 +411,20 @@ class ChapterAssemblyService:
     def prepare(self, value: Mapping[str, Any]) -> dict[str, Any]:
         payload, _, _ = self._validate_input(value)
         ffmpeg = self._resolution()
-        conversion_required = any(rate != TARGET_SAMPLE_RATE_HZ for rate in self._input_rates(payload))
+        chapter_cue = chapter_cue_for_book(self.workspace_root, str(payload["book_slug"]))
+        conversion_required = any(
+            rate != TARGET_SAMPLE_RATE_HZ for rate in self._input_rates(payload)
+        ) or bool(
+            chapter_cue is not None
+            and (
+                int(chapter_cue["sample_rate_hz"]) != TARGET_SAMPLE_RATE_HZ
+                or int(chapter_cue["channels"]) != TARGET_CHANNELS
+            )
+        )
         blockers: list[str] = []
         if conversion_required and not ffmpeg.available:
             blockers.append("missing_ffmpeg")
-        assembly_identity = self._identity(payload, ffmpeg)
+        assembly_identity = self._identity(payload, ffmpeg, chapter_cue)
         output_dir = self._output_dir(payload, assembly_identity)
         existing = self._read_ready(output_dir, assembly_identity)
         decision = "ALREADY_ASSEMBLED" if existing is not None else (
@@ -452,10 +471,14 @@ class ChapterAssemblyService:
         destination: Path,
         *,
         sample_rate_hz: int,
+        channels: int,
         ffmpeg: FFmpegResolution,
     ) -> dict[str, Any]:
         arguments: list[str] = []
-        converted = sample_rate_hz != TARGET_SAMPLE_RATE_HZ
+        converted = (
+            sample_rate_hz != TARGET_SAMPLE_RATE_HZ
+            or channels != TARGET_CHANNELS
+        )
         if converted:
             if not ffmpeg.available or ffmpeg.path is None:
                 raise ChapterAssemblyError("missing_ffmpeg", "Для нормализации требуется FFmpeg.")
@@ -581,6 +604,7 @@ class ChapterAssemblyService:
                     facts = self._normalize_source(
                         source, normalized,
                         sample_rate_hz=int(item["wav"]["sample_rate_hz"]),
+                        channels=int(item["wav"]["channels"]),
                         ffmpeg=ffmpeg,
                     )
                     facts.update({"position": index, "segment_id": item["segment_id"]})
@@ -597,6 +621,7 @@ class ChapterAssemblyService:
                         cue_source,
                         cue_normalized,
                         sample_rate_hz=int(chapter_cue["sample_rate_hz"]),
+                        channels=int(chapter_cue["channels"]),
                         ffmpeg=ffmpeg,
                     )
                     cue_facts.update({"position": 0, "segment_id": "__chapter_cue__", "role": "chapter_cue"})
@@ -619,6 +644,7 @@ class ChapterAssemblyService:
                 facts = self._normalize_source(
                     sources[0], speech_target,
                     sample_rate_hz=int(payload["wav"]["sample_rate_hz"]),
+                    channels=int(payload["wav"]["channels"]),
                     ffmpeg=ffmpeg,
                 )
                 facts.update({"position": 1, "segment_id": payload["segment_id"]})
@@ -634,6 +660,7 @@ class ChapterAssemblyService:
                         cue_source,
                         cue_normalized,
                         sample_rate_hz=int(chapter_cue["sample_rate_hz"]),
+                        channels=int(chapter_cue["channels"]),
                         ffmpeg=ffmpeg,
                     )
                     cue_facts.update({"position": 0, "segment_id": "__chapter_cue__", "role": "chapter_cue"})

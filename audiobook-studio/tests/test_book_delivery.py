@@ -139,6 +139,40 @@ class BookDeliveryTests(unittest.TestCase):
         self.assertFalse(delivery["paid_execution"])
         self.assertFalse(delivery["billing_changed"])
 
+    def test_status_never_reports_old_delivery_for_changed_current_release(self) -> None:
+        book, chapters, release = self._fixture()
+        self.service.set_selected_profile(self.book_slug, "m4b")
+
+        def encode(**kwargs):
+            kwargs["output"].write_bytes(b"fake-m4b")
+            return ({"streams": [{"codec_type": "audio"}], "chapters": [{}]}, {"name": "fake-ffmpeg"})
+
+        with mock.patch.object(self.service, "_validated_release", return_value=(book, chapters)), \
+             mock.patch.object(self.service, "_encode_audio", side_effect=encode):
+            exported = self.service.export(self.book_slug, release)
+        old_identity = exported["delivery"]["delivery_identity"]
+
+        changed_chapters = json.loads(json.dumps(chapters))
+        changed_chapters[0]["master_identity"] = "c" * 64
+        restarted = BookDeliveryService(
+            workspace_root=self.workspace,
+            exports_root=self.workspace / "exports",
+            masters_root=self.workspace / "masters",
+        )
+        with mock.patch.object(
+            restarted, "_validated_release", return_value=(book, changed_chapters)
+        ):
+            status = restarted.status(self.book_slug, release)
+
+        self.assertNotEqual(
+            old_identity,
+            restarted._identity("m4b", book, changed_chapters),
+        )
+        self.assertEqual(status["decision"], "READY_TO_EXPORT")
+        self.assertIsNone(status["delivery"])
+        self.assertEqual(status["provider_requests"], 0)
+        self.assertFalse(status["remote_request_sent"])
+
     def test_high_quality_archive_contains_exact_master_and_book_index(self) -> None:
         book, chapters, release = self._fixture()
         self.service.set_selected_profile(self.book_slug, "hq_archive")

@@ -78,16 +78,17 @@ class ChapterAssemblyTests(unittest.TestCase):
         self.temporary.cleanup()
 
     @staticmethod
-    def _write_wav(path: Path, rate: int, seconds: float = 0.1) -> None:
+    def _write_wav(path: Path, rate: int, seconds: float = 0.1, channels: int = 1) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         frames = int(rate * seconds)
         with wave.open(str(path), "wb") as output:
-            output.setnchannels(1)
+            output.setnchannels(channels)
             output.setsampwidth(2)
             output.setframerate(rate)
             output.writeframes(b"".join(
                 struct.pack("<h", ((index % 100) - 50) * 100)
                 for index in range(frames)
+                for _ in range(channels)
             ))
 
     @staticmethod
@@ -111,8 +112,9 @@ class ChapterAssemblyTests(unittest.TestCase):
             " print('ffmpeg version deterministic-test'); raise SystemExit(0)\n"
             "src=pathlib.Path(sys.argv[sys.argv.index('-i')+1]); dst=pathlib.Path(sys.argv[-1])\n"
             "with wave.open(str(src),'rb') as r:\n"
-            " data=r.readframes(r.getnframes()); old=r.getframerate(); samples=[x[0] for x in struct.iter_unpack('<h',data)]\n"
-            "count=max(1,round(len(samples)*48000/old)); converted=[samples[min(len(samples)-1,(i*old)//48000)] for i in range(count)]\n"
+            " data=r.readframes(r.getnframes()); old=r.getframerate(); channels=r.getnchannels(); samples=[x[0] for x in struct.iter_unpack('<h',data)]\n"
+            "mono=[round(sum(samples[i:i+channels])/channels) for i in range(0,len(samples),channels)]\n"
+            "count=max(1,round(len(mono)*48000/old)); converted=[mono[min(len(mono)-1,(i*old)//48000)] for i in range(count)]\n"
             "with wave.open(str(dst),'wb') as w:\n"
             " w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000); w.writeframes(b''.join(struct.pack('<h',x) for x in converted))\n",
             encoding="utf-8",
@@ -217,6 +219,48 @@ class ChapterAssemblyTests(unittest.TestCase):
         self.assertEqual(result["pause_contract"], CHAPTER_CUE_PAUSE_CONTRACT)
         self.assertEqual(result["concat"]["added_pause_frames"], CHAPTER_CUE_PAUSE_FRAMES)
         self.assertEqual(result["concat"]["ordered_input_frames"], [cue_frames, CHAPTER_CUE_PAUSE_FRAMES, 4_800])
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["remote_request_sent"])
+
+    def test_48000_stereo_custom_cue_is_normalized_to_mono_before_assembly(self):
+        self._write_wav(self.source, 48_000)
+        self.record["identity"]["audio_sha256"] = sha256_file(self.source)
+        self.record["wav"] = self._facts(self.source)
+        cue_source = self.root / "owner-stereo-cue.wav"
+        self._write_wav(cue_source, 48_000, seconds=1.0, channels=2)
+        imported = import_book_sound(
+            self.root,
+            "demo-book",
+            cue_source,
+            label="Owner stereo cue",
+            rights_confirmed=True,
+        )
+        self.assertEqual(imported["selected"]["sample_rate_hz"], 48_000)
+        self.assertEqual(imported["selected"]["channels"], 2)
+
+        with mock.patch.object(
+            self.service,
+            "_resolution",
+            return_value=FFmpegResolution(False, None, None, "unavailable"),
+        ):
+            blocked = self.service.prepare(self._input())
+        self.assertEqual(blocked["decision"], "BLOCKED")
+        self.assertEqual(blocked["blockers"], ["missing_ffmpeg"])
+
+        with mock.patch.object(self.service, "_resolution", return_value=self._available()):
+            result = self.service.assemble(self._input())
+
+        cue_normalization = next(
+            item
+            for item in result["normalization"]["segments"]
+            if item.get("role") == "chapter_cue"
+        )
+        self.assertTrue(cue_normalization["required"])
+        self.assertTrue(cue_normalization["performed"])
+        self.assertEqual(cue_normalization["wav"]["sample_rate_hz"], 48_000)
+        self.assertEqual(cue_normalization["wav"]["channels"], 1)
+        self.assertIn("-ac", cue_normalization["arguments"])
+        self.assertEqual(result["output"]["wav"]["channels"], 1)
         self.assertEqual(result["provider_requests"], 0)
         self.assertFalse(result["remote_request_sent"])
 
