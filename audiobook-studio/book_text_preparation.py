@@ -412,6 +412,14 @@ class BookTextPreparationService:
     def _prepare_locked(self, book_id: str, asset_root: Path) -> dict[str, Any]:
         book = self.library.load_book_profile(book_id)
         details = self.library.book_details(book_id)
+        if (
+            details.get("source_integrity") == "DOWNLOAD_REQUIRED"
+            or details.get("tts_working_copy_status") == "DOWNLOAD_REQUIRED"
+            or details.get("preparation_status") == "DOWNLOAD_REQUIRED"
+        ):
+            raise BookTextPreparationError(
+                "DOWNLOAD_REQUIRED: download the book files from iCloud before preparing text."
+            )
         if details["source_integrity"] != "OK":
             raise BookTextPreparationError("SOURCE_INTEGRITY_ERROR: immutable source integrity must be OK.")
         tts = book.get("tts_working_copy") if isinstance(book.get("tts_working_copy"), dict) else {}

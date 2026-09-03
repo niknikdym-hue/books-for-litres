@@ -88,6 +88,23 @@ class BookTextPreparationTests(unittest.TestCase):
             self.prepare()
         self.assertEqual(json.loads(self.profile_path.read_text(encoding="utf-8"))["jobs"], {})
 
+    def test_dataless_working_copy_blocks_before_opening_placeholder(self):
+        original_read_bytes = Path.read_bytes
+
+        def guarded_read_bytes(path):
+            if Path(path) == self.working:
+                raise AssertionError("dataless working copy must never be opened")
+            return original_read_bytes(path)
+
+        with mock.patch(
+            "book_library._is_dataless_file",
+            side_effect=lambda path: Path(path) == self.working,
+        ), mock.patch.object(Path, "read_bytes", guarded_read_bytes):
+            with self.assertRaisesRegex(BookTextPreparationError, "DOWNLOAD_REQUIRED"):
+                self.prepare()
+
+        self.assertEqual(json.loads(self.profile_path.read_text(encoding="utf-8"))["jobs"], {})
+
     def test_source_bytes_never_change(self):
         before = self.original.read_bytes()
         before_hash = hashlib.sha256(before).hexdigest()
