@@ -294,6 +294,25 @@ class YandexBackendTests(unittest.TestCase):
         self.assertEqual(context.exception.category, "config")
         urlopen.assert_not_called()
 
+    def test_direct_transport_timeout_is_ambiguous_without_retry(self):
+        backend = module.YandexSpeechKitBackend(
+            module.YandexBackendConfig.from_mapping({
+                "output_root": "/tmp/yandex-offline",
+                "request_timeout_seconds": 180,
+            }),
+            api_key="1234567890abcdefghijklmnopqrstuvABCD",
+        )
+        with mock.patch(
+            "backends.yandex_client.urllib.request.urlopen",
+            side_effect=socket.timeout("timed out"),
+        ) as urlopen:
+            with self.assertRaises(module.YandexSpeechKitError) as context:
+                backend._request("Тест.", "client-request-direct-timeout")
+        self.assertEqual(context.exception.category, "network_ambiguous")
+        self.assertFalse(context.exception.retryable)
+        self.assertEqual(context.exception.request_id, "client-request-direct-timeout")
+        urlopen.assert_called_once()
+
     def test_pathological_long_token_is_split(self):
         segments = module.segment_text("A" * 501, max_chars=100, max_words=10)
         self.assertTrue(all(len(s.text) <= 100 for s in segments))

@@ -508,6 +508,16 @@ class YandexSpeechKitBackend:
                 response_request_id=e.headers.get("x-request-id") if e.headers else None,
                 server_trace_id=e.headers.get("x-server-trace-id") if e.headers else None,
             ) from e
+        except (TimeoutError, socket.timeout) as e:
+            # urlopen may raise a direct socket timeout while waiting for the
+            # response headers, after the provider could already accept the
+            # paid request. Preserve that uncertainty for billing and resume.
+            raise YandexSpeechKitError(
+                f"Сетевая ошибка SpeechKit: {e}",
+                category="network_ambiguous",
+                retryable=False,
+                request_id=request_id,
+            ) from e
         except urllib.error.URLError as e:
             raise YandexSpeechKitError(
                 f"Сетевая ошибка SpeechKit: {e.reason}",
