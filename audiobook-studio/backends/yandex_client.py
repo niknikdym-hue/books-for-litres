@@ -459,6 +459,10 @@ class YandexSpeechKitBackend:
         }
 
     def _request(self, text: str, request_id: str) -> tuple[bytes, dict[str, str | None]]:
+        # Re-check the paid transport configuration at the last safe boundary.
+        # Some legacy runners invoke run_text_job() without a preceding healthcheck,
+        # so validation must not depend on an optional caller step.
+        self.validate_config(resolve_credentials=False)
         if len(text) > 250:
             raise YandexSpeechKitError(
                 f"Сегмент длиннее лимита normal mode: {len(text)} символов.",

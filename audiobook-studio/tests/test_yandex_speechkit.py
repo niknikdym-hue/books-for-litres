@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import dataclasses
 import http.client
 import io
 import json
@@ -276,6 +277,22 @@ class YandexBackendTests(unittest.TestCase):
                 with self.assertRaises(module.YandexSpeechKitError) as context:
                     backend.validate_config(resolve_credentials=False)
                 self.assertEqual(context.exception.category, "config")
+
+    def test_request_revalidates_timeout_before_any_paid_transport(self):
+        valid_config = module.YandexBackendConfig.from_mapping({
+            "output_root": "/tmp/yandex-offline",
+            "request_timeout_seconds": 180,
+        })
+        invalid_config = dataclasses.replace(valid_config, request_timeout_seconds=601)
+        backend = module.YandexSpeechKitBackend(
+            invalid_config,
+            api_key="1234567890abcdefghijklmnopqrstuvABCD",
+        )
+        with mock.patch("backends.yandex_client.urllib.request.urlopen") as urlopen:
+            with self.assertRaises(module.YandexSpeechKitError) as context:
+                backend._request("Тест.", "client-request-invalid-timeout")
+        self.assertEqual(context.exception.category, "config")
+        urlopen.assert_not_called()
 
     def test_pathological_long_token_is_split(self):
         segments = module.segment_text("A" * 501, max_chars=100, max_words=10)
