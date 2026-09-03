@@ -1,6 +1,7 @@
 {
   "engine": "yandex_speechkit_v3",
   "endpoint": "https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis",
+  "request_timeout_seconds": 180,
   "keychain_service": "AudiobookStudio-YandexSpeechKit",
   "keychain_account": "elenadymova",
   "output_root": "renders/yandex",

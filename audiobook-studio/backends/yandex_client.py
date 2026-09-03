@@ -233,6 +233,11 @@ class YandexSpeechKitBackend:
     def validate_config(self, *, resolve_credentials: bool = True) -> dict[str, Any]:
         if not self.config.endpoint.startswith("https://"):
             raise YandexSpeechKitError("SpeechKit endpoint должен использовать HTTPS.", category="config")
+        if not (1 <= self.config.request_timeout_seconds <= 600):
+            raise YandexSpeechKitError(
+                "SpeechKit request_timeout_seconds должен быть в диапазоне 1..600.",
+                category="config",
+            )
         if not (1 <= self.config.max_chars <= 250):
             raise YandexSpeechKitError("max_chars должен быть в диапазоне 1..250.", category="config")
         if self.profile.output_container != "WAV":
@@ -242,6 +247,7 @@ class YandexSpeechKitBackend:
             "ok": True,
             "engine": ENGINE_ID,
             "endpoint": self.config.endpoint,
+            "request_timeout_seconds": self.config.request_timeout_seconds,
             "voice": self.profile.voice,
             "role": self.profile.role,
             "speed": self.profile.speed,
@@ -472,7 +478,10 @@ class YandexSpeechKitBackend:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as response:
+            with urllib.request.urlopen(
+                req,
+                timeout=self.config.request_timeout_seconds,
+            ) as response:
                 headers = {
                     "x_request_id": response.headers.get("x-request-id"),
                     "x_server_trace_id": response.headers.get("x-server-trace-id"),
