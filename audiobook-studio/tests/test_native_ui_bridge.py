@@ -792,7 +792,10 @@ class NativeUIBridgeTests(unittest.TestCase):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
         select = swift_function_body(source, "func selectYandexProfile(")
-        prepare = swift_function_body(source, "private func prepareYandexChapterRun()")
+        prepare = swift_function_body(
+            source,
+            "private func prepareYandexChapterRun(selection: YandexChapterSelection) async",
+        )
         selection = swift_function_body(source, "private func currentYandexChapterSelection()")
         self.assertIn("ForEach(model.availableProfiles)", source)
         self.assertIn(".pickerStyle(.radioGroup)", source)
@@ -816,15 +819,22 @@ class NativeUIBridgeTests(unittest.TestCase):
         contracts = (ROOT / "native" / "StudioContracts.swift").read_text(encoding="utf-8")
         begin = swift_function_body(source, "func begin()")
         prepare = swift_function_body(source, "private func prepareYandexChapterRun()")
+        prepare_async = swift_function_body(
+            source,
+            "private func prepareYandexChapterRun(selection: YandexChapterSelection) async",
+        )
         execute = swift_function_body(source, "func confirmYandexChapterRun()")
+        retry = swift_function_body(source, "func confirmYandexAmbiguousRetry()")
 
         self.assertIn("prepareYandexChapterRun()", begin)
         self.assertNotIn("--execute-yandex-chapter-plan", begin)
-        self.assertIn('"--prepare-yandex-chapter-run"', prepare)
-        self.assertIn("!plan.remoteRequestSent", prepare)
-        self.assertIn("currentYandexChapterSelection() == selection", prepare)
-        self.assertIn("yandexChapterPlanSelection = selection", prepare)
-        self.assertIn("showYandexChapterConfirmation = true", prepare)
+        self.assertIn("Task { await prepareYandexChapterRun(selection: selection) }", prepare)
+        self.assertIn('"--prepare-yandex-chapter-run"', prepare_async)
+        self.assertIn("!plan.remoteRequestSent", prepare_async)
+        self.assertIn("currentYandexChapterSelection() == selection", prepare_async)
+        self.assertIn("yandexChapterPlanSelection = selection", prepare_async)
+        self.assertIn("showYandexChapterConfirmation = true", prepare_async)
+        self.assertIn("await prepareYandexChapterRun(selection: selection)", retry)
         self.assertIn('"--execute-yandex-chapter-plan"', execute)
         self.assertIn('"--plan-digest", plan.planDigest', execute)
         self.assertIn("currentYandexChapterSelection() == plannedSelection", execute)
@@ -842,6 +852,8 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('"--approve-yandex-ambiguous-retry"', source)
         self.assertIn('"Разрешить повтор и продолжить"', source)
         self.assertIn('"Разрешить новый запрос для проблемной части?"', source)
+        self.assertIn('.disabled(isRunning || planReady)', source)
+        self.assertIn('if planReady { return "Продолжение подготовлено" }', source)
         self.assertIn("result.providerRequests == 0", source)
         self.assertIn("!result.remoteRequestSent", source)
         self.assertIn("!result.paidExecution", source)
