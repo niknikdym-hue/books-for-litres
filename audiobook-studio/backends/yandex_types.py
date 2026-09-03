@@ -97,6 +97,7 @@ class SynthesisResult:
 @dataclass(frozen=True)
 class YandexBackendConfig:
     endpoint: str
+    request_timeout_seconds: int
     keychain_service: str
     keychain_account: str
     output_root: Path
@@ -111,6 +112,7 @@ class YandexBackendConfig:
         seg = dict(data.get("segmentation", {}))
         return cls(
             endpoint=str(data.get("endpoint") or DEFAULT_ENDPOINT),
+            request_timeout_seconds=int(data.get("request_timeout_seconds", 180)),
             keychain_service=str(data.get("keychain_service") or "AudiobookStudio-YandexSpeechKit"),
             keychain_account=str(data.get("keychain_account") or ""),
             output_root=Path(str(data.get("output_root") or "renders/yandex")).expanduser(),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import dataclasses
 import http.client
 import io
 import json
@@ -243,6 +244,74 @@ class YandexBackendTests(unittest.TestCase):
         self.assertEqual(cfg.profile.voice, "lera")
         self.assertEqual(cfg.profile.role, "neutral")
         self.assertEqual(cfg.profile.speed, "1.04")
+        self.assertEqual(cfg.request_timeout_seconds, 180)
+
+    def test_request_uses_configured_timeout_without_retry(self):
+        backend = module.YandexSpeechKitBackend(
+            module.YandexBackendConfig.from_mapping({
+                "output_root": "/tmp/yandex-offline",
+                "request_timeout_seconds": 240,
+            }),
+            api_key="1234567890abcdefghijklmnopqrstuvABCD",
+        )
+        response = FakeStreamingResponse([response_object(wav_bytes())])
+        with mock.patch(
+            "backends.yandex_client.urllib.request.urlopen",
+            return_value=response,
+        ) as urlopen:
+            audio, _headers = backend._request("Тест.", "client-request-test")
+        self.assertTrue(audio)
+        urlopen.assert_called_once()
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 240)
+
+    def test_request_timeout_is_validated_offline(self):
+        for value in (0, 601):
+            with self.subTest(value=value):
+                backend = module.YandexSpeechKitBackend(
+                    module.YandexBackendConfig.from_mapping({
+                        "output_root": "/tmp/yandex-offline",
+                        "request_timeout_seconds": value,
+                    }),
+                    api_key="1234567890abcdefghijklmnopqrstuvABCD",
+                )
+                with self.assertRaises(module.YandexSpeechKitError) as context:
+                    backend.validate_config(resolve_credentials=False)
+                self.assertEqual(context.exception.category, "config")
+
+    def test_request_revalidates_timeout_before_any_paid_transport(self):
+        valid_config = module.YandexBackendConfig.from_mapping({
+            "output_root": "/tmp/yandex-offline",
+            "request_timeout_seconds": 180,
+        })
+        invalid_config = dataclasses.replace(valid_config, request_timeout_seconds=601)
+        backend = module.YandexSpeechKitBackend(
+            invalid_config,
+            api_key="1234567890abcdefghijklmnopqrstuvABCD",
+        )
+        with mock.patch("backends.yandex_client.urllib.request.urlopen") as urlopen:
+            with self.assertRaises(module.YandexSpeechKitError) as context:
+                backend._request("Тест.", "client-request-invalid-timeout")
+        self.assertEqual(context.exception.category, "config")
+        urlopen.assert_not_called()
+
+    def test_direct_transport_timeout_is_ambiguous_without_retry(self):
+        backend = module.YandexSpeechKitBackend(
+            module.YandexBackendConfig.from_mapping({
+                "output_root": "/tmp/yandex-offline",
+                "request_timeout_seconds": 180,
+            }),
+            api_key="1234567890abcdefghijklmnopqrstuvABCD",
+        )
+        with mock.patch(
+            "backends.yandex_client.urllib.request.urlopen",
+            side_effect=socket.timeout("timed out"),
+        ) as urlopen:
+            with self.assertRaises(module.YandexSpeechKitError) as context:
+                backend._request("Тест.", "client-request-direct-timeout")
+        self.assertEqual(context.exception.category, "network_ambiguous")
+        self.assertFalse(context.exception.retryable)
+        self.assertEqual(context.exception.request_id, "client-request-direct-timeout")
+        urlopen.assert_called_once()
 
     def test_pathological_long_token_is_split(self):
         segments = module.segment_text("A" * 501, max_chars=100, max_words=10)

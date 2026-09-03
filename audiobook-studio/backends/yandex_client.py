@@ -233,6 +233,11 @@ class YandexSpeechKitBackend:
     def validate_config(self, *, resolve_credentials: bool = True) -> dict[str, Any]:
         if not self.config.endpoint.startswith("https://"):
             raise YandexSpeechKitError("SpeechKit endpoint должен использовать HTTPS.", category="config")
+        if not (1 <= self.config.request_timeout_seconds <= 600):
+            raise YandexSpeechKitError(
+                "SpeechKit request_timeout_seconds должен быть в диапазоне 1..600.",
+                category="config",
+            )
         if not (1 <= self.config.max_chars <= 250):
             raise YandexSpeechKitError("max_chars должен быть в диапазоне 1..250.", category="config")
         if self.profile.output_container != "WAV":
@@ -242,6 +247,7 @@ class YandexSpeechKitBackend:
             "ok": True,
             "engine": ENGINE_ID,
             "endpoint": self.config.endpoint,
+            "request_timeout_seconds": self.config.request_timeout_seconds,
             "voice": self.profile.voice,
             "role": self.profile.role,
             "speed": self.profile.speed,
@@ -453,6 +459,10 @@ class YandexSpeechKitBackend:
         }
 
     def _request(self, text: str, request_id: str) -> tuple[bytes, dict[str, str | None]]:
+        # Re-check the paid transport configuration at the last safe boundary.
+        # Some legacy runners invoke run_text_job() without a preceding healthcheck,
+        # so validation must not depend on an optional caller step.
+        self.validate_config(resolve_credentials=False)
         if len(text) > 250:
             raise YandexSpeechKitError(
                 f"Сегмент длиннее лимита normal mode: {len(text)} символов.",
@@ -472,7 +482,10 @@ class YandexSpeechKitBackend:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as response:
+            with urllib.request.urlopen(
+                req,
+                timeout=self.config.request_timeout_seconds,
+            ) as response:
                 headers = {
                     "x_request_id": response.headers.get("x-request-id"),
                     "x_server_trace_id": response.headers.get("x-server-trace-id"),
@@ -494,6 +507,16 @@ class YandexSpeechKitBackend:
                 request_id=request_id,
                 response_request_id=e.headers.get("x-request-id") if e.headers else None,
                 server_trace_id=e.headers.get("x-server-trace-id") if e.headers else None,
+            ) from e
+        except (TimeoutError, socket.timeout) as e:
+            # urlopen may raise a direct socket timeout while waiting for the
+            # response headers, after the provider could already accept the
+            # paid request. Preserve that uncertainty for billing and resume.
+            raise YandexSpeechKitError(
+                f"Сетевая ошибка SpeechKit: {e}",
+                category="network_ambiguous",
+                retryable=False,
+                request_id=request_id,
             ) from e
         except urllib.error.URLError as e:
             raise YandexSpeechKitError(
