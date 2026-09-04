@@ -488,8 +488,6 @@ final class StudioModel: ObservableObject {
                 await loadAudioQA(
                     provider: "yandex",
                     selection: plannedSelection,
-                    audioPath: result.outputPath,
-                    manifestPath: result.manifest,
                     expectedSelectionGeneration: expectedSelectionGeneration
                 )
             } catch {
