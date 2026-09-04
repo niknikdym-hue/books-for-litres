@@ -3,6 +3,71 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
+private struct PronunciationTextSelector: NSViewRepresentable {
+    let text: String
+    @Binding var selectedWord: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .bezelBorder
+
+        let textView = NSTextView()
+        textView.delegate = context.coordinator
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
+        textView.drawsBackground = false
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainerInset = NSSize(width: 10, height: 10)
+        textView.textContainer?.widthTracksTextView = true
+        textView.font = NSFont.preferredFont(forTextStyle: .body)
+        textView.setAccessibilityLabel("Текст книги для выбора слова")
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        guard let textView = scrollView.documentView as? NSTextView,
+              textView.string != text else { return }
+        textView.string = text
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: PronunciationTextSelector
+
+        init(parent: PronunciationTextSelector) {
+            self.parent = parent
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            let selection = textView.selectedRange()
+            guard selection.location != NSNotFound,
+                  selection.length > 0,
+                  let range = Range(selection, in: textView.string) else { return }
+            let selected = String(textView.string[range]).trimmingCharacters(
+                in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+            )
+            guard !selected.isEmpty,
+                  selected.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return }
+            if parent.selectedWord != selected {
+                parent.selectedWord = selected
+            }
+        }
+    }
+}
+
 private struct OwnerSoundWorkspaceContract: Decodable {
     let workspaceRoot: String
     enum CodingKeys: String, CodingKey { case workspaceRoot = "workspace_root" }
@@ -432,11 +497,23 @@ enum OwnerProductionStep: Int, CaseIterable, Identifiable {
         switch self {
         case .text: return "Текст"
         case .pronunciation: return "Ударения"
-        case .chapterSound: return "Звук глав"
+        case .chapterSound: return "Заставка"
         case .narrator: return "Диктор"
         case .chapter: return "Глава"
         case .review: return "Запись"
         case .release: return "Выпуск"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .text: return "book.pages"
+        case .pronunciation: return "textformat.abc"
+        case .chapterSound: return "music.note"
+        case .narrator: return "person.wave.2"
+        case .chapter: return "list.bullet.rectangle"
+        case .review: return "waveform"
+        case .release: return "shippingbox"
         }
     }
 }
@@ -455,37 +532,21 @@ struct OwnerProductionFlowPanel: View {
 
     var body: some View {
         Group {
-            if activeStep == .chapterSound {
+            Section("Текущий шаг") {
                 HStack {
-                    Label("Шаг 3 из 7 · Заставка перед главами", systemImage: "music.note")
+                    Label(
+                        "Шаг \(activeStep.rawValue) из 7 · \(activeStep.title)",
+                        systemImage: activeStep.systemImage
+                    )
                         .font(.callout.weight(.semibold))
                     Spacer()
                     Button("Подробнее") { onOpenHelp(activeStep) }
                         .buttonStyle(.link)
                 }
-                .accessibilityIdentifier("chapter-sound-compact-step-header")
-            } else {
-                Section("Путь к готовой аудиокниге") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Сейчас открыт шаг \(activeStep.rawValue) из 7 — \(activeStep.title.lowercased()).")
-                        .font(.callout.weight(.medium))
-                    FlowLayout(spacing: 6) {
-                        ForEach(OwnerProductionStep.allCases) { step in
-                            stepButton(step)
-                        }
-                    }
-                    HStack {
-                        Text(activeStepHelp)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Подробнее") { onOpenHelp(activeStep) }
-                            .buttonStyle(.link)
-                    }
+                Text(activeStepHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                .padding(.vertical, 2)
-                }
-            }
 
             if activeStep == .text {
                 Section("1. Подготовьте текст и главы") {
@@ -600,10 +661,11 @@ struct OwnerProductionFlowPanel: View {
                 Section("2. Проверьте ударения") {
                 GroupBox("Как поставить ударение в слове из книги") {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("1. Введите ниже одно слово из текста — выделять его в редакторе не нужно.")
-                        Text("2. Нажмите «Показать варианты ударения».")
-                        Text("3. Выберите правильный вариант и сохраните его для всей книги.")
-                        Text("Например: введите «звонит» → выберите «звони́т». Studio применит это произношение при записи.")
+                        Text("1. Найдите слово в тексте книги ниже.")
+                        Text("2. Выделите его двойным щелчком — слово появится в поле.")
+                        Text("3. Нажмите «Показать варианты ударения».")
+                        Text("4. Выберите правильный вариант и сохраните его для всей книги.")
+                        Text("Например: выделите «звонит» → выберите «звони́т». Studio применит это произношение при записи.")
                             .foregroundStyle(.secondary)
                     }
                     .font(.callout)
@@ -621,8 +683,24 @@ struct OwnerProductionFlowPanel: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                GroupBox("Текст книги — выделите нужное слово") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Дважды нажмите на слово. Копировать или запоминать его не нужно. Для быстрого поиска нажмите ⌘F.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        PronunciationTextSelector(
+                            text: textController.workingTextDraft,
+                            selectedWord: $textController.stressWord
+                        )
+                        .frame(minHeight: 260)
+                        if !textController.stressWord.isEmpty {
+                            Label("Выбрано: \(textController.stressWord)", systemImage: "text.cursor")
+                                .font(.callout.weight(.semibold))
+                        }
+                    }
+                }
                 HStack {
-                    TextField("Введите одно слово из текста, например: звонит", text: $textController.stressWord)
+                    TextField("Выделите слово выше или введите его здесь", text: $textController.stressWord)
                     Button("Показать варианты ударения") { textController.loadStressCandidates() }
                         .disabled(
                             textController.isLoading
@@ -919,50 +997,6 @@ struct OwnerProductionFlowPanel: View {
         case .review: return "Запишите главу, прослушайте результат и решите: принять или исправить."
         case .release: return "Соберите принятую главу и следите за готовностью всей книги."
         }
-    }
-
-    private func stepIsDone(_ step: OwnerProductionStep) -> Bool {
-        switch step {
-        case .text: return textStepDone
-        case .pronunciation, .chapterSound, .narrator, .chapter:
-            return acknowledgedSteps.contains(step)
-        case .review: return model.audioQA?.record.manualState == "APPROVED"
-        case .release: return model.litresExport?.bookExport.ready == true
-        }
-    }
-
-    @ViewBuilder
-    private func stepButton(_ step: OwnerProductionStep) -> some View {
-        let selected = activeStep == step
-        Button {
-            activeStep = step
-        } label: {
-            HStack(spacing: 5) {
-                if stepIsDone(step) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                } else {
-                    Text(String(step.rawValue))
-                        .font(.caption.bold())
-                        .frame(width: 18, height: 18)
-                        .background(Circle().fill(selected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12)))
-                }
-                Text(step.title).font(.caption.weight(selected ? .semibold : .regular))
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(selected ? Color.accentColor.opacity(0.12) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(selected ? Color.accentColor : Color.secondary.opacity(0.2))
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Шаг \(step.rawValue): \(step.title)")
-        .accessibilityValue(selected ? "Текущий" : (stepIsDone(step) ? "Готово" : "Не завершён"))
     }
 
     private func navigationButton(_ title: String, destination: OwnerProductionStep) -> some View {

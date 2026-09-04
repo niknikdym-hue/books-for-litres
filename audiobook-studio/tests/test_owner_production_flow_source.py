@@ -25,12 +25,10 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
         self.assertIn('Section("5. Выберите главу")', app)
         self.assertIn('Section("6. Прослушивание и приёмка")', app)
         self.assertIn('Section("7. Соберите готовую аудиокнигу")', app)
-        self.assertIn('Section("Путь к готовой аудиокниге")', panel)
-        self.assertIn('if activeStep == .chapterSound', panel)
-        self.assertIn('Label("Шаг 3 из 7 · Заставка перед главами", systemImage: "music.note")', panel)
-        self.assertIn('chapter-sound-compact-step-header', panel)
+        self.assertIn('Section("Текущий шаг")', panel)
+        self.assertIn('"Шаг \\(activeStep.rawValue) из 7 · \\(activeStep.title)"', panel)
         self.assertIn('enum OwnerProductionStep', panel)
-        self.assertIn('Сейчас открыт шаг', panel)
+        self.assertIn('var systemImage: String', panel)
         self.assertIn('activeOwnerStep == .review', app)
         self.assertIn('activeOwnerStep == .release', app)
         self.assertIn('model.audioQA?.record.manualState == "REGENERATE_REQUESTED"', app)
@@ -45,7 +43,13 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
             "2. Проверьте ударения",
             "3. Заставка перед главами — необязательно",
             "Как поставить ударение в слове из книги",
-            "выделять его в редакторе не нужно",
+            "Текст книги — выделите нужное слово",
+            "Выделите его двойным щелчком",
+            "Копировать или запоминать его не нужно",
+            "PronunciationTextSelector",
+            "selectedWord: $textController.stressWord",
+            "textView.usesFindBar = true",
+            "Для быстрого поиска нажмите ⌘F",
             "Показать варианты ударения",
             "Сохранить ударение для всей книги",
             "Ударение в имени автора — уже заполнено",
@@ -78,16 +82,18 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
     def test_sidebar_help_onboarding_and_contextual_next_actions_are_native(self) -> None:
         app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         panel = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
+        interface = app + panel
         for label in (
-            "Книга", "Произношение", "Звуковое оформление", "Запись",
-            "Сборка и выпуск", "Помощь", "Настройки",
+            "ШАГИ РАБОТЫ", "Текст", "Ударения", "Заставка", "Диктор", "Глава", "Запись", "Выпуск",
+            "Помощь", "Настройки",
             "Добро пожаловать в Audiobook Studio", "Показать введение снова",
             "Быстрый старт", "Помощь по разделам",
         ):
-            self.assertIn(label, app)
+            self.assertIn(label, interface)
+        self.assertIn('ForEach(OwnerProductionStep.allCases)', app)
+        self.assertIn('"\\(step.rawValue). \\(step.title)"', app)
         self.assertIn('Button("Подробнее")', panel)
-        self.assertIn('FlowLayout(spacing: 6)', panel)
-        self.assertNotIn('ScrollView(.horizontal, showsIndicators: false)', panel)
+        self.assertNotIn('Section("Путь к готовой аудиокниге")', panel)
         self.assertIn('Дальше: проверить ударения', panel)
         self.assertIn('Дальше: выбрать диктора', panel)
         self.assertIn("applyDiagnosticInitialSectionIfRequested()", app)

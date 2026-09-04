@@ -20,7 +20,9 @@ class ContentQualityNativeContractTests(unittest.TestCase):
         self.assertNotIn("ContentQualitySettingsPanel(selectedBookID: book.id)", main_part)
         self.assertNotIn("ContentQualitySettingsPanel(selectedBookID: model.selectedBookID)", settings_part)
         self.assertIn('Section("Текст и произношение")', settings_part)
-        self.assertIn('Section("Путь к готовой аудиокниге")', owner_panel)
+        self.assertIn('Section("Текущий шаг")', owner_panel)
+        self.assertIn('Section("ШАГИ РАБОТЫ")', app)
+        self.assertIn('ForEach(OwnerProductionStep.allCases)', app)
         self.assertIn('Section("Текст перед озвучкой")', panel)
         self.assertIn('Section("Ударения и произношение")', panel)
         self.assertIn('Section("Словарь мусора")', panel)
@@ -65,6 +67,17 @@ class ContentQualityNativeContractTests(unittest.TestCase):
             "providerValue",
         ):
             self.assertIn(token, panel)
+
+    def test_changing_stress_word_invalidates_dependent_results_and_stale_async_completion(self) -> None:
+        panel = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
+        self.assertIn("stressSelectionGeneration &+= 1", panel)
+        self.assertIn("stressCandidates = []", panel)
+        self.assertIn("stressPreview = nil", panel)
+        self.assertGreaterEqual(
+            panel.count("guard selectionGeneration == stressSelectionGeneration"),
+            2,
+        )
+        self.assertIn("preview.word == word", panel)
         self.assertIn("этот редактор сам платные запросы не запускает", panel)
         self.assertNotIn("--execute-yandex-chapter-plan", panel)
         self.assertNotIn("--execute-paid-plan", panel)
