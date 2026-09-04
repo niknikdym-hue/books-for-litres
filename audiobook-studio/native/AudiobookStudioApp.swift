@@ -406,41 +406,47 @@ final class StudioModel: ObservableObject {
             errorMessage = "Выберите подготовленную главу для Yandex SpeechKit."
             return
         }
-        Task {
-            isRunning = true
-            defer { isRunning = false }
-            do {
-                let plan: YandexChapterRunPlan = try await runBridgeJSON([
-                    "--prepare-yandex-chapter-run",
-                    "--book", selection.bookID,
-                    "--job", selection.jobID,
-                    "--profile-id", selection.profileID,
-                ])
-                guard !plan.remoteRequestSent else {
-                    throw BridgeError.message("Подготовка Yandex-плана нарушила offline contract.")
-                }
-                guard currentYandexChapterSelection() == selection else {
-                    yandexChapterPlan = nil
-                    yandexChapterPlanSelection = nil
-                    showYandexChapterConfirmation = false
-                    throw BridgeError.message("Выбор главы изменился. Подготовьте Yandex-план заново.")
-                }
-                yandexChapterPlan = plan
-                yandexChapterPlanSelection = selection
-                technicalDetails = nil
-                if plan.canExecute {
-                    yandexChapterStatusText = plan.decision == "CACHE_ONLY"
-                        ? "Глава уже готова; новая платная запись не требуется."
-                        : "План главы подготовлен. Требуется отдельное подтверждение."
-                    showYandexChapterConfirmation = true
-                    errorMessage = nil
-                } else {
-                    errorMessage = yandexChapterBlockerLabel(plan.blockers)
-                    technicalDetails = plan.blockers.joined(separator: "\n")
-                }
-            } catch {
-                showError(error)
+        Task { await prepareYandexChapterRun(selection: selection) }
+    }
+
+    private func prepareYandexChapterRun(selection: YandexChapterSelection) async {
+        guard currentYandexChapterSelection() == selection else {
+            errorMessage = "Выбор главы изменился. Подготовьте Yandex-план заново."
+            return
+        }
+        isRunning = true
+        defer { isRunning = false }
+        do {
+            let plan: YandexChapterRunPlan = try await runBridgeJSON([
+                "--prepare-yandex-chapter-run",
+                "--book", selection.bookID,
+                "--job", selection.jobID,
+                "--profile-id", selection.profileID,
+            ])
+            guard !plan.remoteRequestSent else {
+                throw BridgeError.message("Подготовка Yandex-плана нарушила offline contract.")
             }
+            guard currentYandexChapterSelection() == selection else {
+                yandexChapterPlan = nil
+                yandexChapterPlanSelection = nil
+                showYandexChapterConfirmation = false
+                throw BridgeError.message("Выбор главы изменился. Подготовьте Yandex-план заново.")
+            }
+            yandexChapterPlan = plan
+            yandexChapterPlanSelection = selection
+            technicalDetails = nil
+            if plan.canExecute {
+                yandexChapterStatusText = plan.decision == "CACHE_ONLY"
+                    ? "Глава уже готова; новая платная запись не требуется."
+                    : "План главы подготовлен. Требуется отдельное подтверждение."
+                showYandexChapterConfirmation = true
+                errorMessage = nil
+            } else {
+                errorMessage = yandexChapterBlockerLabel(plan.blockers)
+                technicalDetails = plan.blockers.joined(separator: "\n")
+            }
+        } catch {
+            showError(error)
         }
     }
 
@@ -582,7 +588,7 @@ final class StudioModel: ObservableObject {
                 }
                 await refreshYandexChapterProgress(expectedSelection: selection)
                 yandexChapterStatusText = "Повтор разрешён локально. Сейчас Studio покажет обновлённую стоимость; запись ещё не началась."
-                prepareYandexChapterRun()
+                await prepareYandexChapterRun(selection: selection)
             } catch {
                 showError(error)
             }
@@ -1916,8 +1922,16 @@ private struct StudioOnboardingView: View {
 private struct YandexRecoverySection: View {
     let progress: YandexChapterProgress
     let problem: YandexChapterProblemSegment
+    let isRunning: Bool
+    let planReady: Bool
     let onContinue: () -> Void
     let onRefresh: () -> Void
+
+    private var continueTitle: String {
+        if planReady { return "Продолжение подготовлено" }
+        if isRunning { return "Подготавливаем продолжение…" }
+        return problem.retryApproved ? "Подготовить продолжение записи" : "Разрешить повтор и продолжить"
+    }
 
     var body: some View {
         Section("Запись остановлена") {
@@ -1940,16 +1954,17 @@ private struct YandexRecoverySection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {
-                Button(
-                    problem.retryApproved ? "Подготовить продолжение записи" : "Разрешить повтор и продолжить",
-                    action: onContinue
-                )
+                Button(continueTitle, action: onContinue)
                 .buttonStyle(.borderedProminent)
+                .disabled(isRunning || planReady)
                 Button("Проверить состояние ещё раз", action: onRefresh)
+                    .disabled(isRunning)
             }
-            Text(problem.retryApproved
-                ? "Повтор этой части уже разрешён. После восстановления подключения Studio покажет свежую стоимость и попросит отдельное подтверждение платной записи."
-                : "После разрешения Studio сначала покажет новую стоимость оставшихся частей. Запись начнётся только после вашего следующего подтверждения.")
+            Text(planReady
+                ? "Стоимость обновлена. Подтвердите озвучку главы в открывшемся окне; повторно подготавливать продолжение не нужно."
+                : problem.retryApproved
+                    ? "Повтор этой части уже разрешён. Studio готовит свежую стоимость и затем попросит отдельное подтверждение платной записи."
+                    : "После разрешения Studio сначала покажет новую стоимость оставшихся частей. Запись начнётся только после вашего следующего подтверждения.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -2032,7 +2047,10 @@ struct StudioView: View {
         AnyView(YandexRecoverySection(
             progress: progress,
             problem: problem,
+            isRunning: model.isRunning,
+            planReady: model.yandexChapterPlan?.canExecute == true,
             onContinue: {
+                guard !model.isRunning, model.yandexChapterPlan?.canExecute != true else { return }
                 if problem.retryApproved {
                     model.begin()
                 } else {
