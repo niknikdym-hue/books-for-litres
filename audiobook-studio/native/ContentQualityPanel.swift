@@ -388,7 +388,14 @@ final class ContentQualityController: ObservableObject {
     @Published var newRuleScope: ContentQualityRuleScope = .shared
     @Published var manualJunkSearchEnabled = false
     @Published var workingTextDraft = ""
-    @Published var stressWord = ""
+    @Published var stressWord = "" {
+        didSet {
+            guard stressWord != oldValue else { return }
+            stressSelectionGeneration &+= 1
+            stressCandidates = []
+            stressPreview = nil
+        }
+    }
     @Published private(set) var stressCandidates: [TTSStressCandidate] = []
     @Published private(set) var stressPreview: TTSStressPreviewEnvelope?
     @Published var resolutionReason = ""
@@ -397,6 +404,7 @@ final class ContentQualityController: ObservableObject {
     private var currentBookID = ""
     private var draftBookID = ""
     private var draftBaseSHA = ""
+    private var stressSelectionGeneration = 0
 
     var workingTextHasUnsavedChanges: Bool {
         guard let review = ttsReview else { return false }
@@ -590,6 +598,7 @@ final class ContentQualityController: ObservableObject {
             errorMessage = "Введите одно слово, в котором нужно указать ударение."
             return
         }
+        let selectionGeneration = stressSelectionGeneration
         Task {
             isLoading = true
             defer { isLoading = false }
@@ -599,6 +608,8 @@ final class ContentQualityController: ObservableObject {
                     arguments: ["--stress-candidates", "--word", word]
                 )
                 try assertOffline(result)
+                guard selectionGeneration == stressSelectionGeneration,
+                      word == stressWord.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
                 stressCandidates = result.candidates
                 stressPreview = nil
                 errorMessage = nil
@@ -609,6 +620,9 @@ final class ContentQualityController: ObservableObject {
     }
 
     func previewStress(_ candidate: TTSStressCandidate) {
+        let word = stressWord.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty else { return }
+        let selectionGeneration = stressSelectionGeneration
         let engine = ttsReview?.selectedBackend.isEmpty == false
             ? (ttsReview?.selectedBackend ?? "yandex")
             : "yandex"
@@ -620,12 +634,14 @@ final class ContentQualityController: ObservableObject {
                     script: "tts_text_review_runner.py",
                     arguments: [
                         "--stress-preview",
-                        "--word", stressWord.trimmingCharacters(in: .whitespacesAndNewlines),
+                        "--word", word,
                         "--vowel-number", String(candidate.vowelNumber),
                         "--engine", engine,
                     ]
                 )
                 try assertOffline(result)
+                guard selectionGeneration == stressSelectionGeneration,
+                      word == stressWord.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
                 stressPreview = result
                 errorMessage = nil
             } catch {
@@ -635,7 +651,10 @@ final class ContentQualityController: ObservableObject {
     }
 
     func saveStressForBook() {
-        guard let preview = stressPreview, !currentBookID.isEmpty else { return }
+        let word = stressWord.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let preview = stressPreview,
+              preview.word == word,
+              !currentBookID.isEmpty else { return }
         Task {
             isLoading = true
             defer { isLoading = false }
@@ -652,8 +671,6 @@ final class ContentQualityController: ObservableObject {
                 )
                 try assertOffline(result)
                 stressWord = ""
-                stressCandidates = []
-                stressPreview = nil
                 await reload(bookID: currentBookID)
             } catch {
                 errorMessage = error.localizedDescription

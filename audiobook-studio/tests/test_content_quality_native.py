@@ -67,6 +67,17 @@ class ContentQualityNativeContractTests(unittest.TestCase):
             "providerValue",
         ):
             self.assertIn(token, panel)
+
+    def test_changing_stress_word_invalidates_dependent_results_and_stale_async_completion(self) -> None:
+        panel = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
+        self.assertIn("stressSelectionGeneration &+= 1", panel)
+        self.assertIn("stressCandidates = []", panel)
+        self.assertIn("stressPreview = nil", panel)
+        self.assertGreaterEqual(
+            panel.count("guard selectionGeneration == stressSelectionGeneration"),
+            2,
+        )
+        self.assertIn("preview.word == word", panel)
         self.assertIn("этот редактор сам платные запросы не запускает", panel)
         self.assertNotIn("--execute-yandex-chapter-plan", panel)
         self.assertNotIn("--execute-paid-plan", panel)
