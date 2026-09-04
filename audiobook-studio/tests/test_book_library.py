@@ -316,6 +316,93 @@ class BookLibraryTests(unittest.TestCase):
         self.assertEqual(result["book_id"], "my-book.json")
         self.assertEqual(archived_profile.read_bytes(), archived_bytes)
 
+    def test_permanent_delete_removes_only_library_copy_without_creating_archive(self):
+        self.import_book()
+        unrelated = self.books / "keep-me.txt"
+        unrelated.write_text("unrelated user data", encoding="utf-8")
+        external_source = self.source.read_bytes()
+
+        result = self.library.delete_book_permanently("my-book")
+
+        self.assertTrue(result["deleted"])
+        self.assertFalse(result["archived"])
+        self.assertFalse(result["archive_created"])
+        self.assertTrue(result["cleanup_complete"])
+        self.assertIsNone(result["cleanup_warning"])
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["paid_execution"])
+        self.assertFalse(result["billing_changed"])
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse((self.books / "my-book.json").exists())
+        self.assertFalse((self.books / "my-book").exists())
+        self.assertFalse((self.books / ".archive").exists())
+        self.assertEqual(list(self.books.glob(".delete-*.pending")), [])
+        self.assertEqual(unrelated.read_text(encoding="utf-8"), "unrelated user data")
+        self.assertEqual(self.source.read_bytes(), external_source)
+
+    def test_permanent_delete_rejects_traversal_and_symlink_assets(self):
+        self.import_book()
+        with self.assertRaises(BookLibraryError):
+            self.library.delete_book_permanently("../my-book")
+
+        external = self.root / "external-assets"
+        external.mkdir()
+        asset_root = self.books / "my-book"
+        shutil.rmtree(asset_root)
+        asset_root.symlink_to(external, target_is_directory=True)
+        with self.assertRaisesRegex(BookLibraryError, "not a link"):
+            self.library.delete_book_permanently("my-book")
+        self.assertTrue((self.books / "my-book.json").exists())
+        self.assertTrue(external.exists())
+
+    def test_permanent_delete_rejects_nonproduction_profile(self):
+        self.import_book()
+        profile_path = self.books / "my-book.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        profile["kind"] = "demo"
+        profile_path.write_text(json.dumps(profile), encoding="utf-8")
+
+        with self.assertRaisesRegex(BookLibraryError, "added by the user"):
+            self.library.delete_book_permanently("my-book")
+
+        self.assertTrue(profile_path.exists())
+        self.assertTrue((self.books / "my-book").exists())
+
+    def test_cleanup_failure_reports_committed_delete_for_caller_reload(self):
+        self.import_book()
+
+        with mock.patch("book_library.shutil.rmtree", side_effect=OSError("simulated cleanup failure")):
+            result = self.library.delete_book_permanently("my-book")
+
+        self.assertTrue(result["deleted"])
+        self.assertFalse(result["cleanup_complete"])
+        self.assertIn("служебные остатки", result["cleanup_warning"])
+        self.assertFalse((self.books / "my-book.json").exists())
+        self.assertFalse((self.books / "my-book").exists())
+        self.assertEqual(len(list(self.books.glob(".delete-*.pending"))), 1)
+        self.assertEqual(self.library.list_book_profiles(), [])
+
+    def test_permanent_delete_rolls_back_assets_when_profile_move_fails(self):
+        self.import_book()
+        profile = self.books / "my-book.json"
+        assets = self.books / "my-book"
+        profile_before = profile.read_bytes()
+        source_before = (assets / "source/original.txt").read_bytes()
+        real_replace = os.replace
+
+        def fail_profile_move(source, destination):
+            if Path(source) == profile:
+                raise OSError("simulated profile move failure")
+            return real_replace(source, destination)
+
+        with mock.patch("book_library.os.replace", side_effect=fail_profile_move):
+            with self.assertRaisesRegex(BookLibraryError, "original book was restored"):
+                self.library.delete_book_permanently("my-book")
+
+        self.assertEqual(profile.read_bytes(), profile_before)
+        self.assertEqual((assets / "source/original.txt").read_bytes(), source_before)
+        self.assertEqual(list(self.books.glob(".delete-*.pending")), [])
+
     def test_archive_rejects_traversal_and_symlink_targets(self):
         self.import_book()
         with self.assertRaises(BookLibraryError):

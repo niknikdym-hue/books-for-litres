@@ -174,6 +174,32 @@ struct BookImportResult: Codable {
     }
 }
 
+struct BookRemovalResult: Codable {
+    let bookID: String
+    let slug: String
+    let deleted: Bool?
+    let archived: Bool?
+    let archiveCreated: Bool?
+    let cleanupComplete: Bool?
+    let cleanupWarning: String?
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let paidExecution: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case slug, deleted, archived
+        case bookID = "book_id"
+        case archiveCreated = "archive_created"
+        case cleanupComplete = "cleanup_complete"
+        case cleanupWarning = "cleanup_warning"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case paidExecution = "paid_execution"
+        case billingChanged = "billing_changed"
+    }
+}
+
 struct PreparedJob: Codable, Identifiable, Hashable {
     let id: String
     let label: String

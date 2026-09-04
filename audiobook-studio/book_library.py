@@ -320,6 +320,117 @@ class BookLibrary:
             "remote_request_sent": False,
         }
 
+    def delete_book_permanently(self, book_id: str | Path) -> dict[str, Any]:
+        """Permanently remove one book from the local library without an archive.
+
+        Only the canonical registry profile and its sibling imported asset
+        directory are in scope.  The user's original source file, rendered
+        audio, billing history, and provider records live elsewhere and are
+        deliberately untouched.  Targets are first moved into a uniquely named
+        local staging directory so a failed second move can be rolled back
+        without leaving a half-visible library entry.
+        """
+        profile_path = self.resolve_book_profile(book_id)
+        slug = normalize_slug(profile_path.stem)
+        asset_root = self.books_root / slug
+
+        if self.books_root.is_symlink():
+            raise BookLibraryError("Book library root cannot be a symlink.")
+        try:
+            profile_stat = profile_path.lstat()
+        except OSError as error:
+            raise BookLibraryError("Book profile cannot be deleted.") from error
+        if profile_path.is_symlink() or not stat.S_ISREG(profile_stat.st_mode):
+            raise BookLibraryError("Book profile must be a regular file, not a link.")
+        book = self.load_book_profile(profile_path.name, allow_disabled=True)
+        if book.get("kind") != "production":
+            raise BookLibraryError(
+                "Only books added by the user can be permanently deleted."
+            )
+        if asset_root.exists() or asset_root.is_symlink():
+            try:
+                asset_stat = asset_root.lstat()
+            except OSError as error:
+                raise BookLibraryError("Book assets cannot be deleted safely.") from error
+            if asset_root.is_symlink() or not stat.S_ISDIR(asset_stat.st_mode):
+                raise BookLibraryError("Book asset root must be a directory, not a link.")
+
+        deletion_root = self.books_root / f".delete-{slug}-{uuid.uuid4().hex}.pending"
+        if deletion_root.exists() or deletion_root.is_symlink():
+            raise BookLibraryError("A colliding book deletion path already exists.")
+        try:
+            deletion_root.mkdir()
+        except OSError as error:
+            raise BookLibraryError("Book deletion staging directory is unavailable.") from error
+
+        staged_profile = deletion_root / profile_path.name
+        staged_assets = deletion_root / slug
+        profile_moved = False
+        assets_moved = False
+        try:
+            if asset_root.exists():
+                os.replace(asset_root, staged_assets)
+                assets_moved = True
+            os.replace(profile_path, staged_profile)
+            profile_moved = True
+        except Exception as error:
+            rollback_errors: list[Exception] = []
+            if profile_moved and staged_profile.exists():
+                if profile_path.exists():
+                    rollback_errors.append(RuntimeError("canonical profile path appeared during rollback"))
+                else:
+                    try:
+                        os.replace(staged_profile, profile_path)
+                    except Exception as rollback_error:  # pragma: no cover - catastrophic filesystem failure
+                        rollback_errors.append(rollback_error)
+            if assets_moved and staged_assets.exists():
+                if asset_root.exists() or asset_root.is_symlink():
+                    rollback_errors.append(RuntimeError("canonical asset path appeared during rollback"))
+                else:
+                    try:
+                        os.replace(staged_assets, asset_root)
+                    except Exception as rollback_error:  # pragma: no cover - catastrophic filesystem failure
+                        rollback_errors.append(rollback_error)
+            if deletion_root.exists() and not any(deletion_root.iterdir()):
+                deletion_root.rmdir()
+            if rollback_errors:
+                raise BookLibraryError(
+                    "Book deletion failed and automatic recovery was incomplete."
+                ) from error
+            raise BookLibraryError("Book deletion failed; the original book was restored.") from error
+
+        cleanup_complete = True
+        cleanup_warning = None
+        try:
+            shutil.rmtree(deletion_root)
+        except OSError:
+            # Moving both canonical targets is the deletion commit point.  A
+            # cleanup failure after it must not be reported as if the visible
+            # book still existed: callers need to reload the library.  The
+            # uniquely named hidden staging directory is retained for an
+            # operator to inspect/clean rather than risking a partial rollback.
+            cleanup_complete = False
+            cleanup_warning = (
+                "Книга удалена из библиотеки, но служебные остатки не удалось очистить полностью."
+            )
+
+        return {
+            "schema_version": 1,
+            "deleted": True,
+            "archived": False,
+            "archive_created": False,
+            "book_id": profile_path.name,
+            "slug": slug,
+            "profile_deleted": True,
+            "assets_deleted": assets_moved,
+            "cleanup_complete": cleanup_complete,
+            "cleanup_warning": cleanup_warning,
+            "provider_requests": 0,
+            "paid_execution": False,
+            "billing_changed": False,
+            "remote_request_sent": False,
+        }
+
     def import_text_book(
         self,
         *,

@@ -130,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--list-books", action="store_true")
     mode.add_argument("--add-book", action="store_true")
     mode.add_argument("--archive-book", action="store_true")
+    mode.add_argument("--delete-book", action="store_true")
     mode.add_argument("--book-details", action="store_true")
     mode.add_argument("--set-book-voice", action="store_true")
     mode.add_argument("--prepare-book-text", action="store_true")
@@ -1483,6 +1484,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.archive_book:
         print(json.dumps(
             BOOK_LIBRARY.archive_book(_require(args.book, "--book")),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if args.delete_book:
+        print(json.dumps(
+            BOOK_LIBRARY.delete_book_permanently(_require(args.book, "--book")),
             ensure_ascii=False,
             indent=2,
         ))
