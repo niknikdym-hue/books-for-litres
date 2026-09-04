@@ -2078,30 +2078,16 @@ struct StudioView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $model.selectedBookID) {
-                Section("РАБОТА С КНИГОЙ") {
-                    sidebarButton("Книга", systemImage: "book.pages", active: !showingHelp && activeOwnerStep == .text) {
-                        showingHelp = false
-                        activeOwnerStep = .text
-                    }
-                    sidebarButton("Произношение", systemImage: "textformat.abc", active: !showingHelp && activeOwnerStep == .pronunciation) {
-                        showingHelp = false
-                        activeOwnerStep = .pronunciation
-                    }
-                    sidebarButton("Звуковое оформление", systemImage: "music.note", active: !showingHelp && activeOwnerStep == .chapterSound) {
-                        showingHelp = false
-                        activeOwnerStep = .chapterSound
-                    }
-                    sidebarButton(
-                        "Запись",
-                        systemImage: "waveform",
-                        active: !showingHelp && [.narrator, .chapter, .review].contains(activeOwnerStep)
-                    ) {
-                        showingHelp = false
-                        activeOwnerStep = .narrator
-                    }
-                    sidebarButton("Сборка и выпуск", systemImage: "shippingbox", active: !showingHelp && activeOwnerStep == .release) {
-                        showingHelp = false
-                        activeOwnerStep = .release
+                Section("ШАГИ РАБОТЫ") {
+                    ForEach(OwnerProductionStep.allCases) { step in
+                        sidebarButton(
+                            "\(step.rawValue). \(step.title)",
+                            systemImage: step.systemImage,
+                            active: !showingHelp && activeOwnerStep == step
+                        ) {
+                            showingHelp = false
+                            activeOwnerStep = step
+                        }
                     }
                 }
                 Section("СПРАВКА") {
