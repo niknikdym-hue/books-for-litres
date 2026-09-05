@@ -804,6 +804,45 @@ class UniversalBridgeTests(unittest.TestCase):
             [book["id"] for book in json.loads(restarted.stdout)["books"]],
         )
 
+    def test_delete_book_bridge_is_permanent_archive_free_and_offline(self):
+        source = self.workspace / "delete-bridge-source.txt"
+        source.write_text("Книга для полного удаления из локальной библиотеки.\n", encoding="utf-8")
+        source_bytes = source.read_bytes()
+        added = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--add-book", "--source-file", str(source),
+            "--title", "Delete Bridge Book", "--author", "Author", "--slug", "delete-bridge-book",
+        )
+        self.assertEqual(added.returncode, 0, added.stderr)
+
+        deleted = run_script(
+            ROOT / "audiobook_studio_app_runner.py",
+            "--delete-book", "--book", "delete-bridge-book",
+        )
+
+        self.assertEqual(deleted.returncode, 0, deleted.stderr)
+        result = json.loads(deleted.stdout)
+        self.assertTrue(result["deleted"])
+        self.assertFalse(result["archived"])
+        self.assertFalse(result["archive_created"])
+        self.assertTrue(result["cleanup_complete"])
+        self.assertIsNone(result["cleanup_warning"])
+        self.assertEqual(result["provider_requests"], 0)
+        self.assertFalse(result["paid_execution"])
+        self.assertFalse(result["billing_changed"])
+        self.assertFalse(result["remote_request_sent"])
+        self.assertFalse((self.workspace / "books/delete-bridge-book.json").exists())
+        self.assertFalse((self.workspace / "books/delete-bridge-book").exists())
+        self.assertFalse((self.workspace / "books/.archive/delete-bridge-book").exists())
+        self.assertEqual(source.read_bytes(), source_bytes)
+
+        restarted = run_script(ROOT / "audiobook_studio_app_runner.py", "--ui-snapshot")
+        self.assertEqual(restarted.returncode, 0, restarted.stderr)
+        self.assertNotIn(
+            "delete-bridge-book.json",
+            [book["id"] for book in json.loads(restarted.stdout)["books"]],
+        )
+
     def test_prepare_book_text_status_and_snapshot_are_offline_and_restart_safe(self):
         source = self.workspace / "text-preparation-source.txt"
         source.write_text(

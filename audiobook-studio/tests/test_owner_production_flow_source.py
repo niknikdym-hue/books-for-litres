@@ -151,6 +151,29 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
         identity = (ROOT / "dilon_identity.py").read_text(encoding="utf-8")
         self.assertIn('OPENING_CREDIT_TEXT = "Елена Ди́лон.', identity)
 
+    def test_sidebar_book_removal_offers_archive_free_permanent_delete(self) -> None:
+        app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        contracts = (NATIVE / "StudioContracts.swift").read_text(encoding="utf-8")
+        runner = (ROOT / "audiobook_studio_app_runner.py").read_text(encoding="utf-8")
+        for token in (
+            'Image(systemName: "trash")',
+            'help("Удалить книгу из библиотеки")',
+            'Button("Удалить полностью из библиотеки", role: .destructive)',
+            'Button("Убрать, сохранив архив")',
+            'model.removeBook(book, permanently: true)',
+            'model.removeBook(book, permanently: false)',
+            'let mode = permanently ? "--delete-book" : "--archive-book"',
+            'guard !isRunning, !isPreparingBookText, !isAddingBook, !isRemovingBook else',
+            "removalDisabled: model.isRemovingBook",
+            "|| model.isRunning",
+            "Полное удаление не создаёт архив",
+            "Исходный TXT в вашей папке",
+            "готовые аудиофайлы и финансовая история не изменятся",
+        ):
+            self.assertIn(token, app)
+        self.assertIn("struct BookRemovalResult: Codable", contracts)
+        self.assertIn('mode.add_argument("--delete-book"', runner)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -112,6 +112,7 @@ final class StudioModel: ObservableObject {
     @Published var billingRefreshText = ""
     @Published var technicalDetails: String?
     @Published var isAddingBook = false
+    @Published var isRemovingBook = false
     @Published var isPreparingBookText = false
     @Published private(set) var showBookTextPreparationConfirmation = false
     private var openAIIntentGate = OneShotIntentGate()
@@ -242,6 +243,50 @@ final class StudioModel: ObservableObject {
             }
             await reload(preferredBookID: result.bookID)
             errorMessage = nil
+            return true
+        } catch {
+            showError(error)
+            return false
+        }
+    }
+
+    func removeBook(_ book: Book, permanently: Bool) async -> Bool {
+        guard !isRunning, !isPreparingBookText, !isAddingBook, !isRemovingBook else {
+            errorMessage = "Дождитесь завершения текущего действия, затем удалите книгу."
+            return false
+        }
+        guard book.kind == "production", books.contains(where: { $0.id == book.id }) else {
+            errorMessage = "Удалять можно только книги, добавленные вами в Studio."
+            return false
+        }
+        isRemovingBook = true
+        defer { isRemovingBook = false }
+        let preferredBookID = selectedBookID == book.id ? nil : selectedBookID
+        do {
+            let mode = permanently ? "--delete-book" : "--archive-book"
+            let result: BookRemovalResult = try await runBridgeJSON([
+                mode, "--book", book.id,
+            ])
+            guard result.bookID == book.id,
+                  result.providerRequests == 0,
+                  !result.remoteRequestSent,
+                  !result.paidExecution,
+                  !result.billingChanged else {
+                throw BridgeError.message("Удаление книги нарушило offline contract.")
+            }
+            if permanently {
+                guard result.deleted == true,
+                      result.archived == false,
+                      result.archiveCreated != true else {
+                    throw BridgeError.message("Книга не была удалена полностью.")
+                }
+            } else {
+                guard result.archived == true else {
+                    throw BridgeError.message("Книга не была перемещена в архив.")
+                }
+            }
+            await reload(preferredBookID: preferredBookID)
+            errorMessage = result.cleanupComplete == false ? result.cleanupWarning : nil
             return true
         } catch {
             showError(error)
@@ -1969,6 +2014,69 @@ private struct YandexRecoverySection: View {
     }
 }
 
+private struct BookLibrarySidebarRow: View {
+    let book: Book
+    let removalDisabled: Bool
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(book.title).font(.headline)
+                Text(book.author).foregroundStyle(.secondary)
+                Text(bookPreparationSidebarLabel(book))
+                    .font(.caption)
+                    .foregroundStyle(book.preparationStatus == "STALE" ? .orange : .secondary)
+            }
+            Spacer(minLength: 4)
+            if book.kind == "production" {
+                Button(role: .destructive, action: onRemove) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .help("Удалить книгу из библиотеки")
+                .disabled(removalDisabled)
+            }
+        }
+        .padding(.vertical, 4)
+        .contextMenu {
+            if book.kind == "production" {
+                Button("Удалить книгу…", role: .destructive, action: onRemove)
+            }
+        }
+    }
+}
+
+private struct BookRemovalConfirmationModifier: ViewModifier {
+    @Binding var pendingBook: Book?
+    @ObservedObject var model: StudioModel
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            pendingBook.map { "Удалить «\($0.title)»?" } ?? "Удалить книгу?",
+            isPresented: Binding(
+                get: { pendingBook != nil },
+                set: { if !$0 { pendingBook = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let book = pendingBook {
+                Button("Удалить полностью из библиотеки", role: .destructive) {
+                    pendingBook = nil
+                    Task { _ = await model.removeBook(book, permanently: true) }
+                }
+                Button("Убрать, сохранив архив") {
+                    pendingBook = nil
+                    Task { _ = await model.removeBook(book, permanently: false) }
+                }
+            }
+            Button("Отмена", role: .cancel) { pendingBook = nil }
+        } message: {
+            Text("Полное удаление не создаёт архив: из Studio исчезнут её копия текста и подготовка этой книги. Исходный TXT в вашей папке, готовые аудиофайлы и финансовая история не изменятся. Восстановить удалённую копию Studio будет нельзя.")
+        }
+    }
+}
+
 @MainActor
 struct StudioView: View {
     @ObservedObject var model: StudioModel
@@ -1987,6 +2095,7 @@ struct StudioView: View {
     @State private var showingHelp = false
     @State private var helpTopic: StudioHelpTopic = .quickStart
     @State private var showOnboarding = false
+    @State private var pendingBookRemoval: Book?
     @AppStorage("hasSeenAuthorOnboarding") private var hasSeenAuthorOnboarding = false
 
     private var dilonSelectionKey: String {
@@ -2100,15 +2209,15 @@ struct StudioView: View {
                 }
                 Section("БИБЛИОТЕКА") {
                     ForEach(model.books) { book in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(book.title).font(.headline)
-                            Text(book.author).foregroundStyle(.secondary)
-                            Text(bookPreparationSidebarLabel(book))
-                                .font(.caption)
-                                .foregroundStyle(book.preparationStatus == "STALE" ? .orange : .secondary)
-                        }
+                        BookLibrarySidebarRow(
+                            book: book,
+                            removalDisabled: model.isRemovingBook
+                                || model.isRunning
+                                || model.isPreparingBookText
+                                || model.isAddingBook,
+                            onRemove: { pendingBookRemoval = book }
+                        )
                         .tag(book.id)
-                        .padding(.vertical, 4)
                     }
                 }
                 Section {
@@ -2118,7 +2227,7 @@ struct StudioView: View {
                         } label: {
                             Label("Добавить книгу", systemImage: "plus")
                         }
-                        .disabled(model.isAddingBook)
+                        .disabled(model.isAddingBook || model.isRemovingBook)
                         Text("TXT · UTF-8 · до 20 МБ")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -2452,7 +2561,11 @@ struct StudioView: View {
                 }
             }
             .overlay {
-                if model.isLoading { ProgressView("Загрузка Studio…") }
+                if model.isRemovingBook {
+                    ProgressView("Удаляем книгу из библиотеки…")
+                } else if model.isLoading {
+                    ProgressView("Загрузка Studio…")
+                }
             }
             .navigationTitle(showingHelp ? "Как пользоваться Audiobook Studio" : (model.selectedBook?.title ?? "Audiobook Studio"))
             .task(id: dilonSelectionKey) {
@@ -2525,6 +2638,10 @@ struct StudioView: View {
             } message: {
                 Text("Исходный файл не изменится. Studio подготовит отдельный рабочий текст; запись и платные обращения не запускаются.")
             }
+            .modifier(BookRemovalConfirmationModifier(
+                pendingBook: $pendingBookRemoval,
+                model: model
+            ))
             .fileImporter(
                 isPresented: $showBookImporter,
                 allowedContentTypes: [audiobookTextFileType],
