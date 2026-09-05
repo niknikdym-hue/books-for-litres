@@ -20,6 +20,11 @@ from preparation_contract import (
     PREPARATION_SCHEMA_VERSION,
     SEGMENTATION_RULES_VERSION,
 )
+from pronunciation_dictionary import (
+    PronunciationDictionary,
+    apply_auto_pronunciations,
+    _workspace_from_library,
+)
 
 
 BOOK_SCHEMA_VERSION = 1
@@ -363,6 +368,13 @@ class BookLibrary:
             raise BookLibraryError(f"A book with ID '{normalized_slug}' already exists.")
 
         source_sha = sha256_bytes(source_bytes)
+        dictionary = PronunciationDictionary(_workspace_from_library(self))
+        working_text = apply_auto_pronunciations(
+            source_text,
+            dictionary.auto_entries(),
+        )
+        working_bytes = working_text.encode("utf-8")
+        working_sha = sha256_bytes(working_bytes)
         imported_at = _utc_now()
         staging_root = Path(tempfile.mkdtemp(prefix=f".import-{normalized_slug}-", dir=self.books_root))
         temporary_profile = self.books_root / f".{normalized_slug}.{staging_root.name}.json.tmp"
@@ -373,8 +385,8 @@ class BookLibrary:
             staged_source.parent.mkdir(parents=True, exist_ok=False)
             staged_tts.parent.mkdir(parents=True, exist_ok=False)
             staged_source.write_bytes(source_bytes)
-            staged_tts.write_bytes(source_bytes)
-            if staged_source.read_bytes() != source_bytes or staged_tts.read_bytes() != source_bytes:
+            staged_tts.write_bytes(working_bytes)
+            if staged_source.read_bytes() != source_bytes or staged_tts.read_bytes() != working_bytes:
                 raise BookLibraryError("Imported book bytes failed verification.")
             os.chmod(staged_source, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
             read_only = not bool(staged_source.stat().st_mode & stat.S_IWUSR)
@@ -408,7 +420,7 @@ class BookLibrary:
                 },
                 "tts_working_copy": {
                     "path": TTS_RELATIVE_PATH.as_posix(),
-                    "sha256": source_sha,
+                    "sha256": working_sha,
                     "source_sha256": source_sha,
                     "revision": 1,
                 },

@@ -144,6 +144,84 @@ struct BookVoiceSelectionResult: Codable {
     }
 }
 
+struct PronunciationDictionaryVariant: Codable, Identifiable, Hashable {
+    let vowelNumber: Int
+    let display: String
+    let firstSeenAt: String?
+    let lastSeenAt: String?
+
+    var id: String { "\(vowelNumber)|\(display)" }
+
+    enum CodingKeys: String, CodingKey {
+        case display
+        case vowelNumber = "vowel_number"
+        case firstSeenAt = "first_seen_at"
+        case lastSeenAt = "last_seen_at"
+    }
+}
+
+struct PronunciationDictionaryEntry: Codable, Identifiable, Hashable {
+    let entryID: String
+    let normalizedWord: String
+    let word: String
+    let mode: String
+    let preferred: PronunciationDictionaryVariant?
+    let variants: [PronunciationDictionaryVariant]
+    let actor: String
+    let source: String?
+    let createdAt: String
+    let updatedAt: String
+
+    var id: String { entryID }
+
+    enum CodingKeys: String, CodingKey {
+        case word, mode, preferred, variants, actor, source
+        case entryID = "entry_id"
+        case normalizedWord = "normalized_word"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+struct PronunciationDictionarySnapshot: Codable, Hashable {
+    let schemaVersion: Int
+    let revision: Int
+    let entries: [PronunciationDictionaryEntry]
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let modelCalls: Int
+    let paidExecution: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case revision, entries
+        case schemaVersion = "schema_version"
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case modelCalls = "model_calls"
+        case paidExecution = "paid_execution"
+        case billingChanged = "billing_changed"
+    }
+}
+
+struct PronunciationDictionaryMutationResult: Codable, Hashable {
+    let revision: Int
+    let providerRequests: Int
+    let remoteRequestSent: Bool
+    let modelCalls: Int
+    let paidExecution: Bool
+    let billingChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case revision
+        case providerRequests = "provider_requests"
+        case remoteRequestSent = "remote_request_sent"
+        case modelCalls = "model_calls"
+        case paidExecution = "paid_execution"
+        case billingChanged = "billing_changed"
+    }
+}
+
 struct BookImportResult: Codable {
     let bookID: String
     let slug: String

@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 import audiobook_studio_app_runner as bridge
 from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
+from pronunciation_dictionary import PronunciationDictionary
 from workspace_paths import load_workspace_paths
 
 
@@ -638,6 +639,57 @@ class UniversalBridgeTests(unittest.TestCase):
             "label": "Безопасный короткий тест",
             "segment_count": 1,
         }])
+
+    def test_pronunciation_dictionary_bridge_is_offline_and_returns_full_snapshot(self):
+        store = PronunciationDictionary(self.workspace)
+        entry = store.upsert("Лера", 1, "Ле́ра")["entry"]
+        snapshot = bridge.pronunciation_dictionary_snapshot()
+        self.assertEqual(snapshot["provider_requests"], 0)
+        self.assertFalse(snapshot["remote_request_sent"])
+        self.assertFalse(snapshot["paid_execution"])
+        self.assertFalse(snapshot["billing_changed"])
+        self.assertTrue(any(item["entry_id"] == entry["entry_id"] for item in snapshot["entries"]))
+
+        disabled = bridge.mutate_pronunciation_dictionary(
+            "disable", entry_id=entry["entry_id"]
+        )
+        current = next(item for item in disabled["entries"] if item["entry_id"] == entry["entry_id"])
+        self.assertEqual(current["mode"], "DISABLED")
+
+    def test_first_launch_migrates_existing_dilon_book_rule_idempotently(self):
+        source = self.workspace / "dilon-migration.txt"
+        source.write_text("Дилон написала книгу.\n", encoding="utf-8")
+        bridge.BOOK_LIBRARY.import_text_book(
+            source_file=source,
+            title="Dilon",
+            author="Owner",
+            slug="dilon-migration",
+        )
+        profile = bridge.BOOK_LIBRARY.load_book_profile("dilon-migration")
+        profile["pronunciation_overrides"] = {
+            "schema_version": 1,
+            "revision": 1,
+            "entries": [{
+                "override_id": "PRON-MIGRATION-DILON",
+                "scope": "BOOK",
+                "word": "Дилон",
+                "vowel_number": 1,
+                "display": "Ди́лон",
+                "start": None,
+                "end": None,
+                "text_sha256": None,
+                "created_at": "2026-09-05T00:00:00+00:00",
+                "actor": "OWNER",
+            }],
+        }
+        bridge.BOOK_LIBRARY.replace_book_profile("dilon-migration", profile)
+        first = bridge.pronunciation_dictionary_snapshot()
+        dilon = next(item for item in first["entries"] if item["normalized_word"] == "дилон")
+        self.assertEqual(dilon["preferred"]["display"], "Ди́лон")
+        self.assertEqual(dilon["source"], "MIGRATED_BOOK_RULE")
+        revision = first["revision"]
+        second = bridge.pronunciation_dictionary_snapshot()
+        self.assertEqual(second["revision"], revision)
 
     def test_add_book_details_and_restart_snapshot_are_machine_readable_and_offline(self):
         source = self.workspace / "bridge-source.txt"

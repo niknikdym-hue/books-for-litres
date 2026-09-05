@@ -15,6 +15,7 @@ from backends.yandex_speechkit import YandexSpeechKitBackend, load_backend_confi
 from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
 from content_quality_lexicon import ContentQualityLexicon
+from pronunciation_dictionary import PronunciationDictionary
 from tts_pronunciation_apply import apply_book_stress
 
 
@@ -95,6 +96,58 @@ class TTSPronunciationProviderWiringTests(unittest.TestCase):
         self.assertEqual(corrected["pronunciation_entry"]["override_id"], override_id)
         self.assertEqual(corrected["pronunciation_entry"]["vowel_number"], 1)
         self.assertGreater(corrected["pronunciation_revision"], revision)
+        global_entry = PronunciationDictionary(self.root).snapshot()["entries"][0]
+        self.assertEqual(global_entry["mode"], "REVIEW_REQUIRED")
+        self.assertEqual(
+            {variant["display"] for variant in global_entry["variants"]},
+            {"за́мок", "замо́к"},
+        )
+
+    def test_owner_correction_is_remembered_and_applied_to_a_new_book_only_in_working_copy(self) -> None:
+        self.import_book()
+        correction = apply_book_stress(
+            self.library,
+            "stress-book",
+            word="замок",
+            vowel_number=2,
+        )
+        self.assertEqual(correction["confirmation_message"], "замо́к добавлено в Словарь ударений")
+        self.assertEqual(correction["dictionary_entry"]["mode"], "AUTO")
+
+        new_source = self.root / "new-book.txt"
+        original = "Глава 1.\n\nНовый замок и недомок.\n"
+        new_source.write_text(original, encoding="utf-8")
+        self.library.import_text_book(
+            source_file=new_source,
+            title="New Book",
+            author="Author",
+            slug="new-book",
+        )
+        immutable = self.books / "new-book/source/original.txt"
+        working = self.books / "new-book/tts/working.txt"
+        self.assertEqual(immutable.read_text(encoding="utf-8"), original)
+        self.assertIn("замо́к", working.read_text(encoding="utf-8"))
+        self.assertNotEqual(immutable.read_bytes(), working.read_bytes())
+
+    def test_existing_book_rule_has_priority_over_global_auto_during_prepare(self) -> None:
+        self.import_book()
+        PronunciationDictionary(self.root).upsert("замок", 1, "за́мок")
+        result = apply_book_stress(
+            self.library,
+            "stress-book",
+            word="замок",
+            vowel_number=2,
+        )
+        self.assertTrue(result["dictionary_conflict"])
+        prepared = self.prepare()
+        self.assertEqual(prepared["preparation_status"], "READY")
+        execution = self.library.load_book_for_execution("stress-book")
+        chapter_text = " ".join(
+            segment["text"]
+            for segment in execution["jobs"]["chapter-ch001"]["segments"]
+        )
+        self.assertIn("замо́к", chapter_text)
+        self.assertNotIn("за́мок", chapter_text)
 
     def test_yandex_adapter_translates_human_stress_to_speechkit_markup(self) -> None:
         text = "Старый замо́к стоял на холме."

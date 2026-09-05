@@ -255,6 +255,7 @@ struct TTSTextReviewEnvelope: Codable, Hashable {
 }
 
 struct TTSOfflineEnvelope: Codable {
+    let confirmationMessage: String?
     let providerRequests: Int
     let remoteRequestSent: Bool
     let modelCalls: Int
@@ -262,6 +263,7 @@ struct TTSOfflineEnvelope: Codable {
     let billingChanged: Bool
 
     enum CodingKeys: String, CodingKey {
+        case confirmationMessage = "confirmation_message"
         case providerRequests = "provider_requests"
         case remoteRequestSent = "remote_request_sent"
         case modelCalls = "model_calls"
@@ -398,6 +400,11 @@ final class ContentQualityController: ObservableObject {
     }
     @Published private(set) var stressCandidates: [TTSStressCandidate] = []
     @Published private(set) var stressPreview: TTSStressPreviewEnvelope?
+    @Published private(set) var pronunciationSaveNotice: String?
+    @Published private(set) var pronunciationDictionary: PronunciationDictionarySnapshot?
+    @Published private(set) var isPronunciationDictionaryLoading = false
+    @Published var pronunciationDictionarySearch = ""
+    @Published var pronunciationDictionaryError: String?
     @Published var resolutionReason = ""
     @Published var findingForResolution: ContentQualityFinding?
 
@@ -411,7 +418,87 @@ final class ContentQualityController: ObservableObject {
         return workingTextDraft != review.text
     }
 
+    var filteredPronunciationDictionaryEntries: [PronunciationDictionaryEntry] {
+        let query = pronunciationDictionarySearch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        let entries = pronunciationDictionary?.entries ?? []
+        guard !query.isEmpty else { return entries }
+        return entries.filter { entry in
+            let values = [entry.word, entry.preferred?.display]
+                + entry.variants.map(\.display)
+            return values.compactMap { $0 }
+                .contains { value in
+                    value.folding(
+                        options: [.caseInsensitive, .diacriticInsensitive],
+                        locale: .current
+                    ).contains(query)
+                }
+        }
+    }
+
+    func reloadPronunciationDictionary() async {
+        isPronunciationDictionaryLoading = true
+        defer { isPronunciationDictionaryLoading = false }
+        do {
+            let result: PronunciationDictionarySnapshot = try await runJSON(
+                script: "audiobook_studio_app_runner.py",
+                arguments: ["--pronunciation-dictionary-list"]
+            )
+            try assertOffline(result)
+            pronunciationDictionary = result
+            pronunciationDictionaryError = nil
+        } catch {
+            pronunciationDictionaryError = error.localizedDescription
+        }
+    }
+
+    func setPreferredPronunciation(
+        _ variant: PronunciationDictionaryVariant,
+        for entry: PronunciationDictionaryEntry
+    ) {
+        mutatePronunciationDictionary([
+            "--pronunciation-dictionary-set-preferred",
+            "--entry-id", entry.entryID,
+            "--vowel-number", String(variant.vowelNumber),
+        ])
+    }
+
+    func disablePronunciation(_ entry: PronunciationDictionaryEntry) {
+        mutatePronunciationDictionary([
+            "--pronunciation-dictionary-disable",
+            "--entry-id", entry.entryID,
+        ])
+    }
+
+    func deletePronunciation(_ entry: PronunciationDictionaryEntry) {
+        mutatePronunciationDictionary([
+            "--pronunciation-dictionary-delete",
+            "--entry-id", entry.entryID,
+        ])
+    }
+
+    private func mutatePronunciationDictionary(_ arguments: [String]) {
+        Task {
+            isPronunciationDictionaryLoading = true
+            defer { isPronunciationDictionaryLoading = false }
+            do {
+                let result: PronunciationDictionaryMutationResult = try await runJSON(
+                    script: "audiobook_studio_app_runner.py",
+                    arguments: arguments
+                )
+                try assertOffline(result)
+                await reloadPronunciationDictionary()
+            } catch {
+                pronunciationDictionaryError = error.localizedDescription
+            }
+        }
+    }
+
     func reload(bookID: String = "") async {
+        if currentBookID != bookID {
+            pronunciationSaveNotice = nil
+        }
         currentBookID = bookID
         isLoading = true
         defer { isLoading = false }
@@ -672,6 +759,8 @@ final class ContentQualityController: ObservableObject {
                 try assertOffline(result)
                 stressWord = ""
                 await reload(bookID: currentBookID)
+                pronunciationSaveNotice = result.confirmationMessage
+                    ?? "Ударение сохранено в книге и добавлено в общий словарь."
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -777,6 +866,20 @@ final class ContentQualityController: ObservableObject {
         }
     }
 
+    private func assertOffline(_ value: PronunciationDictionarySnapshot) throws {
+        guard value.providerRequests == 0, !value.remoteRequestSent, value.modelCalls == 0,
+              !value.paidExecution, !value.billingChanged else {
+            throw ContentQualityBridgeError.message("Словарь ударений нарушил offline contract.")
+        }
+    }
+
+    private func assertOffline(_ value: PronunciationDictionaryMutationResult) throws {
+        guard value.providerRequests == 0, !value.remoteRequestSent, value.modelCalls == 0,
+              !value.paidExecution, !value.billingChanged else {
+            throw ContentQualityBridgeError.message("Изменение словаря ударений нарушило offline contract.")
+        }
+    }
+
     private func runText(script: String, arguments: [String]) async throws -> String {
         try await Task.detached(priority: .userInitiated) {
             let process = Process()
@@ -855,6 +958,220 @@ struct ContentQualityResolutionEnvelope: Codable {
         case modelCalls = "model_calls"
         case paidExecution = "paid_execution"
         case billingChanged = "billing_changed"
+    }
+}
+
+struct PronunciationDictionaryView: View {
+    @ObservedObject var controller: ContentQualityController
+    @Environment(\.dismiss) private var dismiss
+    @State private var entryPendingDeletion: PronunciationDictionaryEntry?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Словарь ударений")
+                        .font(.title2.weight(.semibold))
+                    Text("Studio запоминает ваши исправления и использует их в следующих книгах.")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Готово") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Найти слово", text: $controller.pronunciationDictionarySearch)
+                    .textFieldStyle(.plain)
+                Spacer()
+                Text(entryCountText)
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(10)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+
+            if controller.isPronunciationDictionaryLoading,
+               controller.pronunciationDictionary == nil {
+                Spacer()
+                ProgressView("Открывается словарь…")
+                    .frame(maxWidth: .infinity)
+                Spacer()
+            } else if controller.filteredPronunciationDictionaryEntries.isEmpty {
+                Spacer()
+                ContentUnavailableView {
+                    Label(
+                        controller.pronunciationDictionarySearch.isEmpty
+                            ? "Словарь пока пуст"
+                            : "Ничего не найдено",
+                        systemImage: "character.book.closed"
+                    )
+                } description: {
+                    Text(
+                        controller.pronunciationDictionarySearch.isEmpty
+                            ? "Исправьте ударение в тексте книги — Studio автоматически запомнит его здесь."
+                            : "Попробуйте другое слово или очистите поиск."
+                    )
+                }
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(controller.filteredPronunciationDictionaryEntries) { entry in
+                            dictionaryEntry(entry)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            if let error = controller.pronunciationDictionaryError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Label(
+                    "Работает локально, без подключения к интернету. Изменения не запускают запись и не расходуют средства.",
+                    systemImage: "lock.shield"
+                )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Обновить список") {
+                    Task { await controller.reloadPronunciationDictionary() }
+                }
+                .disabled(controller.isPronunciationDictionaryLoading)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 640, minHeight: 520)
+        .task {
+            await controller.reloadPronunciationDictionary()
+        }
+        .alert(
+            "Удалить слово из словаря?",
+            isPresented: Binding(
+                get: { entryPendingDeletion != nil },
+                set: { if !$0 { entryPendingDeletion = nil } }
+            ),
+            presenting: entryPendingDeletion
+        ) { entry in
+            Button("Удалить", role: .destructive) {
+                controller.deletePronunciation(entry)
+                entryPendingDeletion = nil
+            }
+            Button("Отмена", role: .cancel) {
+                entryPendingDeletion = nil
+            }
+        } message: { entry in
+            Text("«\(entry.word)» больше не будет автоматически исправляться в новых текстах. Уже подготовленные аудиофайлы не изменятся.")
+        }
+    }
+
+    @ViewBuilder
+    private func dictionaryEntry(_ entry: PronunciationDictionaryEntry) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 7) {
+                        Text(entry.word).font(.headline)
+                        Image(systemName: "arrow.right").foregroundStyle(.tertiary)
+                        Text(entry.preferred?.display ?? "вариант не выбран")
+                            .font(.headline)
+                            .foregroundStyle(entry.preferred == nil ? .secondary : .primary)
+                    }
+                    modeLabel(entry.mode)
+                }
+                Spacer()
+                if entry.mode != "DISABLED" {
+                    Button("Отключить") { controller.disablePronunciation(entry) }
+                        .disabled(controller.isPronunciationDictionaryLoading)
+                }
+                Button("Удалить", role: .destructive) {
+                    entryPendingDeletion = entry
+                }
+                .disabled(controller.isPronunciationDictionaryLoading)
+            }
+
+            if entry.variants.count > 1 || entry.mode == "REVIEW_REQUIRED" {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Варианты произношения")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 110), spacing: 8)],
+                        alignment: .leading,
+                        spacing: 8
+                    ) {
+                        ForEach(entry.variants) { variant in
+                            Button {
+                                controller.setPreferredPronunciation(variant, for: entry)
+                            } label: {
+                                Label(
+                                    variant.display,
+                                    systemImage: entry.preferred == variant
+                                        ? "checkmark.circle.fill"
+                                        : "circle"
+                                )
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(controller.isPronunciationDictionaryLoading)
+                            .help("Сделать этот вариант основным и применять автоматически")
+                        }
+                    }
+                    if entry.mode == "REVIEW_REQUIRED" {
+                        Text("Выберите основной вариант, если он подходит в большинстве случаев. Для омонима в конкретной книге ударение можно исправить отдельно.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else if entry.mode == "DISABLED", let variant = entry.variants.first {
+                Button("Включить и применять «\(variant.display)»") {
+                    controller.setPreferredPronunciation(variant, for: entry)
+                }
+                .disabled(controller.isPronunciationDictionaryLoading)
+            }
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private func modeLabel(_ mode: String) -> some View {
+        switch mode {
+        case "AUTO":
+            Label("AUTO · применяется автоматически", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case "REVIEW_REQUIRED":
+            Label("Требует выбора", systemImage: "questionmark.circle.fill")
+                .foregroundStyle(.orange)
+        default:
+            Label("Отключено", systemImage: "pause.circle.fill")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var entryCountText: String {
+        let count = controller.pronunciationDictionarySearch.isEmpty
+            ? (controller.pronunciationDictionary?.entries.count ?? 0)
+            : controller.filteredPronunciationDictionaryEntries.count
+        let lastTwo = count % 100
+        let last = count % 10
+        let noun: String
+        if (11...14).contains(lastTwo) {
+            noun = "записей"
+        } else if last == 1 {
+            noun = "запись"
+        } else if (2...4).contains(last) {
+            noun = "записи"
+        } else {
+            noun = "записей"
+        }
+        return "\(count) \(noun)"
     }
 }
 
@@ -976,11 +1293,16 @@ struct ContentQualitySettingsPanel: View {
                             Text(preview.explanation)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Button("Запомнить для этой книги") { controller.saveStressForBook() }
+                            Button("Сохранить и запомнить ударение") { controller.saveStressForBook() }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(controller.isLoading)
                         }
                         .padding(.vertical, 4)
+                    }
+                    if let notice = controller.pronunciationSaveNotice {
+                        Label(notice, systemImage: "checkmark.circle.fill")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.green)
                     }
                     if !review.pronunciationEntries.isEmpty {
                         DisclosureGroup("Сохранённые ударения · \(review.pronunciationEntries.count)") {
@@ -997,7 +1319,7 @@ struct ContentQualitySettingsPanel: View {
                             }
                         }
                     }
-                    Text("Прослушивание короткой пробы будет отдельным provider-действием с явным подтверждением; этот редактор сам платные запросы не запускает.")
+                    Text("Исправление сохранится для этой книги и автоматически попадёт в общий Словарь ударений. Прослушивание короткой пробы будет отдельным provider-действием с явным подтверждением; этот редактор сам платные запросы не запускает.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {

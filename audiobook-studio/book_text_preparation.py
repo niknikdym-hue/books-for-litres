@@ -36,6 +36,7 @@ from preparation_contract import (
     SEGMENTATION_RULES_VERSION,
 )
 from production_authority_lock import production_authority_lock
+from tts_pronunciation_apply import synchronize_global_pronunciations
 
 
 NORMALIZED_RELATIVE_PATH = Path("prepared/normalized.txt")
@@ -390,6 +391,17 @@ class BookTextPreparationService:
         }
 
     def prepare(self, book_id: str | Path) -> dict[str, Any]:
+        # Dictionary snapshot/read completes before production authority and
+        # working-copy locks.  Any real materialization changes the exact SHA,
+        # naturally making an older preparation stale before a new one begins.
+        pre_sync = self.library.book_details(book_id)
+        if (
+            pre_sync.get("source_integrity") == "OK"
+            and pre_sync.get("tts_working_copy_status") == "CREATED"
+            and pre_sync.get("tts_working_copy_current_sha256")
+            == pre_sync.get("tts_working_copy_sha256")
+        ):
+            synchronize_global_pronunciations(self.library, str(book_id))
         profile_path = self.library.resolve_book_profile(book_id)
         raw_book = self.library.load_book_profile(profile_path.name)
         slug = str(raw_book.get("slug") or profile_path.stem)

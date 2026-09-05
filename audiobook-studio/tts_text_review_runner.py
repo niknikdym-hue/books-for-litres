@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from book_library import BookLibrary, BookLibraryError
-from tts_pronunciation_apply import apply_book_stress
+from tts_pronunciation_apply import apply_book_stress, synchronize_global_pronunciations
 from tts_text_review import (
     TTSTextReviewError,
     accept_current_working_copy,
@@ -95,6 +95,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.status:
             book_name = _require(args.book, "--book")
+            synchronize_global_pronunciations(library, book_name)
             result = _with_selection_context(
                 library,
                 book_name,

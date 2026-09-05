@@ -15,6 +15,11 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from book_library import BookLibrary
+from pronunciation_dictionary import (
+    PronunciationDictionary,
+    apply_auto_pronunciations,
+    _workspace_from_library,
+)
 from tts_text_review import (
     TTSTextReviewError,
     save_working_copy,
@@ -148,6 +153,13 @@ def apply_book_stress(
     if not any(item["vowel_number"] == vowel_number for item in candidates):
         raise TTSTextReviewError("invalid_stress_choice", "Selected stress is outside the word.")
 
+    # Validate the private global store before touching the current book.  A
+    # corrupt/future-schema dictionary must never turn one owner action into a
+    # half-published correction.
+    dictionary = PronunciationDictionary(_workspace_from_library(library))
+    dictionary.snapshot()
+    profile_name = library.resolve_book_profile(book_name).name
+    original_book = deepcopy(library.load_book_profile(profile_name))
     before = working_copy_status(library, book_name)
     original_text = str(before["text"])
     pattern = _word_pattern(selected)
@@ -184,14 +196,25 @@ def apply_book_stress(
             vowel_number=vowel_number,
             display=display,
         )
+        global_rule = dictionary.upsert(
+            selected,
+            vowel_number,
+            display,
+            source="STUDIO_CORRECTION",
+        )
     except Exception:
         if text_changed:
-            save_working_copy(
-                library,
-                book_name,
-                text=original_text,
-                expected_sha256=str(saved["working_copy_sha256"]),
-            )
+            try:
+                save_working_copy(
+                    library,
+                    book_name,
+                    text=original_text,
+                    expected_sha256=str(saved["working_copy_sha256"]),
+                )
+            finally:
+                library.replace_book_profile(profile_name, original_book)
+        else:
+            library.replace_book_profile(profile_name, original_book)
         raise
 
     final = working_copy_status(library, book_name)
@@ -205,5 +228,59 @@ def apply_book_stress(
         "scope": "BOOK",
         "matches_materialized": replacement_count,
         "pronunciation_entry": rule.get("entry"),
+        "dictionary_entry": global_rule.get("entry"),
+        "dictionary_revision": global_rule.get("revision"),
+        "dictionary_changed": bool(global_rule.get("changed")),
+        "dictionary_conflict": bool(global_rule.get("conflict")),
+        "confirmation_message": (
+            "Для этого слова сохранено несколько вариантов. Выбирайте ударение по контексту."
+            if global_rule.get("conflict")
+            else f"{display} добавлено в Словарь ударений"
+        ),
         **final,
+    }
+
+
+def synchronize_global_pronunciations(
+    library: BookLibrary,
+    book_name: str,
+) -> dict[str, Any]:
+    """Apply a stable offline dictionary snapshot to one editable working copy.
+
+    Dictionary I/O finishes before the working-copy lock is acquired.  This
+    establishes the lock order for V1 and avoids a dictionary/provider cycle;
+    provider execution continues to rely on its existing exact-SHA fence.
+    """
+    dictionary = PronunciationDictionary(_workspace_from_library(library))
+    automatic_entries = dictionary.auto_entries()
+    before = working_copy_status(library, book_name)
+    profile_name = library.resolve_book_profile(book_name).name
+    book = library.load_book_profile(profile_name)
+    raw_overrides = book.get("pronunciation_overrides")
+    book_entries = (
+        raw_overrides.get("entries", [])
+        if isinstance(raw_overrides, dict) and isinstance(raw_overrides.get("entries"), list)
+        else []
+    )
+    updated_text = apply_auto_pronunciations(
+        str(before["text"]),
+        automatic_entries,
+        book_entries,
+    )
+    if updated_text == before["text"]:
+        return {
+            "changed": False,
+            "dictionary_revision": dictionary.snapshot()["revision"],
+            **before,
+        }
+    after = save_working_copy(
+        library,
+        profile_name,
+        text=updated_text,
+        expected_sha256=str(before["working_copy_sha256"]),
+    )
+    return {
+        "changed": True,
+        "dictionary_revision": dictionary.snapshot()["revision"],
+        **after,
     }

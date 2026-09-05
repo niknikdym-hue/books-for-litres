@@ -265,10 +265,13 @@ Canonical storage — provider-neutral Unicode acute.
 
 Существующие согласованные BOOK pronunciation rules должны быть мигрированы идемпотентно: один вариант → `AUTO`; конфликтующие варианты → `REVIEW_REQUIRED`.
 
-На дату этой фиксации **authority/schema созданы, runtime implementation ещё не считается принятой**.
+Runtime implementation принят после полного offline suite, native build/codesign и
+независимой UX-проверки на окнах 1060×720 и 900×620. Словарь хранится только в
+private Studio home, безопасно переживает обновление runtime, а его операции не
+вызывают provider/model/network/paid/billing действий.
 
 ```text
-PRONUNCIATION_DICTIONARY_V1 = AUTHORITY_DEFINED / IMPLEMENTATION_PENDING
+PRONUNCIATION_DICTIONARY_V1 = ACCEPTED
 ```
 
 ---
@@ -456,10 +459,11 @@ YANDEX_RECOVERY_UI = ACCEPTED
 YANDEX_CANONICAL_QA_HANDOFF = ACCEPTED
 PERSISTENT_PRODUCTION_STEPS = ACCEPTED
 BOOK_TEXT_STRESS_SELECTION = ACCEPTED
-PRONUNCIATION_DICTIONARY_V1 = IMPLEMENTATION_PENDING
+PRONUNCIATION_DICTIONARY_V1 = ACCEPTED
 PR50_BOOK_DELETE = OPEN_NOT_ACCEPTED
 REAL_BOOK_PROGRESS = 1/16
 WHOLE_BOOK_RELEASE_READY = FALSE
 ```
 
-Следующий Studio engineering slice должен реализовать global pronunciation dictionary по `PRONUNCIATION-DICTIONARY-V1.md`, не переоткрывая уже принятые gates и не выполняя provider/paid calls.
+Следующие Studio slices обязаны сохранять контракт global pronunciation dictionary
+из `PRONUNCIATION-DICTIONARY-V1.md` и не переоткрывать уже принятые gates.

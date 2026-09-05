@@ -4,6 +4,8 @@ set -euo pipefail
 # Historical filename kept only to avoid breaking callers.
 # This script no longer installs a launcher. It installs the real, signed
 # Audiobook Studio bundle directly on Desktop.
+# Private workspace settings, including settings/pronunciation dictionary,
+# lock and migration/state files, are outside this Desktop-only contour.
 workspace_root="${AUDIOBOOK_STUDIO_HOME:-$HOME/Documents/New project/Audiobook-Studio}"
 real_app="${1:-$workspace_root/builds/native-staging/Audiobook Studio.app}"
 desktop_app="$HOME/Desktop/Audiobook Studio.app"

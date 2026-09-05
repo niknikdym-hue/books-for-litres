@@ -98,6 +98,11 @@ exact occurrence > book override > global dictionary AUTO > default pronunciatio
 
 Canonical representation — Unicode acute (`Ди́лон`); provider-specific синтаксис создаётся только adapter-слоем.
 
+В native Studio словарь открывается на шаге «Ударения». Там можно искать слова,
+выбирать основной вариант омонима, временно отключать или удалять записи. Все эти
+действия выполняются локально, без TTS-запросов и расходов; исходный файл книги
+остаётся неизменным.
+
 ## Voice Library
 
 Approved Yandex:
