@@ -187,6 +187,7 @@ struct PronunciationDictionarySnapshot: Codable, Hashable {
     let schemaVersion: Int
     let revision: Int
     let entries: [PronunciationDictionaryEntry]
+    let contextualEntryIDs: [String]
     let providerRequests: Int
     let remoteRequestSent: Bool
     let modelCalls: Int
@@ -195,6 +196,7 @@ struct PronunciationDictionarySnapshot: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case revision, entries
+        case contextualEntryIDs = "contextual_entry_ids"
         case schemaVersion = "schema_version"
         case providerRequests = "provider_requests"
         case remoteRequestSent = "remote_request_sent"

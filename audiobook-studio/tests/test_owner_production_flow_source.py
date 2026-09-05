@@ -47,7 +47,7 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
             "Выделите его двойным щелчком",
             "Копировать или запоминать его не нужно",
             "PronunciationTextSelector",
-            "selectedWord: $textController.stressWord",
+            "textController.selectStressOccurrence(word: word, start: start, end: end)",
             "textView.usesFindBar = true",
             "Для быстрого поиска нажмите ⌘F",
             "Показать варианты ударения",
@@ -78,6 +78,31 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
             self.assertIn(label, panel)
         self.assertNotIn("Елена Ди́лон. Хватит себя обесценивать", panel)
         self.assertIn("func restartExcerptSelection()", panel)
+
+    def test_contextual_pronunciation_is_selected_for_one_exact_occurrence(self) -> None:
+        panel = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
+        controller = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
+        for token in (
+            "Нужно выбрать произношение",
+            "Studio не угадывает по контексту",
+            "variant.meaning",
+            "Сохранить для этого места",
+            'systemName: (',
+            "Сначала выберите произношение для",
+            "textView.string.unicodeScalars",
+            "scalar.value == 0x0301",
+        ):
+            self.assertIn(token, panel)
+        for token in (
+            '"--scope", "OCCURRENCE"',
+            '"--expected-sha256", expectedSHA',
+            'arguments += ["--scope", "BOOK"]',
+            "expectedSHA == ttsReview?.workingCopySHA256",
+            "selectedContextualReviewItem",
+            "stressSelectionContext",
+        ):
+            self.assertIn(token, controller)
+        self.assertIn("Так можно исправить ранее поставленное ударение", panel)
 
     def test_sidebar_help_onboarding_and_contextual_next_actions_are_native(self) -> None:
         app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")

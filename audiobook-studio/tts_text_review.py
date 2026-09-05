@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from book_library import BookLibrary, BookLibraryError, sha256_bytes
 
@@ -303,7 +303,7 @@ def _pronunciation_document(book: Mapping[str, Any]) -> dict[str, Any]:
 def stress_candidates(word: str) -> list[dict[str, Any]]:
     if not isinstance(word, str) or not word.strip() or any(character.isspace() for character in word.strip()):
         raise TTSTextReviewError("invalid_pronunciation_word", "Select exactly one word for stress editing.")
-    clean = unicodedata.normalize("NFC", word.strip())
+    clean = _plain_pronunciation_word(word.strip())
     positions = [index for index, character in enumerate(clean) if character in _RUSSIAN_VOWELS]
     if not positions:
         raise TTSTextReviewError("no_vowels", "The selected word has no supported Russian vowel.")
@@ -319,6 +319,214 @@ def stress_candidates(word: str) -> list[dict[str, Any]]:
             }
         )
     return result
+
+
+def _plain_pronunciation_word(value: str) -> str:
+    decomposed = unicodedata.normalize("NFD", value)
+    return unicodedata.normalize(
+        "NFC", "".join(character for character in decomposed if character != "\u0301")
+    )
+
+
+def apply_occurrence_pronunciation(
+    library: BookLibrary,
+    book_name: str,
+    *,
+    word: str,
+    vowel_number: int,
+    start: int,
+    end: int,
+    expected_sha256: str,
+    post_publish: Callable[[str], Any] | None = None,
+) -> dict[str, Any]:
+    """Materialize one exact owner-selected occurrence and rebase live evidence.
+
+    Python-string offsets are Unicode code-point offsets. Every occurrence
+    decision bound to the previous exact working SHA is either safely rebased
+    or the whole mutation fails before publication.
+    """
+    if (
+        isinstance(start, bool)
+        or isinstance(end, bool)
+        or not isinstance(start, int)
+        or not isinstance(end, int)
+        or start < 0
+        or end <= start
+    ):
+        raise TTSTextReviewError(
+            "invalid_pronunciation_offsets", "Occurrence scope requires valid start/end offsets."
+        )
+    with working_copy_lock(library, book_name):
+        profile_name, book, tts, working_path, old_text, current_sha = _working_context(
+            library, book_name
+        )
+        if expected_sha256 != current_sha:
+            raise TTSTextReviewError(
+                "working_copy_conflict",
+                "TTS working copy changed since the word was selected. Reload before saving.",
+            )
+        if end > len(old_text):
+            raise TTSTextReviewError(
+                "pronunciation_text_mismatch", "Selected occurrence is outside the current text."
+            )
+        selected = old_text[start:end]
+        plain_selected = _plain_pronunciation_word(selected)
+        plain_requested = _plain_pronunciation_word(word.strip())
+        if not plain_requested or plain_selected.casefold() != plain_requested.casefold():
+            raise TTSTextReviewError(
+                "pronunciation_text_mismatch", "Selected occurrence does not match the exact current text."
+            )
+        preview = provider_stress_preview(
+            plain_selected, vowel_number=vowel_number, engine="canonical"
+        )
+        replacement = str(preview["display"])
+        new_text = old_text[:start] + replacement + old_text[end:]
+        new_bytes = new_text.encode("utf-8")
+        new_sha = sha256_bytes(new_bytes)
+        new_end = start + len(replacement)
+        delta = new_end - end
+
+        pronunciation = _pronunciation_document(book)
+        rebased: list[dict[str, Any]] = []
+        replaced_existing = False
+        for raw in pronunciation["entries"]:
+            entry = dict(raw)
+            if entry.get("scope") != "OCCURRENCE" or entry.get("text_sha256") != current_sha:
+                rebased.append(entry)
+                continue
+            entry_start, entry_end = entry.get("start"), entry.get("end")
+            if (
+                isinstance(entry_start, bool)
+                or isinstance(entry_end, bool)
+                or not isinstance(entry_start, int)
+                or not isinstance(entry_end, int)
+                or entry_start < 0
+                or entry_end <= entry_start
+                or entry_end > len(old_text)
+                or _plain_pronunciation_word(old_text[entry_start:entry_end]).casefold()
+                != _plain_pronunciation_word(str(entry.get("word") or "")).casefold()
+            ):
+                raise TTSTextReviewError(
+                    "pronunciation_evidence_stale",
+                    "Existing occurrence pronunciation evidence no longer matches the current text.",
+                )
+            same_occurrence = (
+                entry_start == start
+                and entry_end == end
+                and _plain_pronunciation_word(str(entry.get("word") or "")).casefold()
+                == plain_requested.casefold()
+            )
+            if same_occurrence:
+                entry.update({
+                    "word": plain_selected,
+                    "vowel_number": vowel_number,
+                    "display": replacement,
+                    "start": start,
+                    "end": new_end,
+                    "text_sha256": new_sha,
+                    "updated_at": _utc_now(),
+                    "actor": "OWNER",
+                })
+                replaced_existing = True
+            else:
+                if entry_end <= start:
+                    next_start, next_end = entry_start, entry_end
+                elif entry_start >= end:
+                    next_start, next_end = entry_start + delta, entry_end + delta
+                else:
+                    raise TTSTextReviewError(
+                        "pronunciation_evidence_overlap",
+                        "Selected word overlaps existing pronunciation evidence.",
+                    )
+                if (
+                    next_start < 0
+                    or next_end > len(new_text)
+                    or _plain_pronunciation_word(new_text[next_start:next_end]).casefold()
+                    != _plain_pronunciation_word(str(entry.get("word") or "")).casefold()
+                ):
+                    raise TTSTextReviewError(
+                        "pronunciation_evidence_rebase_failed",
+                        "Occurrence pronunciation evidence could not be safely rebased.",
+                    )
+                entry.update({
+                    "start": next_start,
+                    "end": next_end,
+                    "text_sha256": new_sha,
+                })
+            rebased.append(entry)
+
+        if not replaced_existing:
+            rebased.append({
+                "override_id": f"PRON-{uuid.uuid4().hex[:20].upper()}",
+                "scope": "OCCURRENCE",
+                "word": plain_selected,
+                "vowel_number": vowel_number,
+                "display": replacement,
+                "start": start,
+                "end": new_end,
+                "text_sha256": new_sha,
+                "created_at": _utc_now(),
+                "actor": "OWNER",
+            })
+
+        next_book = deepcopy(book)
+        next_tts = next_book.setdefault("tts_working_copy", {})
+        next_tts["sha256"] = new_sha
+        next_tts["revision"] = int(tts.get("revision") or 0) + int(new_sha != current_sha)
+        next_tts["edited_at"] = _utc_now()
+        next_tts["edited_by"] = "OWNER"
+        next_tts["manual_review"] = None
+        next_book["pronunciation_overrides"] = {
+            "schema_version": PRONUNCIATION_SCHEMA_VERSION,
+            "revision": pronunciation["revision"] + 1,
+            "entries": rebased,
+        }
+
+        old_bytes = old_text.encode("utf-8")
+        _atomic_write_bytes(working_path, new_bytes)
+        try:
+            library.replace_book_profile(profile_name, next_book)
+        except Exception as error:
+            _atomic_write_bytes(working_path, old_bytes)
+            raise TTSTextReviewError(
+                "working_copy_publish_failed",
+                "Could not publish occurrence pronunciation; previous text was restored.",
+            ) from error
+        post_publish_result: Any = None
+        if post_publish is not None:
+            try:
+                post_publish_result = post_publish(replacement)
+            except Exception:
+                _atomic_write_bytes(working_path, old_bytes)
+                try:
+                    library.replace_book_profile(profile_name, book)
+                except Exception as rollback_error:
+                    raise TTSTextReviewError(
+                        "pronunciation_rollback_failed",
+                        "Could not restore the exact book state after dictionary publication failed.",
+                    ) from rollback_error
+                raise
+        result = working_copy_status(library, profile_name)
+        selected_entry = next(
+            entry
+            for entry in rebased
+            if entry.get("scope") == "OCCURRENCE"
+            and entry.get("start") == start
+            and entry.get("end") == new_end
+            and entry.get("text_sha256") == new_sha
+            and _plain_pronunciation_word(str(entry.get("word") or "")).casefold()
+            == plain_requested.casefold()
+        )
+        return {
+            "changed": True,
+            "text_changed": new_sha != current_sha,
+            "scope": "OCCURRENCE",
+            "matches_materialized": 1,
+            "display": replacement,
+            "entry": selected_entry,
+            "post_publish_result": post_publish_result,
+            **result,
+        }
 
 
 def provider_stress_preview(word: str, *, vowel_number: int, engine: str) -> dict[str, Any]:

@@ -114,6 +114,19 @@ class ContentQualityNativeContractTests(unittest.TestCase):
         for forbidden in ("--execute-", "--run-yandex", "--run-openai", "--prepare-paid-run"):
             self.assertNotIn(forbidden, dictionary_slice)
 
+    def test_known_homograph_is_human_visible_without_a_global_default(self) -> None:
+        panel = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
+        contracts = (NATIVE / "StudioContracts.swift").read_text(encoding="utf-8")
+        self.assertIn('case contextualEntryIDs = "contextual_entry_ids"', contracts)
+        for token in (
+            "contextualEntryIDs.contains(entry.entryID)",
+            'joined(separator: " / ")',
+            'Label("Зависит от контекста"',
+            "Выберите нужный вариант в тексте книги",
+            "общий вариант не назначается",
+        ):
+            self.assertIn(token, panel)
+
     def test_changing_stress_word_invalidates_dependent_results_and_stale_async_completion(self) -> None:
         panel = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
         self.assertIn("stressSelectionGeneration &+= 1", panel)

@@ -20,6 +20,7 @@ from book_library import BookLibrary, BookLibraryError
 from cloud_billing import CloudBillingService, decimal_text, decimal_value
 from paid_run import PaidRunPlanStore
 from production_authority_lock import production_authority_lock
+from pronunciation_dictionary import contextual_review_items
 from voice_library import load_voice_library
 
 
@@ -526,6 +527,9 @@ class YandexChapterProductionService:
         cached_segments = int(estimate.get("cached_segments") or 0)
         request_cap = max(0, int(estimate.get("estimated_network_requests") or 0))
         blockers = [*quality_blockers, *self._manifest_blockers(job_dir, job_id=job_id, text=text)]
+        unresolved_contextual = contextual_review_items(text)
+        if unresolved_contextual:
+            blockers.append("pronunciation_context_required")
         blocked_reason = estimate.get("blocked_reason")
         if request_cap and not estimate.get("allowed_to_start"):
             blockers.append(str(blocked_reason or "pricing_blocked"))
@@ -533,7 +537,7 @@ class YandexChapterProductionService:
             blockers.append("chapter_request_cap_exceeded")
 
         credential_available = False
-        if request_cap and not quality_blockers:
+        if request_cap and not quality_blockers and not unresolved_contextual:
             try:
                 credential_available = bool(self.backend.validate_config(resolve_credentials=True).get("credentials_present"))
             except YandexSpeechKitError:
@@ -594,6 +598,7 @@ class YandexChapterProductionService:
             "total_segments": total_segments,
             "cached_segments": cached_segments,
             "max_network_requests": request_cap,
+            "unresolved_contextual_pronunciation": unresolved_contextual,
             "estimated_remaining_cost": decimal_text(estimated_cost),
             "hard_limit": decimal_text(self.pricing.hard_limit_rub),
             "currency": self.pricing.currency,
@@ -627,6 +632,7 @@ class YandexChapterProductionService:
             "content_quality": content_quality,
             "blockers": blockers,
             "warnings": list(dict.fromkeys(warnings)),
+            "unresolved_contextual_pronunciation": unresolved_contextual,
             "credential_available": credential_available,
             "decision": decision,
             "critical": critical,
@@ -672,6 +678,7 @@ class YandexChapterProductionService:
             "pricing_stale": bool(analysis["estimate"].get("price_stale")),
             "credential_available": analysis["credential_available"],
             "content_quality": analysis["content_quality"],
+            "unresolved_contextual_pronunciation": analysis["unresolved_contextual_pronunciation"],
             "warnings": analysis["warnings"],
             "blockers": analysis["blockers"],
             "decision": analysis["decision"],

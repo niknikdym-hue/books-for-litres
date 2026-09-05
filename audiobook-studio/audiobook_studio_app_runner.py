@@ -1395,7 +1395,17 @@ def pronunciation_dictionary_snapshot() -> dict[str, Any]:
     store = _pronunciation_dictionary()
     store.ensure_created()
     migration = migrate_book_rules(BOOK_LIBRARY, store)
-    return {**store.snapshot(), "migration": migration}
+    snapshot = store.snapshot()
+    contextual_words = set(store.contextual_registry())
+    return {
+        **snapshot,
+        "contextual_entry_ids": [
+            entry["entry_id"]
+            for entry in snapshot["entries"]
+            if entry["normalized_word"] in contextual_words
+        ],
+        "migration": migration,
+    }
 
 
 def mutate_pronunciation_dictionary(

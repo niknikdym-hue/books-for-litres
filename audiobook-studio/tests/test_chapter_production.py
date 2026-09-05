@@ -136,6 +136,48 @@ class ChapterProductionTests(unittest.TestCase):
         self.assertFalse(plan["remote_request_sent"])
         self.assertEqual(self.requests, 0)
 
+    def test_contextual_homograph_blocks_only_affected_yandex_chapter(self) -> None:
+        source = self.root / "contextual.txt"
+        source.write_text(
+            "Глава 1. Первая\n\nСтарый замок закрыт.\n\n"
+            "Глава 2. Вторая\n\nСовсем другой безопасный текст.\n",
+            encoding="utf-8",
+        )
+        library = BookLibrary(self.books)
+        library.import_text_book(
+            source_file=source,
+            title="Контекстная книга",
+            author="Автор",
+            slug="contextual-book",
+        )
+        book = library.load_book_profile("contextual-book")
+        book["selected_backend"] = "yandex"
+        book["selected_profile_id"] = "yandex_lera"
+        library.replace_book_profile("contextual-book", book)
+        BookTextPreparationService(
+            library,
+            now=lambda: "2026-08-23T10:00:00+00:00",
+        ).prepare("contextual-book")
+        service = self.service()
+        blocked = service.prepare(
+            book_name="contextual-book",
+            job_id="chapter-ch001",
+            profile_id="yandex_lera",
+        )
+        self.assertEqual(blocked["decision"], "BLOCKED")
+        self.assertIn("pronunciation_context_required", blocked["blockers"])
+        self.assertEqual(
+            blocked["unresolved_contextual_pronunciation"][0]["normalized_word"],
+            "замок",
+        )
+        ready = service.prepare(
+            book_name="contextual-book",
+            job_id="chapter-ch002",
+            profile_id="yandex_lera",
+        )
+        self.assertEqual(ready["decision"], "READY_FOR_CONFIRMATION")
+        self.assertEqual(self.requests, 0)
+
     def test_preview_job_cannot_enter_chapter_production(self) -> None:
         with self.assertRaisesRegex(ChapterProductionError, "prepared chapter"):
             self.service().prepare(

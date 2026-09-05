@@ -139,6 +139,10 @@ class TTSTextReviewTests(unittest.TestCase):
         self.assertEqual(first["provider_requests"], 0)
         self.assertFalse(first["remote_request_sent"])
 
+    def test_stress_candidates_allow_correcting_an_existing_acute(self) -> None:
+        candidates = stress_candidates("за́мок")
+        self.assertEqual([item["display"] for item in candidates], ["за́мок", "замо́к"])
+
     def test_openai_preview_keeps_provider_neutral_stress_decision(self) -> None:
         preview = provider_stress_preview("замок", vowel_number=2, engine="openai")
         self.assertEqual(preview["display"], "замо́к")

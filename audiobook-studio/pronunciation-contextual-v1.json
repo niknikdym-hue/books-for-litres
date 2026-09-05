@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "normalized_word": "замок",
+      "word": "замок",
+      "variants": [
+        {
+          "vowel_number": 1,
+          "display": "за́мок",
+          "meaning": "строение, дворец или крепость"
+        },
+        {
+          "vowel_number": 2,
+          "display": "замо́к",
+          "meaning": "запирающее устройство"
+        }
+      ],
+      "source": "PRONUNCIATION-DICTIONARY-V1",
+      "provenance": "owner-produced homograph case; authority commit c91ca86ed205720a01da2f883fd32f6bba062827"
+    }
+  ]
+}

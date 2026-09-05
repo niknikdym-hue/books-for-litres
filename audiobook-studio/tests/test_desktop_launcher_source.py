@@ -118,6 +118,8 @@ class DesktopInstallSourceTests(unittest.TestCase):
         self.assertIn('book_sound_design.py', updater)
         self.assertIn('book_sound_runner.py', updater)
         self.assertIn('pronunciation_dictionary.py', updater)
+        self.assertIn('for source_file in "$source_root"/*.py "$source_root"/*.json', updater)
+        self.assertIn('"normalized_word": "замок"', (ROOT / 'pronunciation-contextual-v1.json').read_text(encoding='utf-8'))
         self.assertIn('for directory in backends contracts', updater)
         self.assertNotIn('rm -rf "$runtime_root/books"', updater)
         self.assertNotIn('rm -rf "$runtime_root/renders"', updater)

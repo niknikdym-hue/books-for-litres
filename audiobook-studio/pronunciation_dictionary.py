@@ -25,6 +25,8 @@ from typing import Any, Iterable, Mapping
 
 
 SCHEMA_VERSION = 1
+CONTEXTUAL_REGISTRY_SCHEMA_VERSION = 1
+DEFAULT_CONTEXTUAL_REGISTRY_PATH = Path(__file__).with_name("pronunciation-contextual-v1.json")
 MODES = ("AUTO", "REVIEW_REQUIRED", "DISABLED")
 SOURCES = ("STUDIO_CORRECTION", "MIGRATED_BOOK_RULE", "DICTIONARY_EDIT")
 _COMBINING_ACUTE = "\u0301"
@@ -41,6 +43,10 @@ _REQUIRED_ENTRY_KEYS = {
 }
 _VARIANT_KEYS = {"vowel_number", "display", "first_seen_at", "last_seen_at"}
 _REQUIRED_VARIANT_KEYS = {"vowel_number", "display"}
+_CONTEXTUAL_ENTRY_KEYS = {
+    "normalized_word", "word", "variants", "source", "provenance",
+}
+_CONTEXTUAL_VARIANT_KEYS = {"vowel_number", "display", "meaning"}
 
 
 class PronunciationDictionaryError(RuntimeError):
@@ -126,6 +132,80 @@ def _canonical_display(word: str, vowel_number: int) -> str:
         )
     index = positions[vowel_number - 1]
     return unicodedata.normalize("NFC", plain[: index + 1] + _COMBINING_ACUTE + plain[index + 1 :])
+
+
+def load_contextual_registry(
+    path: Path | str = DEFAULT_CONTEXTUAL_REGISTRY_PATH,
+) -> dict[str, dict[str, Any]]:
+    """Load the small, versioned authority for words that always need context."""
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8", errors="strict"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise PronunciationDictionaryError(
+            "contextual_registry_invalid", "Contextual pronunciation registry is unreadable."
+        ) from error
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "entries"}
+        or payload.get("schema_version") != CONTEXTUAL_REGISTRY_SCHEMA_VERSION
+        or not isinstance(payload.get("entries"), list)
+    ):
+        raise PronunciationDictionaryError(
+            "contextual_registry_invalid", "Contextual pronunciation registry schema is invalid."
+        )
+    result: dict[str, dict[str, Any]] = {}
+    for raw in payload["entries"]:
+        if not isinstance(raw, dict) or set(raw) != _CONTEXTUAL_ENTRY_KEYS:
+            raise PronunciationDictionaryError(
+                "contextual_registry_invalid", "Contextual pronunciation entry is invalid."
+            )
+        word = raw.get("word")
+        normalized = raw.get("normalized_word")
+        variants = raw.get("variants")
+        if (
+            not isinstance(word, str)
+            or normalize_word(word) != normalized
+            or normalized in result
+            or not isinstance(raw.get("source"), str)
+            or not raw["source"]
+            or not isinstance(raw.get("provenance"), str)
+            or not raw["provenance"]
+            or not isinstance(variants, list)
+            or len(variants) < 2
+        ):
+            raise PronunciationDictionaryError(
+                "contextual_registry_invalid", "Contextual pronunciation entry is malformed."
+            )
+        seen: set[int] = set()
+        clean_variants: list[dict[str, Any]] = []
+        for variant in variants:
+            if not isinstance(variant, dict) or set(variant) != _CONTEXTUAL_VARIANT_KEYS:
+                raise PronunciationDictionaryError(
+                    "contextual_registry_invalid", "Contextual pronunciation variant is invalid."
+                )
+            vowel_number = variant.get("vowel_number")
+            display = variant.get("display")
+            meaning = variant.get("meaning")
+            if (
+                isinstance(vowel_number, bool)
+                or not isinstance(vowel_number, int)
+                or vowel_number in seen
+                or not isinstance(display, str)
+                or unicodedata.normalize("NFC", display) != _canonical_display(word, vowel_number)
+                or not isinstance(meaning, str)
+                or not meaning
+            ):
+                raise PronunciationDictionaryError(
+                    "contextual_registry_invalid", "Contextual pronunciation variant is malformed."
+                )
+            seen.add(vowel_number)
+            clean_variants.append({
+                "vowel_number": vowel_number,
+                "display": unicodedata.normalize("NFC", display),
+                "meaning": meaning,
+            })
+        result[normalized] = {**deepcopy(raw), "variants": clean_variants}
+    return result
 
 
 def _validate_timestamp(value: Any, *, field: str, nullable: bool = False) -> None:
@@ -370,10 +450,53 @@ def _word_pattern(word: str) -> re.Pattern[str]:
 class PronunciationDictionary:
     """Cross-process safe schema-v1 dictionary rooted in one Studio workspace."""
 
-    def __init__(self, workspace_root: Path | str) -> None:
+    def __init__(
+        self,
+        workspace_root: Path | str,
+        *,
+        contextual_registry_path: Path | str = DEFAULT_CONTEXTUAL_REGISTRY_PATH,
+    ) -> None:
         self.workspace_root = _assert_workspace_root(Path(workspace_root))
         self.path = self.workspace_root / "settings" / "pronunciation" / "user-dictionary-v1.json"
         self.lock_path = self.path.with_suffix(f"{self.path.suffix}.lock")
+        self.contextual_registry_path = Path(contextual_registry_path)
+
+    def contextual_registry(self) -> dict[str, dict[str, Any]]:
+        return load_contextual_registry(self.contextual_registry_path)
+
+    def is_contextual_word(self, word: str) -> bool:
+        return normalize_word(word) in self.contextual_registry()
+
+    @staticmethod
+    def _contextual_variants(
+        contextual: Mapping[str, Any],
+        *,
+        word: str,
+        now: str,
+        selected_vowel_number: int | None = None,
+        existing: Iterable[Mapping[str, Any]] = (),
+    ) -> list[dict[str, Any]]:
+        by_number = {
+            variant.get("vowel_number"): deepcopy(variant)
+            for variant in existing
+            if isinstance(variant, Mapping)
+        }
+        result: list[dict[str, Any]] = []
+        for authority in contextual["variants"]:
+            vowel_number = authority["vowel_number"]
+            stored = by_number.get(vowel_number, {})
+            first_seen = stored.get("first_seen_at")
+            last_seen = stored.get("last_seen_at")
+            if vowel_number == selected_vowel_number and first_seen is None:
+                first_seen = now
+                last_seen = now
+            result.append({
+                "vowel_number": vowel_number,
+                "display": _canonical_display(word, vowel_number),
+                "first_seen_at": first_seen,
+                "last_seen_at": last_seen,
+            })
+        return result
 
     def _load_unlocked(self) -> dict[str, Any]:
         _ensure_private_directory(self.workspace_root, self.path.parent)
@@ -445,6 +568,49 @@ class PronunciationDictionary:
             deepcopy(entry) for entry in self._load_unlocked()["entries"] if entry["mode"] == "AUTO"
         ]
 
+    def repair_known_contextual_entries(self) -> dict[str, Any]:
+        """Downgrade legacy AUTO homographs without touching book evidence/text."""
+        contextual_registry = self.contextual_registry()
+        with _advisory_lock(self.workspace_root, self.lock_path):
+            document = self._load_unlocked()
+            entries = deepcopy(document["entries"])
+            repaired: list[str] = []
+            now = _utc_now()
+            for entry in entries:
+                contextual = contextual_registry.get(entry["normalized_word"])
+                if contextual is None:
+                    continue
+                reconciled = self._contextual_variants(
+                    contextual,
+                    word=entry["word"],
+                    now=now,
+                    existing=entry["variants"],
+                )
+                changed = reconciled != entry["variants"]
+                entry["variants"] = reconciled
+                if entry["mode"] == "AUTO":
+                    entry["mode"] = "REVIEW_REQUIRED"
+                    entry["preferred"] = None
+                    changed = True
+                if changed:
+                    entry["updated_at"] = now
+                    entry["source"] = "MIGRATED_BOOK_RULE"
+                    repaired.append(entry["normalized_word"])
+            if not repaired:
+                return self._result(document, changed=False, repaired_words=[])
+            next_document = {
+                **document,
+                "revision": document["revision"] + 1,
+                "entries": entries,
+            }
+            validate_dictionary_document(next_document)
+            _atomic_write_json(self.workspace_root, self.path, next_document)
+            return self._result(
+                next_document,
+                changed=True,
+                repaired_words=repaired,
+            )
+
     def upsert(
         self,
         word: str,
@@ -463,6 +629,14 @@ class PronunciationDictionary:
             )
         with _advisory_lock(self.workspace_root, self.lock_path):
             document = self._load_unlocked()
+            contextual = self.contextual_registry().get(normalized)
+            if contextual is not None and vowel_number not in {
+                variant["vowel_number"] for variant in contextual["variants"]
+            }:
+                raise PronunciationDictionaryError(
+                    "contextual_variant_not_allowed",
+                    "Selected pronunciation is not an allowed contextual variant.",
+                )
             existing = next(
                 (entry for entry in document["entries"] if entry["normalized_word"] == normalized), None
             )
@@ -478,9 +652,18 @@ class PronunciationDictionary:
                     "entry_id": f"PRON-GLOBAL-{uuid.uuid4().hex[:20].upper()}",
                     "normalized_word": normalized,
                     "word": canonical_word,
-                    "mode": "AUTO",
-                    "preferred": deepcopy(variant),
-                    "variants": [variant],
+                    "mode": "REVIEW_REQUIRED" if contextual is not None else "AUTO",
+                    "preferred": None if contextual is not None else deepcopy(variant),
+                    "variants": (
+                        self._contextual_variants(
+                            contextual,
+                            word=canonical_word,
+                            now=now,
+                            selected_vowel_number=vowel_number,
+                        )
+                        if contextual is not None
+                        else [variant]
+                    ),
                     "actor": "OWNER",
                     "source": source,
                     "created_at": now,
@@ -493,9 +676,56 @@ class PronunciationDictionary:
                 }
                 validate_dictionary_document(next_document)
                 _atomic_write_json(self.workspace_root, self.path, next_document)
-                return self._result(next_document, changed=True, conflict=False, entry=deepcopy(entry))
+                return self._result(
+                    next_document,
+                    changed=True,
+                    conflict=contextual is not None,
+                    contextual=contextual is not None,
+                    entry=deepcopy(entry),
+                )
 
             entry = deepcopy(existing)
+            if contextual is not None:
+                reconciled = self._contextual_variants(
+                    contextual,
+                    word=entry["word"],
+                    now=now,
+                    selected_vowel_number=vowel_number,
+                    existing=entry["variants"],
+                )
+                changed = reconciled != entry["variants"]
+                entry["variants"] = reconciled
+                if entry["mode"] != "REVIEW_REQUIRED" or entry["preferred"] is not None:
+                    entry["mode"] = "REVIEW_REQUIRED"
+                    entry["preferred"] = None
+                    changed = True
+                if not changed:
+                    return self._result(
+                        document,
+                        changed=False,
+                        conflict=True,
+                        contextual=True,
+                        entry=entry,
+                    )
+                entry.update({"source": source, "updated_at": now})
+                entries = [
+                    entry if item["entry_id"] == entry["entry_id"] else item
+                    for item in document["entries"]
+                ]
+                next_document = {
+                    **document,
+                    "revision": document["revision"] + 1,
+                    "entries": entries,
+                }
+                validate_dictionary_document(next_document)
+                _atomic_write_json(self.workspace_root, self.path, next_document)
+                return self._result(
+                    next_document,
+                    changed=True,
+                    conflict=True,
+                    contextual=True,
+                    entry=deepcopy(entry),
+                )
             stored_display = _canonical_display(str(entry["word"]), vowel_number)
             matching = next(
                 (variant for variant in entry["variants"] if variant["vowel_number"] == vowel_number),
@@ -603,6 +833,8 @@ def apply_auto_pronunciations(
     text: str,
     entries: Iterable[Mapping[str, Any]],
     book_entries: Iterable[Mapping[str, Any]] = (),
+    *,
+    working_copy_sha256: str = "",
 ) -> str:
     """Materialize AUTO entries while preserving higher-priority book choices.
 
@@ -629,7 +861,9 @@ def apply_auto_pronunciations(
         elif scope == "OCCURRENCE":
             start, end = raw.get("start"), raw.get("end")
             if (
-                isinstance(start, int) and not isinstance(start, bool)
+                working_copy_sha256
+                and raw.get("text_sha256") == working_copy_sha256
+                and isinstance(start, int) and not isinstance(start, bool)
                 and isinstance(end, int) and not isinstance(end, bool)
                 and 0 <= start < end <= len(working)
                 and normalize_word(_plain_word(working[start:end])) == normalized
@@ -662,6 +896,90 @@ def apply_auto_pronunciations(
     return unicodedata.normalize("NFC", working)
 
 
+def contextual_review_items(
+    text: str,
+    book_entries: Iterable[Mapping[str, Any]] = (),
+    *,
+    working_copy_sha256: str = "",
+    registry_path: Path | str = DEFAULT_CONTEXTUAL_REGISTRY_PATH,
+) -> list[dict[str, Any]]:
+    """Return unresolved plain contextual-word occurrences for native review.
+
+    BOOK decisions resolve every matching occurrence. OCCURRENCE decisions
+    resolve only their exact current range. An already accented token is not
+    surfaced as plain unresolved text, while the persisted override remains
+    the authority used by provider preparation.
+    """
+    if not isinstance(text, str):
+        raise PronunciationDictionaryError("invalid_text", "Pronunciation text must be Unicode text.")
+    registry = load_contextual_registry(registry_path)
+    book_words: set[str] = set()
+    occurrence_ranges: list[tuple[str, int, int]] = []
+    for raw in book_entries:
+        if not isinstance(raw, Mapping):
+            continue
+        try:
+            normalized = normalize_word(str(raw.get("word") or ""))
+        except PronunciationDictionaryError:
+            continue
+        scope = str(raw.get("scope") or "").upper()
+        if scope == "BOOK":
+            book_words.add(normalized)
+        elif scope == "OCCURRENCE":
+            start, end = raw.get("start"), raw.get("end")
+            if (
+                isinstance(working_copy_sha256, str)
+                and working_copy_sha256
+                and raw.get("text_sha256") == working_copy_sha256
+                and isinstance(start, int) and not isinstance(start, bool)
+                and isinstance(end, int) and not isinstance(end, bool)
+                and 0 <= start < end <= len(text)
+            ):
+                occurrence_ranges.append((normalized, start, end))
+
+    items: list[dict[str, Any]] = []
+    for normalized, contextual in registry.items():
+        if normalized in book_words:
+            continue
+        for match in _word_pattern(str(contextual["word"])).finditer(text):
+            start, end = match.span()
+            if _COMBINING_ACUTE in match.group(0):
+                continue
+            if any(
+                item_word == normalized and item_start == start and item_end == end
+                for item_word, item_start, item_end in occurrence_ranges
+            ):
+                continue
+            items.append({
+                "item_id": f"CONTEXT-{normalized}-{start}-{end}",
+                "normalized_word": normalized,
+                "word": match.group(0),
+                "start": start,
+                "end": end,
+                "context": _contextual_snippet(text, start, end),
+                "variants": deepcopy(contextual["variants"]),
+            })
+    return sorted(items, key=lambda item: (item["start"], item["normalized_word"]))
+
+
+def _contextual_snippet(text: str, start: int, end: int, radius: int = 48) -> str:
+    """Show a readable sentence fragment without beginning or ending mid-word."""
+    left = max(0, start - radius)
+    right = min(len(text), end + radius)
+    prefix = ""
+    suffix = ""
+    if left > 0:
+        boundary = next((index for index in range(left, start) if text[index].isspace()), start)
+        left = min(boundary + 1, start)
+        prefix = "… "
+    if right < len(text):
+        boundary = next((index for index in range(right - 1, end - 1, -1) if text[index].isspace()), end)
+        right = max(boundary, end)
+        suffix = " …"
+    fragment = " ".join(text[left:right].split())
+    return f"{prefix}{fragment}{suffix}"
+
+
 def _workspace_from_library(library: Any) -> Path:
     books_root = Path(library.books_root)
     if books_root.name == "books" and books_root.parent.name == "studio-workspace" and books_root.parent.parent.name == "runtime":
@@ -675,9 +993,11 @@ def migrate_book_rules(
 ) -> dict[str, Any]:
     """Idempotently import valid owner-created BOOK rules from all book profiles."""
     store = dictionary or PronunciationDictionary(_workspace_from_library(library))
+    contextual_repair = store.repair_known_contextual_entries()
     considered = 0
     changed = 0
     conflicts = 0
+    conflict_words: set[str] = set()
     for profile in library.list_book_profiles():
         try:
             book = library.load_book_profile(profile.name, allow_disabled=True)
@@ -707,9 +1027,14 @@ def migrate_book_rules(
                 continue
             considered += 1
             changed += int(bool(result["changed"]))
-            conflicts += int(bool(result.get("conflict") and result["changed"]))
+            normalized = normalize_word(str(entry.get("word") or ""))
+            if result.get("conflict") and result["changed"] and normalized not in conflict_words:
+                conflicts += 1
+                conflict_words.add(normalized)
     return {
         "schema_version": 1,
+        "contextual_repair_changed": bool(contextual_repair["changed"]),
+        "contextual_repaired_words": contextual_repair["repaired_words"],
         "considered_book_rules": considered,
         "changed_entries": changed,
         "conflicts_created": conflicts,

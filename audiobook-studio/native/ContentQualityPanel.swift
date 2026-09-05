@@ -216,6 +216,37 @@ struct TTSPronunciationEntry: Codable, Identifiable, Hashable {
     }
 }
 
+struct TTSContextualPronunciationVariant: Codable, Identifiable, Hashable {
+    let vowelNumber: Int
+    let display: String
+    let meaning: String
+
+    var id: String { "\(vowelNumber)|\(display)" }
+
+    enum CodingKeys: String, CodingKey {
+        case display, meaning
+        case vowelNumber = "vowel_number"
+    }
+}
+
+struct TTSContextualReviewItem: Codable, Identifiable, Hashable {
+    let itemID: String
+    let normalizedWord: String
+    let word: String
+    let context: String
+    let start: Int
+    let end: Int
+    let variants: [TTSContextualPronunciationVariant]
+
+    var id: String { itemID }
+
+    enum CodingKeys: String, CodingKey {
+        case word, context, start, end, variants
+        case itemID = "item_id"
+        case normalizedWord = "normalized_word"
+    }
+}
+
 struct TTSTextReviewEnvelope: Codable, Hashable {
     let bookID: String
     let workingCopyPath: String
@@ -225,6 +256,8 @@ struct TTSTextReviewEnvelope: Codable, Hashable {
     let manualReview: TTSTextManualReviewStatus
     let pronunciationRevision: Int
     let pronunciationEntries: [TTSPronunciationEntry]
+    let contextualReviewItems: [TTSContextualReviewItem]
+    let contextualWords: [String]
     let preparationStatus: String?
     let selectedBackend: String
     let selectedProfileID: String
@@ -243,6 +276,8 @@ struct TTSTextReviewEnvelope: Codable, Hashable {
         case manualReview = "manual_review"
         case pronunciationRevision = "pronunciation_revision"
         case pronunciationEntries = "pronunciation_entries"
+        case contextualReviewItems = "contextual_review_items"
+        case contextualWords = "contextual_words"
         case preparationStatus = "preparation_status"
         case selectedBackend = "selected_backend"
         case selectedProfileID = "selected_profile_id"
@@ -393,6 +428,9 @@ final class ContentQualityController: ObservableObject {
     @Published var stressWord = "" {
         didSet {
             guard stressWord != oldValue else { return }
+            stressSelectionStart = nil
+            stressSelectionEnd = nil
+            stressSelectionSHA256 = nil
             stressSelectionGeneration &+= 1
             stressCandidates = []
             stressPreview = nil
@@ -401,6 +439,9 @@ final class ContentQualityController: ObservableObject {
     @Published private(set) var stressCandidates: [TTSStressCandidate] = []
     @Published private(set) var stressPreview: TTSStressPreviewEnvelope?
     @Published private(set) var pronunciationSaveNotice: String?
+    @Published private(set) var stressSelectionStart: Int?
+    @Published private(set) var stressSelectionEnd: Int?
+    @Published private(set) var stressSelectionSHA256: String?
     @Published private(set) var pronunciationDictionary: PronunciationDictionarySnapshot?
     @Published private(set) var isPronunciationDictionaryLoading = false
     @Published var pronunciationDictionarySearch = ""
@@ -416,6 +457,68 @@ final class ContentQualityController: ObservableObject {
     var workingTextHasUnsavedChanges: Bool {
         guard let review = ttsReview else { return false }
         return workingTextDraft != review.text
+    }
+
+    var stressWordIsContextual: Bool {
+        guard let review = ttsReview else { return false }
+        let normalized = stressWord.folding(
+            options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+        )
+        return review.contextualWords.contains { word in
+            word.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                == normalized
+        }
+    }
+
+    var selectedContextualReviewItem: TTSContextualReviewItem? {
+        guard let start = stressSelectionStart, let end = stressSelectionEnd else { return nil }
+        return ttsReview?.contextualReviewItems.first {
+            $0.start == start && $0.end == end
+        }
+    }
+
+    var stressSelectionContext: String? {
+        guard let review = ttsReview,
+              let start = stressSelectionStart,
+              let end = stressSelectionEnd else { return nil }
+        let scalars = Array(review.text.unicodeScalars)
+        guard start >= 0, end > start, end <= scalars.count else { return nil }
+        let lower = max(0, start - 36)
+        let upper = min(scalars.count, end + 36)
+        return String(String.UnicodeScalarView(scalars[lower..<upper]))
+            .replacingOccurrences(of: "\n", with: " ")
+    }
+
+    func selectStressOccurrence(word: String, start: Int, end: Int) {
+        stressWord = word
+        stressSelectionStart = start
+        stressSelectionEnd = end
+        stressSelectionSHA256 = ttsReview?.workingCopySHA256
+    }
+
+    func editStressWord(_ word: String) {
+        stressWord = word
+    }
+
+    func previewContextualVariant(
+        _ variant: TTSContextualPronunciationVariant,
+        for item: TTSContextualReviewItem
+    ) {
+        selectStressOccurrence(word: item.word, start: item.start, end: item.end)
+        stressPreview = TTSStressPreviewEnvelope(
+            engine: "canonical",
+            word: item.word,
+            vowelNumber: variant.vowelNumber,
+            display: variant.display,
+            providerMode: "CANONICAL_STRESS",
+            providerValue: variant.display,
+            explanation: "Выбранное произношение будет применено только в этом месте.",
+            providerRequests: 0,
+            remoteRequestSent: false,
+            modelCalls: 0,
+            paidExecution: false,
+            billingChanged: false
+        )
     }
 
     var filteredPronunciationDictionaryEntries: [PronunciationDictionaryEntry] {
@@ -742,19 +845,40 @@ final class ContentQualityController: ObservableObject {
         guard let preview = stressPreview,
               preview.word == word,
               !currentBookID.isEmpty else { return }
+        let contextual = stressWordIsContextual
+        let selectedStart = stressSelectionStart
+        let selectedEnd = stressSelectionEnd
+        let selectedSHA = stressSelectionSHA256
         Task {
             isLoading = true
             defer { isLoading = false }
             do {
+                var arguments = [
+                    "--add-pronunciation-override",
+                    "--book", currentBookID,
+                    "--word", preview.word,
+                    "--vowel-number", String(preview.vowelNumber),
+                ]
+                if contextual {
+                    guard let start = selectedStart,
+                          let end = selectedEnd,
+                          let expectedSHA = selectedSHA,
+                          expectedSHA == ttsReview?.workingCopySHA256 else {
+                        errorMessage = "Это слово зависит от контекста. Выделите нужное место в тексте двойным щелчком."
+                        return
+                    }
+                    arguments += [
+                        "--scope", "OCCURRENCE",
+                        "--start", String(start),
+                        "--end", String(end),
+                        "--expected-sha256", expectedSHA,
+                    ]
+                } else {
+                    arguments += ["--scope", "BOOK"]
+                }
                 let result: TTSOfflineEnvelope = try await runJSON(
                     script: "tts_text_review_runner.py",
-                    arguments: [
-                        "--add-pronunciation-override",
-                        "--book", currentBookID,
-                        "--word", preview.word,
-                        "--vowel-number", String(preview.vowelNumber),
-                        "--scope", "BOOK",
-                    ]
+                    arguments: arguments
                 )
                 try assertOffline(result)
                 stressWord = ""
@@ -1074,17 +1198,22 @@ struct PronunciationDictionaryView: View {
 
     @ViewBuilder
     private func dictionaryEntry(_ entry: PronunciationDictionaryEntry) -> some View {
+        let contextual = isContextual(entry)
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
                         Text(entry.word).font(.headline)
                         Image(systemName: "arrow.right").foregroundStyle(.tertiary)
-                        Text(entry.preferred?.display ?? "вариант не выбран")
+                        Text(
+                            contextual
+                                ? entry.variants.map(\.display).joined(separator: " / ")
+                                : (entry.preferred?.display ?? "вариант не выбран")
+                        )
                             .font(.headline)
-                            .foregroundStyle(entry.preferred == nil ? .secondary : .primary)
+                            .foregroundStyle(!contextual && entry.preferred == nil ? .secondary : .primary)
                     }
-                    modeLabel(entry.mode)
+                    modeLabel(entry.mode, contextual: contextual)
                 }
                 Spacer()
                 if entry.mode != "DISABLED" {
@@ -1097,7 +1226,28 @@ struct PronunciationDictionaryView: View {
                 .disabled(controller.isPronunciationDictionaryLoading)
             }
 
-            if entry.variants.count > 1 || entry.mode == "REVIEW_REQUIRED" {
+            if contextual {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Варианты произношения")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 110), spacing: 8)],
+                        alignment: .leading,
+                        spacing: 8
+                    ) {
+                        ForEach(entry.variants) { variant in
+                            Label(variant.display, systemImage: "circle.fill")
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.secondary.opacity(0.08), in: Capsule())
+                        }
+                    }
+                    Text("Выберите нужный вариант в тексте книги. Для слова с разными значениями общий вариант не назначается.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if entry.variants.count > 1 || entry.mode == "REVIEW_REQUIRED" {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("Варианты произношения")
                         .font(.caption.weight(.semibold))
@@ -1141,7 +1291,11 @@ struct PronunciationDictionaryView: View {
     }
 
     @ViewBuilder
-    private func modeLabel(_ mode: String) -> some View {
+    private func modeLabel(_ mode: String, contextual: Bool) -> some View {
+        if contextual && mode != "DISABLED" {
+            Label("Зависит от контекста", systemImage: "text.magnifyingglass")
+                .foregroundStyle(.orange)
+        } else {
         switch mode {
         case "AUTO":
             Label("AUTO · применяется автоматически", systemImage: "checkmark.circle.fill")
@@ -1153,6 +1307,11 @@ struct PronunciationDictionaryView: View {
             Label("Отключено", systemImage: "pause.circle.fill")
                 .foregroundStyle(.secondary)
         }
+        }
+    }
+
+    private func isContextual(_ entry: PronunciationDictionaryEntry) -> Bool {
+        controller.pronunciationDictionary?.contextualEntryIDs.contains(entry.entryID) == true
     }
 
     private var entryCountText: String {

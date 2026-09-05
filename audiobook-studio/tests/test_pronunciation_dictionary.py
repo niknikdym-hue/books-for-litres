@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import stat
 import subprocess
@@ -17,6 +18,8 @@ from pronunciation_dictionary import (
     PronunciationDictionary,
     PronunciationDictionaryError,
     apply_auto_pronunciations,
+    contextual_review_items,
+    load_contextual_registry,
     migrate_book_rules,
     normalize_word,
     validate_dictionary_document,
@@ -76,8 +79,8 @@ class PronunciationDictionaryTests(unittest.TestCase):
         self.assertEqual(self.store.snapshot()["revision"], 1)
 
     def test_conflict_requires_review_then_owner_selects_preferred(self) -> None:
-        first = self.store.upsert("замок", 1, "за́мок")
-        conflict = self.store.upsert("ЗАМОК", 2, "ЗАМО́К")
+        first = self.store.upsert("мука", 1, "му́ка")
+        conflict = self.store.upsert("МУКА", 2, "МУКА́")
         self.assertTrue(conflict["conflict"])
         self.assertEqual(conflict["entry"]["mode"], "REVIEW_REQUIRED")
         self.assertIsNone(conflict["entry"]["preferred"])
@@ -86,6 +89,20 @@ class PronunciationDictionaryTests(unittest.TestCase):
         self.assertEqual(selected["entry"]["mode"], "AUTO")
         self.assertEqual(selected["entry"]["preferred"]["vowel_number"], 2)
         self.assertEqual(len(self.store.auto_entries()), 1)
+
+    def test_known_homograph_is_contextual_from_first_owner_choice(self) -> None:
+        registry = load_contextual_registry()
+        self.assertEqual(registry["замок"]["source"], "PRONUNCIATION-DICTIONARY-V1")
+        result = self.store.upsert("замок", 2, "замо́к")
+        self.assertTrue(result["contextual"])
+        self.assertTrue(result["conflict"])
+        self.assertEqual(result["entry"]["mode"], "REVIEW_REQUIRED")
+        self.assertIsNone(result["entry"]["preferred"])
+        self.assertEqual(
+            [variant["display"] for variant in result["entry"]["variants"]],
+            ["за́мок", "замо́к"],
+        )
+        self.assertEqual(self.store.auto_entries(), [])
 
     def test_disable_delete_and_missing_variant_fail_closed(self) -> None:
         entry_id = self._dilon()["entry"]["entry_id"]
@@ -106,14 +123,26 @@ class PronunciationDictionaryTests(unittest.TestCase):
         self.assertEqual(applied, "Ди́лон и ДИ́ЛОН, но недилон и Ди́лонов не меняются.")
 
     def test_book_and_occurrence_overrides_take_priority(self) -> None:
-        global_entry = self.store.upsert("замок", 1, "за́мок")["entry"]
-        text = "замок, замок и замок"
-        occurrence = [{"scope": "OCCURRENCE", "word": "замок", "start": 7, "end": 12}]
+        global_entry = self.store.upsert("Дилон", 1, "Ди́лон")["entry"]
+        text = "Дилон, Дилон и Дилон"
+        text_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        occurrence = [{
+            "scope": "OCCURRENCE", "word": "Дилон", "start": 7, "end": 12,
+            "text_sha256": text_sha,
+        }]
         self.assertEqual(
-            apply_auto_pronunciations(text, [global_entry], occurrence),
-            "за́мок, замок и за́мок",
+            apply_auto_pronunciations(
+                text, [global_entry], occurrence, working_copy_sha256=text_sha,
+            ),
+            "Ди́лон, Дилон и Ди́лон",
         )
-        book = [{"scope": "BOOK", "word": "ЗАМОК", "vowel_number": 2}]
+        self.assertEqual(
+            apply_auto_pronunciations(
+                text, [global_entry], occurrence, working_copy_sha256="0" * 64,
+            ),
+            "Ди́лон, Ди́лон и Ди́лон",
+        )
+        book = [{"scope": "BOOK", "word": "ДИЛОН", "vowel_number": 2}]
         self.assertEqual(apply_auto_pronunciations(text, [global_entry], book), text)
 
     def test_invalid_display_corrupt_and_higher_schema_are_not_overwritten(self) -> None:
@@ -212,6 +241,75 @@ class PronunciationDictionaryTests(unittest.TestCase):
         second = migrate_book_rules(library, self.store)
         self.assertEqual(second["changed_entries"], 0)
         self.assertEqual(self.store.snapshot()["revision"], revision)
+
+    def test_legacy_known_homograph_auto_is_repaired_once(self) -> None:
+        first = self.store.ensure_created()
+        self.assertTrue(first["created"])
+        now = "2026-09-05T00:00:00+00:00"
+        legacy = {
+            "schema_version": 1,
+            "revision": 1,
+            "entries": [{
+                "entry_id": "PRON-GLOBAL-LEGACYZAMOK1",
+                "normalized_word": "замок",
+                "word": "замок",
+                "mode": "AUTO",
+                "preferred": {"vowel_number": 2, "display": "замо́к"},
+                "variants": [{"vowel_number": 2, "display": "замо́к"}],
+                "actor": "OWNER",
+                "source": "STUDIO_CORRECTION",
+                "created_at": now,
+                "updated_at": now,
+            }],
+        }
+        self.store.path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+        os.chmod(self.store.path, 0o600)
+        repaired = self.store.repair_known_contextual_entries()
+        self.assertTrue(repaired["changed"])
+        entry = self.store.snapshot()["entries"][0]
+        self.assertEqual(entry["mode"], "REVIEW_REQUIRED")
+        self.assertIsNone(entry["preferred"])
+        self.assertEqual(
+            {variant["display"] for variant in entry["variants"]},
+            {"за́мок", "замо́к"},
+        )
+        revision = self.store.snapshot()["revision"]
+        repeated = self.store.repair_known_contextual_entries()
+        self.assertFalse(repeated["changed"])
+        self.assertEqual(self.store.snapshot()["revision"], revision)
+
+    def test_contextual_review_only_resolves_exact_current_evidence(self) -> None:
+        text = "старый замок и новый замок"
+        first_start = text.index("замок")
+        first_end = first_start + len("замок")
+        sha = hashlib.sha256(text.encode()).hexdigest()
+        occurrence = [{
+            "scope": "OCCURRENCE",
+            "word": "замок",
+            "start": first_start,
+            "end": first_end,
+            "text_sha256": sha,
+        }]
+        items = contextual_review_items(
+            text, occurrence, working_copy_sha256=sha
+        )
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["start"], text.rindex("замок"))
+        stale = contextual_review_items(
+            text, occurrence, working_copy_sha256="0" * 64
+        )
+        self.assertEqual(len(stale), 2)
+
+    def test_contextual_review_context_uses_readable_word_boundaries(self) -> None:
+        text = (
+            "Это достаточно длинное начало предложения, чтобы окно контекста "
+            "не начиналось посреди слова: старый замок стоял на холме, а дальше "
+            "шла ещё одна достаточно длинная часть предложения для проверки."
+        )
+        item = contextual_review_items(text)[0]
+        self.assertTrue(item["context"].startswith("… "))
+        self.assertTrue(item["context"].endswith(" …"))
+        self.assertIn("старый замок стоял на холме", item["context"])
 
 
 if __name__ == "__main__":

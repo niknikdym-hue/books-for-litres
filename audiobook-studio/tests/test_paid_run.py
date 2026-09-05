@@ -200,6 +200,27 @@ class PaidRunTests(unittest.TestCase):
         self.assertEqual(first["plan_digest"], second["plan_digest"])
         self.assertNotEqual(first["plan_id"], second["plan_id"])
 
+    def test_contextual_homograph_blocks_only_affected_openai_segment(self):
+        self.write_book([
+            "Старый замок.",
+            "Совсем другой безопасный сегмент без неоднозначного слова.",
+        ])
+        plan = self.prepare(self.service())
+        self.assertEqual(plan["decision"], "READY_FOR_CONFIRMATION")
+        self.assertEqual(plan["selected_segment_id"], "s0002")
+        self.assertEqual(plan["pronunciation_review_required_segments"], 1)
+        self.assertEqual(
+            plan["unresolved_contextual_pronunciation"][0]["segment_id"], "s0001"
+        )
+        self.assertEqual(self.calls, 0)
+
+        self.write_book(["Старый замок."])
+        blocked = self.prepare(self.service())
+        self.assertEqual(blocked["decision"], "BLOCKED")
+        self.assertIn("pronunciation_context_required", blocked["blockers"])
+        self.assertEqual(blocked["max_network_requests"], 1)
+        self.assertEqual(self.calls, 0)
+
     def test_digest_changes_for_text_profile_and_selected_segment(self):
         service = self.service()
         original = self.prepare(service)

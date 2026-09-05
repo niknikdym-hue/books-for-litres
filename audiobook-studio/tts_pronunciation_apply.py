@@ -22,6 +22,7 @@ from pronunciation_dictionary import (
 )
 from tts_text_review import (
     TTSTextReviewError,
+    apply_occurrence_pronunciation,
     save_working_copy,
     stress_candidates,
     working_copy_status,
@@ -139,6 +140,10 @@ def apply_book_stress(
     *,
     word: str,
     vowel_number: int,
+    scope: str = "BOOK",
+    start: int | None = None,
+    end: int | None = None,
+    expected_sha256: str = "",
 ) -> dict[str, Any]:
     """Accent every BOOK-scoped occurrence and persist/update its provenance rule.
 
@@ -162,6 +167,62 @@ def apply_book_stress(
     original_book = deepcopy(library.load_book_profile(profile_name))
     before = working_copy_status(library, book_name)
     original_text = str(before["text"])
+    normalized_scope = scope.strip().upper()
+    if normalized_scope == "OCCURRENCE":
+        if start is None or end is None or not expected_sha256:
+            raise TTSTextReviewError(
+                "invalid_pronunciation_offsets",
+                "Occurrence correction requires exact offsets and working-copy SHA.",
+            )
+        occurrence = apply_occurrence_pronunciation(
+            library,
+            book_name,
+            word=selected,
+            vowel_number=vowel_number,
+            start=start,
+            end=end,
+            expected_sha256=expected_sha256,
+            post_publish=lambda display: dictionary.upsert(
+                selected,
+                vowel_number,
+                display,
+                source="STUDIO_CORRECTION",
+            ),
+        )
+        display = str(occurrence["display"])
+        global_rule = occurrence["post_publish_result"]
+        final = working_copy_status(library, book_name)
+        contextual = bool(global_rule.get("contextual"))
+        return {
+            "schema_version": 1,
+            "changed": True,
+            "text_changed": bool(occurrence["text_changed"]),
+            "word": selected,
+            "vowel_number": vowel_number,
+            "display": display,
+            "scope": "OCCURRENCE",
+            "matches_materialized": 1,
+            "pronunciation_entry": occurrence.get("entry"),
+            "dictionary_entry": global_rule.get("entry"),
+            "dictionary_revision": global_rule.get("revision"),
+            "dictionary_changed": bool(global_rule.get("changed")),
+            "dictionary_conflict": bool(global_rule.get("conflict")),
+            "confirmation_message": (
+                f"Для этого места сохранено: {display}. Слово зависит от контекста и не будет автоматически изменяться в других местах."
+                if contextual
+                else f"{display} добавлено в Словарь ударений"
+            ),
+            **final,
+        }
+    if normalized_scope != "BOOK":
+        raise TTSTextReviewError(
+            "invalid_pronunciation_scope", "Pronunciation scope must be BOOK or OCCURRENCE."
+        )
+    if dictionary.is_contextual_word(selected):
+        raise TTSTextReviewError(
+            "contextual_occurrence_required",
+            "This word depends on context. Select its exact occurrence in the text.",
+        )
     pattern = _word_pattern(selected)
     matches = list(pattern.finditer(original_text))
     if not matches:
@@ -266,6 +327,7 @@ def synchronize_global_pronunciations(
         str(before["text"]),
         automatic_entries,
         book_entries,
+        working_copy_sha256=str(before["working_copy_sha256"]),
     )
     if updated_text == before["text"]:
         return {
