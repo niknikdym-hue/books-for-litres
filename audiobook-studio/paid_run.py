@@ -26,6 +26,11 @@ from backends.openai_tts import (
 from cloud_billing import BillingLedger, CloudBillingService, decimal_text
 from book_library import BookLibrary, BookLibraryError
 from production_authority_lock import production_authority_lock
+from pronunciation_dictionary import (
+    apply_book_pronunciations_for_render,
+    book_pronunciation_entries,
+    contextual_review_items,
+)
 
 
 SCHEMA_VERSION = 1
@@ -206,7 +211,10 @@ class PaidRunService:
             if not isinstance(value, str) or not value.strip():
                 raise PaidRunError("Prepared job contains invalid text.", category="invalid_book_job")
             texts.append(value.strip())
-        return path, book, job, "\n\n".join(texts)
+        text = apply_book_pronunciations_for_render(
+            "\n\n".join(texts), book_pronunciation_entries(book)
+        )
+        return path, book, job, text
 
     def _job_dir(
         self,
@@ -253,11 +261,28 @@ class PaidRunService:
         )
         entries, blockers = self._manifest_entries(job_dir, job_id=job_id, profile_id=profile_id)
         blockers = [*quality_blockers, *blockers]
-        counts = {"succeeded": 0, "cached": 0, "pending": 0, "ambiguous": 0, "failed": 0}
+        counts = {
+            "succeeded": 0,
+            "cached": 0,
+            "pending": 0,
+            "ambiguous": 0,
+            "failed": 0,
+            "pronunciation_review_required": 0,
+        }
         eligible: list[tuple[Any, str]] = []
+        contextual_segments: list[dict[str, Any]] = []
 
         for segment in segments:
             normalized = normalize_input_text(segment.text)
+            unresolved_contextual = contextual_review_items(normalized)
+            if unresolved_contextual:
+                counts["pending"] += 1
+                counts["pronunciation_review_required"] += 1
+                contextual_segments.append({
+                    "segment_id": segment.segment_id,
+                    "items": unresolved_contextual,
+                })
+                continue
             fingerprint = make_fingerprint(normalized, profile)
             entry = entries.get(segment.segment_id)
             if entry is not None and (
@@ -317,6 +342,8 @@ class PaidRunService:
             blockers.append("missing_credential")
         if len(eligible) > counts["pending"]:
             blockers.append("execution_segment_not_unique")
+        if contextual_segments and not eligible:
+            blockers.append("pronunciation_context_required")
 
         blockers = list(dict.fromkeys(blockers))
         selected = eligible[0] if eligible and not blockers else None
@@ -360,6 +387,7 @@ class PaidRunService:
                 "audio_output_per_million_tokens": decimal_text(self.pricing.audio_output_per_million_tokens),
             },
             "max_network_requests": MAX_NETWORK_REQUESTS,
+            "unresolved_contextual_pronunciation": contextual_segments,
         }
         if content_quality is not None:
             critical["content_quality_gate"] = {
@@ -385,6 +413,7 @@ class PaidRunService:
                 *billing_snapshot.get("warnings", []),
                 "exact_future_audio_cost_unavailable",
             ])),
+            "unresolved_contextual_pronunciation": contextual_segments,
             "blockers": blockers,
             "decision": decision,
         }
@@ -430,6 +459,8 @@ class PaidRunService:
             "pending_segments": counts["pending"],
             "ambiguous_segments": counts["ambiguous"],
             "failed_segments": counts["failed"],
+            "pronunciation_review_required_segments": counts["pronunciation_review_required"],
+            "unresolved_contextual_pronunciation": analysis["unresolved_contextual_pronunciation"],
             "network_miss_count_for_this_plan": 1 if selected else 0,
             "max_network_requests": MAX_NETWORK_REQUESTS,
             "hard_limit": critical["hard_limit"],

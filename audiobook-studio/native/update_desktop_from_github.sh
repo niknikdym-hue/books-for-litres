@@ -18,6 +18,8 @@ readonly source_ref="refs/heads/main"
 readonly reviewed_source_sha="${AUDIOBOOK_STUDIO_REVIEWED_RELEASE_SHA:-${1:-}}"
 readonly workspace_root="${AUDIOBOOK_STUDIO_HOME:-$HOME/Documents/New project/Audiobook-Studio}"
 readonly runtime_root="$workspace_root/runtime/studio-workspace"
+readonly private_pronunciation_root="$workspace_root/settings/pronunciation"
+readonly private_pronunciation_dictionary="$private_pronunciation_root/user-dictionary-v1.json"
 readonly python_executable="${AUDIOBOOK_STUDIO_PYTHON:-$workspace_root/engines/qwen-mlx/.venv/bin/python}"
 readonly desktop_app="$HOME/Desktop/Audiobook Studio.app"
 readonly archive_root="$HOME/Library/Application Support/Audiobook Studio/Archives"
@@ -41,6 +43,57 @@ fail() {
   exit 2
 }
 
+# Seal the complete private pronunciation tree, not just the JSON document.
+# Advisory lock and migration/state files belong to the owner too.  Only a
+# digest is emitted; dictionary contents and filenames never enter updater logs.
+private_pronunciation_snapshot() {
+  "$python_executable" - "$private_pronunciation_root" <<'PY'
+import hashlib
+import os
+import stat
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+digest = hashlib.sha256()
+
+
+def add(value: bytes) -> None:
+    digest.update(len(value).to_bytes(8, "big"))
+    digest.update(value)
+
+
+def visit(path: Path, relative: str) -> None:
+    metadata = path.lstat()
+    add(relative.encode("utf-8", "surrogateescape"))
+    add(str(stat.S_IMODE(metadata.st_mode)).encode("ascii"))
+    if stat.S_ISLNK(metadata.st_mode):
+        add(b"symlink")
+        add(os.readlink(path).encode("utf-8", "surrogateescape"))
+    elif stat.S_ISDIR(metadata.st_mode):
+        add(b"directory")
+        for child in sorted(path.iterdir(), key=lambda item: os.fsencode(item.name)):
+            visit(child, f"{relative}/{child.name}")
+    elif stat.S_ISREG(metadata.st_mode):
+        add(b"file")
+        file_digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                file_digest.update(chunk)
+        add(file_digest.digest())
+    else:
+        add(b"other")
+        add(str(metadata.st_rdev).encode("ascii"))
+
+
+try:
+    visit(root, ".")
+except FileNotFoundError:
+    add(b"absent")
+print(digest.hexdigest())
+PY
+}
+
 for command_path in /usr/bin/git /usr/bin/xcrun /usr/bin/codesign /usr/bin/ditto /usr/bin/open; do
   [[ -x "$command_path" ]] || fail "missing required macOS tool: $command_path"
 done
@@ -51,6 +104,7 @@ done
 [[ -x "$python_executable" ]] || fail "Studio Python not found: $python_executable"
 [[ "${#reviewed_source_sha}" -eq 40 && "$reviewed_source_sha" != *[^0-9a-f]* ]] \
   || fail "set AUDIOBOOK_STUDIO_REVIEWED_RELEASE_SHA to the exact reviewed current-main commit"
+readonly private_pronunciation_before="$(private_pronunciation_snapshot)"
 
 mkdir -p "$checkout_root"
 /usr/bin/git -C "$checkout_root" init -q
@@ -149,6 +203,7 @@ done
     tts_text_review_runner.py \
     tts_text_review.py \
     tts_pronunciation_apply.py \
+    pronunciation_dictionary.py \
     book_text_preparation.py \
     book_sound_design.py \
     book_sound_runner.py
@@ -166,6 +221,10 @@ assert value.get("paid_execution") is False
 assert value.get("billing_changed") is False
 PY
 ) || fail "offline runtime smoke failed; previous runtime code will be restored"
+
+private_pronunciation_after="$(private_pronunciation_snapshot)"
+[[ "$private_pronunciation_after" == "$private_pronunciation_before" ]] \
+  || fail "private pronunciation dictionary/lock/state changed during runtime update"
 
 # Install the locally built app, archiving the previous Desktop bundle through
 # the accepted fail-safe installer. Because the bundle was built on this Mac,

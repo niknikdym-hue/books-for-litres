@@ -1,5 +1,8 @@
 from pathlib import Path
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 
 
@@ -104,6 +107,7 @@ class DesktopInstallSourceTests(unittest.TestCase):
 
     def test_owner_update_is_offline_for_studio_execution_and_preserves_production_data(self) -> None:
         updater = UPDATER.read_text(encoding="utf-8")
+        installer = INSTALLER.read_text(encoding="utf-8")
 
         self.assertIn("OPENAI_API_KEY='' YANDEX_API_KEY='' YANDEX_CLOUD_API_KEY=''", updater)
         self.assertIn('assert value.get("provider_requests") == 0', updater)
@@ -113,6 +117,9 @@ class DesktopInstallSourceTests(unittest.TestCase):
         self.assertIn('assert value.get("billing_changed") is False', updater)
         self.assertIn('book_sound_design.py', updater)
         self.assertIn('book_sound_runner.py', updater)
+        self.assertIn('pronunciation_dictionary.py', updater)
+        self.assertIn('for source_file in "$source_root"/*.py "$source_root"/*.json', updater)
+        self.assertIn('"normalized_word": "замок"', (ROOT / 'pronunciation-contextual-v1.json').read_text(encoding='utf-8'))
         self.assertIn('for directory in backends contracts', updater)
         self.assertNotIn('rm -rf "$runtime_root/books"', updater)
         self.assertNotIn('rm -rf "$runtime_root/renders"', updater)
@@ -121,6 +128,78 @@ class DesktopInstallSourceTests(unittest.TestCase):
         self.assertNotIn('rm -rf "$runtime_root/billing"', updater)
         self.assertIn("rollback_runtime", updater)
         self.assertIn('archive_root="$HOME/Library/Application Support/Audiobook Studio/Archives"', updater)
+        self.assertIn(
+            'private_pronunciation_root="$workspace_root/settings/pronunciation"',
+            updater,
+        )
+        self.assertIn(
+            'private_pronunciation_dictionary="$private_pronunciation_root/user-dictionary-v1.json"',
+            updater,
+        )
+        self.assertIn("private_pronunciation_snapshot()", updater)
+        self.assertIn(
+            'readonly private_pronunciation_before="$(private_pronunciation_snapshot)"',
+            updater,
+        )
+        self.assertIn(
+            'private_pronunciation_after="$(private_pronunciation_snapshot)"',
+            updater,
+        )
+        self.assertIn(
+            '[[ "$private_pronunciation_after" == "$private_pronunciation_before" ]]',
+            updater,
+        )
+        snapshot_before = updater.index("private_pronunciation_before=")
+        runtime_sync = updater.index('temporary_target="$runtime_root/.$name.update.$$"')
+        snapshot_after = updater.index("private_pronunciation_after=")
+        desktop_install = updater.index('/bin/zsh "$source_root/native/install_desktop_launcher.sh"')
+        self.assertLess(snapshot_before, runtime_sync)
+        self.assertLess(runtime_sync, snapshot_after)
+        self.assertLess(snapshot_after, desktop_install)
+        self.assertNotIn('rm -rf "$workspace_root/settings"', updater)
+        self.assertNotIn('ditto "$source_root/settings"', updater)
+        self.assertIn("settings/pronunciation dictionary", installer)
+        self.assertNotIn('rm -rf "$workspace_root/settings"', installer)
+        self.assertNotIn('ditto "$real_app" "$workspace_root', installer)
+
+    def test_private_pronunciation_seal_covers_dictionary_lock_and_state(self) -> None:
+        updater = UPDATER.read_text(encoding="utf-8")
+        match = re.search(
+            r"private_pronunciation_snapshot\(\) \{\n"
+            r"  \"\$python_executable\" - \"\$private_pronunciation_root\" <<'PY'\n"
+            r"(?P<script>.*?)\nPY\n\}",
+            updater,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        snapshot_script = match.group("script")
+
+        with tempfile.TemporaryDirectory() as directory:
+            pronunciation = Path(directory) / "settings" / "pronunciation"
+            pronunciation.mkdir(parents=True)
+            dictionary = pronunciation / "user-dictionary-v1.json"
+            lock = pronunciation / "user-dictionary-v1.json.lock"
+            state = pronunciation / "migration-state-v1.json"
+            dictionary.write_text('{"schema_version":1,"revision":1,"entries":[]}', encoding="utf-8")
+            lock.write_bytes(b"")
+            state.write_text('{"migration":"complete"}', encoding="utf-8")
+
+            def seal() -> str:
+                return subprocess.check_output(
+                    [sys.executable, "-c", snapshot_script, str(pronunciation)],
+                    text=True,
+                ).strip()
+
+            baseline = seal()
+            self.assertEqual(seal(), baseline)
+            dictionary.write_text('{"schema_version":1,"revision":2,"entries":[]}', encoding="utf-8")
+            self.assertNotEqual(seal(), baseline)
+            dictionary.write_text('{"schema_version":1,"revision":1,"entries":[]}', encoding="utf-8")
+            lock.write_bytes(b"lock-state")
+            self.assertNotEqual(seal(), baseline)
+            lock.write_bytes(b"")
+            state.write_text('{"migration":"pending"}', encoding="utf-8")
+            self.assertNotEqual(seal(), baseline)
 
 
 if __name__ == "__main__":

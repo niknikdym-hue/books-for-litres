@@ -84,6 +84,11 @@ class WorkspacePaths:
         return self.root / "settings" / "media-tools.json"
 
     @property
+    def pronunciation_dictionary(self) -> Path:
+        """Private owner pronunciation dictionary; never a repository artifact."""
+        return self.root / "settings" / "pronunciation" / "user-dictionary-v1.json"
+
+    @property
     def cloud_billing_settings(self) -> Path:
         return self.root / "settings" / "cloud-billing.json"
 

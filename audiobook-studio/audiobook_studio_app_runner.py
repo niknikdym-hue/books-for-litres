@@ -37,6 +37,11 @@ from mastering_export import (
 )
 from book_delivery import BookDeliveryError, BookDeliveryService
 from paid_run import PaidRunService
+from pronunciation_dictionary import (
+    PronunciationDictionary,
+    PronunciationDictionaryError,
+    migrate_book_rules,
+)
 from audio_qa_authority import (
     AudioQAAuthority,
     AudioQAAuthorityError,
@@ -175,12 +180,18 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--delivery-selection-status", action="store_true")
     mode.add_argument("--set-delivery-profile", action="store_true")
     mode.add_argument("--create-book-delivery", action="store_true")
+    mode.add_argument("--pronunciation-dictionary-list", action="store_true")
+    mode.add_argument("--pronunciation-dictionary-set-preferred", action="store_true")
+    mode.add_argument("--pronunciation-dictionary-disable", action="store_true")
+    mode.add_argument("--pronunciation-dictionary-delete", action="store_true")
     parser.add_argument("--engine", choices=("qwen", "yandex", "openai"), default="")
     parser.add_argument("--book", default="")
     parser.add_argument("--source-file", default="")
     parser.add_argument("--title", default="")
     parser.add_argument("--author", default="")
     parser.add_argument("--author-pronunciation", default="")
+    parser.add_argument("--entry-id", default="")
+    parser.add_argument("--vowel-number", type=int, default=0)
     parser.add_argument("--slug", default="")
     parser.add_argument("--job", default="")
     parser.add_argument("--speaker", default="")
@@ -1338,6 +1349,10 @@ def _print_voice_listing(result: dict[str, Any], output_format: str) -> None:
 
 
 def ui_snapshot() -> dict[str, Any]:
+    # First-launch migration is local and idempotent.  It runs before the
+    # catalog is exposed so already accepted BOOK rules are available to the
+    # owner without a separate maintenance action.
+    pronunciation_dictionary_snapshot()
     books, raw_qwen_voices = _load_qwen_runtime_catalog()
     qwen_voices = [{"id": str(voice["id"]), "label": str(voice["id"])} for voice in raw_qwen_voices]
     profiles = _with_local_voice_samples(
@@ -1370,6 +1385,46 @@ def ui_snapshot() -> dict[str, Any]:
         "cloud_billing": cloud_billing,
         "remote_request_sent": False,
     }
+
+
+def _pronunciation_dictionary() -> PronunciationDictionary:
+    return PronunciationDictionary(WORKSPACE_PATHS.root)
+
+
+def pronunciation_dictionary_snapshot() -> dict[str, Any]:
+    store = _pronunciation_dictionary()
+    store.ensure_created()
+    migration = migrate_book_rules(BOOK_LIBRARY, store)
+    snapshot = store.snapshot()
+    contextual_words = set(store.contextual_registry())
+    return {
+        **snapshot,
+        "contextual_entry_ids": [
+            entry["entry_id"]
+            for entry in snapshot["entries"]
+            if entry["normalized_word"] in contextual_words
+        ],
+        "migration": migration,
+    }
+
+
+def mutate_pronunciation_dictionary(
+    action: str,
+    *,
+    entry_id: str,
+    vowel_number: int = 0,
+) -> dict[str, Any]:
+    store = _pronunciation_dictionary()
+    store.ensure_created()
+    if action == "set_preferred":
+        mutation = store.set_preferred(entry_id, vowel_number)
+    elif action == "disable":
+        mutation = store.disable(entry_id)
+    elif action == "delete":
+        mutation = store.delete(entry_id)
+    else:
+        raise PronunciationDictionaryError("invalid_action", "Unsupported dictionary action.")
+    return {**store.snapshot(), "last_mutation": mutation}
 
 
 def yandex_local_health() -> dict[str, Any]:
@@ -1505,6 +1560,32 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.book_preparation_status:
         print(json.dumps(book_preparation_status(args.book), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.pronunciation_dictionary_list:
+        print(json.dumps(pronunciation_dictionary_snapshot(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.pronunciation_dictionary_set_preferred:
+        print(json.dumps(mutate_pronunciation_dictionary(
+            "set_preferred",
+            entry_id=_require(args.entry_id, "--entry-id"),
+            vowel_number=args.vowel_number,
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.pronunciation_dictionary_disable:
+        print(json.dumps(mutate_pronunciation_dictionary(
+            "disable",
+            entry_id=_require(args.entry_id, "--entry-id"),
+        ), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.pronunciation_dictionary_delete:
+        print(json.dumps(mutate_pronunciation_dictionary(
+            "delete",
+            entry_id=_require(args.entry_id, "--entry-id"),
+        ), ensure_ascii=False, indent=2))
         return 0
 
     if args.list_jobs:

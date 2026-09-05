@@ -49,8 +49,20 @@ def openai_instruction_suffix(text: str) -> str:
     lines = [
         "Соблюдай следующие точные ударения в словах; не меняй остальной текст:"
     ]
-    lines.extend(
-        f"- «{item['word']}» произноси как «{item['display']}»."
-        for item in words
-    )
+    by_word: dict[str, list[str]] = {}
+    display_word: dict[str, str] = {}
+    for item in words:
+        key = item["word"].casefold()
+        display_word.setdefault(key, item["word"])
+        if item["display"] not in by_word.setdefault(key, []):
+            by_word[key].append(item["display"])
+    for key, variants in by_word.items():
+        if len(variants) == 1:
+            lines.append(f"- «{display_word[key]}» произноси как «{variants[0]}».")
+        else:
+            rendered = " / ".join(f"«{variant}»" for variant in variants)
+            lines.append(
+                f"- Для слова «{display_word[key]}» сохраняй ударение по написанию "
+                f"в каждом месте: {rendered}."
+            )
     return "\n".join(lines)

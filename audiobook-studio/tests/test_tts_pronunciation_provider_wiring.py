@@ -15,7 +15,9 @@ from backends.yandex_speechkit import YandexSpeechKitBackend, load_backend_confi
 from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
 from content_quality_lexicon import ContentQualityLexicon
+from pronunciation_dictionary import PronunciationDictionary
 from tts_pronunciation_apply import apply_book_stress
+from tts_text_review import TTSTextReviewError, working_copy_status
 
 
 class TTSPronunciationProviderWiringTests(unittest.TestCase):
@@ -31,7 +33,7 @@ class TTSPronunciationProviderWiringTests(unittest.TestCase):
     def import_book(self) -> Path:
         source = self.root / "book.txt"
         source.write_text(
-            "Глава 1.\n\nСтарый замок стоял на холме. Другой замок был закрыт.\n",
+            "Глава 1.\n\nДилон увидела старый замок. Потом Дилон закрыла другой замок.\n",
             encoding="utf-8",
         )
         self.library.import_text_book(
@@ -60,12 +62,12 @@ class TTSPronunciationProviderWiringTests(unittest.TestCase):
         result = apply_book_stress(
             self.library,
             "stress-book",
-            word="замок",
-            vowel_number=2,
+            word="Дилон",
+            vowel_number=1,
         )
-        self.assertEqual(result["display"], "замо́к")
+        self.assertEqual(result["display"], "Ди́лон")
         self.assertEqual(result["matches_materialized"], 2)
-        self.assertEqual(result["text"].count("замо́к"), 2)
+        self.assertEqual(result["text"].count("Ди́лон"), 2)
         self.assertEqual(source.read_bytes(), source_before)
         self.assertEqual(result["preparation_status"], "STALE")
         self.assertFalse(result["manual_review"]["accepted"])
@@ -77,28 +79,173 @@ class TTSPronunciationProviderWiringTests(unittest.TestCase):
         first = apply_book_stress(
             self.library,
             "stress-book",
-            word="замок",
-            vowel_number=2,
+            word="Дилон",
+            vowel_number=1,
         )
-        self.assertEqual(first["text"].count("замо́к"), 2)
+        self.assertEqual(first["text"].count("Ди́лон"), 2)
         override_id = first["pronunciation_entry"]["override_id"]
         revision = first["pronunciation_revision"]
 
         corrected = apply_book_stress(
             self.library,
             "stress-book",
-            word="замок",
+            word="Дилон",
+            vowel_number=2,
+        )
+        self.assertEqual(corrected["text"].count("Дило́н"), 2)
+        self.assertNotIn("Ди́лон", corrected["text"])
+        self.assertEqual(corrected["pronunciation_entry"]["override_id"], override_id)
+        self.assertEqual(corrected["pronunciation_entry"]["vowel_number"], 2)
+        self.assertGreater(corrected["pronunciation_revision"], revision)
+        global_entry = PronunciationDictionary(self.root).snapshot()["entries"][0]
+        self.assertEqual(global_entry["mode"], "REVIEW_REQUIRED")
+        self.assertEqual(
+            {variant["display"] for variant in global_entry["variants"]},
+            {"Ди́лон", "Дило́н"},
+        )
+
+    def test_owner_correction_is_remembered_and_applied_to_a_new_book_only_in_working_copy(self) -> None:
+        self.import_book()
+        correction = apply_book_stress(
+            self.library,
+            "stress-book",
+            word="Дилон",
             vowel_number=1,
         )
-        self.assertEqual(corrected["text"].count("за́мок"), 2)
-        self.assertNotIn("замо́к", corrected["text"])
-        self.assertEqual(corrected["pronunciation_entry"]["override_id"], override_id)
-        self.assertEqual(corrected["pronunciation_entry"]["vowel_number"], 1)
-        self.assertGreater(corrected["pronunciation_revision"], revision)
+        self.assertEqual(correction["confirmation_message"], "Ди́лон добавлено в Словарь ударений")
+        self.assertEqual(correction["dictionary_entry"]["mode"], "AUTO")
+
+        new_source = self.root / "new-book.txt"
+        original = "Глава 1.\n\nДилон и недилон.\n"
+        new_source.write_text(original, encoding="utf-8")
+        self.library.import_text_book(
+            source_file=new_source,
+            title="New Book",
+            author="Author",
+            slug="new-book",
+        )
+        immutable = self.books / "new-book/source/original.txt"
+        working = self.books / "new-book/tts/working.txt"
+        self.assertEqual(immutable.read_text(encoding="utf-8"), original)
+        self.assertIn("Ди́лон", working.read_text(encoding="utf-8"))
+        self.assertNotEqual(immutable.read_bytes(), working.read_bytes())
+
+    def test_existing_book_rule_has_priority_over_global_auto_during_prepare(self) -> None:
+        self.import_book()
+        PronunciationDictionary(self.root).upsert("Дилон", 2, "Дило́н")
+        result = apply_book_stress(
+            self.library,
+            "stress-book",
+            word="Дилон",
+            vowel_number=1,
+        )
+        self.assertTrue(result["dictionary_conflict"])
+        prepared = self.prepare()
+        self.assertEqual(prepared["preparation_status"], "READY")
+        execution = self.library.load_book_for_execution("stress-book")
+        chapter_text = " ".join(
+            segment["text"]
+            for segment in execution["jobs"]["chapter-ch001"]["segments"]
+        )
+        self.assertIn("Ди́лон", chapter_text)
+        self.assertNotIn("Дило́н", chapter_text)
+
+    def test_known_homograph_choices_materialize_only_selected_occurrences(self) -> None:
+        source = self.import_book()
+        source_before = source.read_bytes()
+        before = working_copy_status(self.library, "stress-book")
+        first_start = before["text"].index("замок")
+        first = apply_book_stress(
+            self.library,
+            "stress-book",
+            word="замок",
+            vowel_number=1,
+            scope="OCCURRENCE",
+            start=first_start,
+            end=first_start + len("замок"),
+            expected_sha256=before["working_copy_sha256"],
+        )
+        self.assertIn("старый за́мок", first["text"])
+        self.assertIn("другой замок", first["text"])
+        self.assertEqual(first["dictionary_entry"]["mode"], "REVIEW_REQUIRED")
+        self.assertIsNone(first["dictionary_entry"]["preferred"])
+        self.assertIn("Для этого места сохранено: за́мок", first["confirmation_message"])
+
+        second_start = first["text"].rindex("замок")
+        second = apply_book_stress(
+            self.library,
+            "stress-book",
+            word="замок",
+            vowel_number=2,
+            scope="OCCURRENCE",
+            start=second_start,
+            end=second_start + len("замок"),
+            expected_sha256=first["working_copy_sha256"],
+        )
+        self.assertIn("старый за́мок", second["text"])
+        self.assertIn("другой замо́к", second["text"])
+        current_entries = [
+            entry for entry in second["pronunciation_entries"]
+            if entry["scope"] == "OCCURRENCE"
+        ]
+        self.assertEqual(len(current_entries), 2)
+        self.assertEqual(
+            {entry["text_sha256"] for entry in current_entries},
+            {second["working_copy_sha256"]},
+        )
+        self.assertEqual(source.read_bytes(), source_before)
+
+        corrected_start = second["text"].index("за́мок")
+        corrected = apply_book_stress(
+            self.library,
+            "stress-book",
+            word="за́мок",
+            vowel_number=2,
+            scope="OCCURRENCE",
+            start=corrected_start,
+            end=corrected_start + len("за́мок"),
+            expected_sha256=second["working_copy_sha256"],
+        )
+        self.assertIn("старый замо́к", corrected["text"])
+        self.assertNotIn("старый за́мок", corrected["text"])
+        self.assertEqual(corrected["pronunciation_entry"]["vowel_number"], 2)
+        self.assertEqual(source.read_bytes(), source_before)
+
+    def test_occurrence_requires_exact_sha_even_with_emoji_before_word(self) -> None:
+        source = self.root / "emoji.txt"
+        source.write_text("Глава 1.\n\n🔒 замок и замок.\n", encoding="utf-8")
+        self.library.import_text_book(
+            source_file=source, title="Emoji", author="Author", slug="emoji-book"
+        )
+        before = working_copy_status(self.library, "emoji-book")
+        start = before["text"].index("замок")
+        with self.assertRaises(TTSTextReviewError):
+            apply_book_stress(
+                self.library,
+                "emoji-book",
+                word="замок",
+                vowel_number=2,
+                scope="OCCURRENCE",
+                start=start,
+                end=start + len("замок"),
+                expected_sha256="0" * 64,
+            )
+        result = apply_book_stress(
+            self.library,
+            "emoji-book",
+            word="замок",
+            vowel_number=2,
+            scope="OCCURRENCE",
+            start=start,
+            end=start + len("замок"),
+            expected_sha256=before["working_copy_sha256"],
+        )
+        self.assertIn("🔒 замо́к и замок", result["text"])
 
     def test_yandex_adapter_translates_human_stress_to_speechkit_markup(self) -> None:
         text = "Старый замо́к стоял на холме."
         self.assertEqual(yandex_text_markup(text), "Старый зам+ок стоял на холме.")
+        self.assertEqual(yandex_text_markup("Старый за́мок."), "Старый з+амок.")
         config = load_yandex_config(ROOT / "yandex-config.json")
         backend = YandexSpeechKitBackend(config, api_key="offline-not-used")
         payload = backend.build_synthesis_payload(text)
@@ -110,6 +257,11 @@ class TTSPronunciationProviderWiringTests(unittest.TestCase):
         self.assertEqual(accented_words(text), [{"word": "замок", "display": "замо́к"}])
         suffix = openai_instruction_suffix(text)
         self.assertIn("замо́к", suffix)
+        self.assertIn("за́мок", openai_instruction_suffix("Старый за́мок."))
+        contextual = openai_instruction_suffix("Старый за́мок. Дверной замо́к.")
+        self.assertIn("сохраняй ударение по написанию в каждом месте", contextual)
+        self.assertIn("«за́мок» / «замо́к»", contextual)
+        self.assertNotIn("«замок» произноси как", contextual)
         config = load_openai_config(ROOT / "openai-config.json")
         backend = OpenAITTSBackend(config)
         profile_id = "openai_cedar"

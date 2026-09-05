@@ -63,8 +63,67 @@ class ContentQualityNativeContractTests(unittest.TestCase):
             '"--add-pronunciation-override"',
             "Текущий диктор",
             "Показать варианты",
-            "Запомнить для этой книги",
+            "Сохранить и запомнить ударение",
             "providerValue",
+            'case confirmationMessage = "confirmation_message"',
+            "pronunciationSaveNotice = result.confirmationMessage",
+        ):
+            self.assertIn(token, panel)
+        owner = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
+        self.assertIn("textController.pronunciationSaveNotice", owner)
+
+    def test_global_pronunciation_dictionary_is_human_visible_and_offline_only(self) -> None:
+        panel = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
+        owner = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
+        contracts = (NATIVE / "StudioContracts.swift").read_text(encoding="utf-8")
+        app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        for token in (
+            "PronunciationDictionarySnapshot",
+            'case entryID = "entry_id"',
+            'case normalizedWord = "normalized_word"',
+            'case vowelNumber = "vowel_number"',
+        ):
+            self.assertIn(token, contracts)
+        for command in (
+            '"--pronunciation-dictionary-list"',
+            '"--pronunciation-dictionary-set-preferred"',
+            '"--pronunciation-dictionary-disable"',
+            '"--pronunciation-dictionary-delete"',
+        ):
+            self.assertIn(command, panel)
+        for label in (
+            "Словарь ударений",
+            "Найти слово",
+            "AUTO · применяется автоматически",
+            "Требует выбора",
+            "Варианты произношения",
+            "Отключить",
+            "Удалить слово из словаря?",
+            "Работает локально, без подключения к интернету",
+            "не запускают запись и не расходуют средства",
+            "Обновить список",
+        ):
+            self.assertIn(label, panel)
+        self.assertIn('Label("Словарь ударений", systemImage: "character.book.closed")', owner)
+        self.assertIn("AUDIOBOOK_STUDIO_INITIAL_PRONUNCIATION_DICTIONARY", owner)
+        self.assertIn("автоматически сохраняются в Словаре ударений", owner)
+        self.assertIn("Словаре ударений", app)
+        self.assertNotIn("Text(entry.entryID)", panel)
+        self.assertNotIn("Text(entry.normalizedWord)", panel)
+        dictionary_slice = panel[panel.index("struct PronunciationDictionaryView") : panel.index("struct ContentQualitySettingsPanel")]
+        for forbidden in ("--execute-", "--run-yandex", "--run-openai", "--prepare-paid-run"):
+            self.assertNotIn(forbidden, dictionary_slice)
+
+    def test_known_homograph_is_human_visible_without_a_global_default(self) -> None:
+        panel = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
+        contracts = (NATIVE / "StudioContracts.swift").read_text(encoding="utf-8")
+        self.assertIn('case contextualEntryIDs = "contextual_entry_ids"', contracts)
+        for token in (
+            "contextualEntryIDs.contains(entry.entryID)",
+            'joined(separator: " / ")',
+            'Label("Зависит от контекста"',
+            "Выберите нужный вариант в тексте книги",
+            "общий вариант не назначается",
         ):
             self.assertIn(token, panel)
 

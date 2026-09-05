@@ -11,11 +11,11 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from book_library import BookLibrary, BookLibraryError
-from tts_pronunciation_apply import apply_book_stress
+from pronunciation_dictionary import contextual_review_items, load_contextual_registry
+from tts_pronunciation_apply import apply_book_stress, synchronize_global_pronunciations
 from tts_text_review import (
     TTSTextReviewError,
     accept_current_working_copy,
-    add_pronunciation_override,
     provider_stress_preview,
     save_working_copy,
     set_manual_review_required,
@@ -81,8 +81,20 @@ def _load_input_file(value: str) -> str:
 def _with_selection_context(library: BookLibrary, book_name: str, result: dict[str, Any]) -> dict[str, Any]:
     profile = library.resolve_book_profile(book_name)
     book = library.load_book_profile(profile.name)
+    pronunciation = book.get("pronunciation_overrides")
+    pronunciation_entries = (
+        pronunciation.get("entries", [])
+        if isinstance(pronunciation, dict) and isinstance(pronunciation.get("entries"), list)
+        else []
+    )
     return {
         **result,
+        "contextual_review_items": contextual_review_items(
+            str(result.get("text") or ""),
+            pronunciation_entries,
+            working_copy_sha256=str(result.get("working_copy_sha256") or ""),
+        ),
+        "contextual_words": sorted(load_contextual_registry()),
         "selected_backend": str(book.get("selected_backend") or ""),
         "selected_profile_id": str(book.get("selected_profile_id") or ""),
     }
@@ -95,6 +107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.status:
             book_name = _require(args.book, "--book")
+            synchronize_global_pronunciations(library, book_name)
             result = _with_selection_context(
                 library,
                 book_name,
@@ -132,18 +145,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 vowel_number=args.vowel_number,
                 engine=args.engine,
             )
-        elif args.scope == "BOOK":
+        elif args.add_pronunciation_override:
             result = apply_book_stress(
-                library,
-                _require(args.book, "--book"),
-                word=_require(args.word, "--word"),
-                vowel_number=args.vowel_number,
-            )
-        else:
-            # Kept for backend/test compatibility; native V1 intentionally exposes
-            # BOOK-scoped materialization only until selected-text offsets are
-            # captured directly by the Swift editor.
-            result = add_pronunciation_override(
                 library,
                 _require(args.book, "--book"),
                 word=_require(args.word, "--word"),
@@ -151,6 +154,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 scope=args.scope,
                 start=args.start,
                 end=args.end,
+                expected_sha256=args.expected_sha256,
             )
     except (TTSTextReviewError, BookLibraryError, RuntimeError) as error:
         print(json.dumps(_blocked(error), ensure_ascii=False, indent=2))

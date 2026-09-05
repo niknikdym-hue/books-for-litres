@@ -259,16 +259,34 @@ Private runtime store:
 OCCURRENCE > BOOK > GLOBAL AUTO > default pronunciation
 ```
 
-Омонимы защищены: если для одного normalized word появляются разные owner-approved варианты, global entry становится `REVIEW_REQUIRED` и не применяется слепо ко всем контекстам.
+Омонимы защищены small versioned registry: известный contextual word никогда не
+получает `AUTO` даже при первом owner correction. V1 содержит доказанный случай
+`замок`: `за́мок` (строение) / `замо́к` (запирающее устройство). В native UI
+выбор сохраняется для точного места и SHA текста; unresolved блокирует только
+затронутый Yandex chapter или OpenAI segment.
 
 Canonical storage — provider-neutral Unicode acute.
 
-Существующие согласованные BOOK pronunciation rules должны быть мигрированы идемпотентно: один вариант → `AUTO`; конфликтующие варианты → `REVIEW_REQUIRED`.
+Существующие согласованные BOOK/OCCURRENCE pronunciation rules сохраняют приоритет.
+Legacy global `AUTO` для известного омографа мигрируется идемпотентно в
+`REVIEW_REQUIRED`, `preferred=null`, с обоими curated variants.
 
-На дату этой фиксации **authority/schema созданы, runtime implementation ещё не считается принятой**.
+Private owner-test runtime migration доказана production-кодом 2026-09-05:
+
+- normalized `замок`: revision `10 → 11`, `AUTO → REVIEW_REQUIRED`;
+- variants после repair: `за́мок / замо́к`, `preferred=null`;
+- повторный запуск: revision остаётся `11`, repair/changed entries = `0`;
+- сохранённый BOOK override `замо́к`, profile bytes, working text и immutable source
+  не изменились;
+- provider/network/model/paid = `0`, billing mutation = `false`.
+
+Runtime implementation принят после полного offline suite, native build/codesign и
+независимой UX-проверки на окнах 1060×720 и 900×620. Словарь хранится только в
+private Studio home, безопасно переживает обновление runtime, а его операции не
+вызывают provider/model/network/paid/billing действий.
 
 ```text
-PRONUNCIATION_DICTIONARY_V1 = AUTHORITY_DEFINED / IMPLEMENTATION_PENDING
+PRONUNCIATION_DICTIONARY_V1 = ACCEPTED
 ```
 
 ---
@@ -456,10 +474,11 @@ YANDEX_RECOVERY_UI = ACCEPTED
 YANDEX_CANONICAL_QA_HANDOFF = ACCEPTED
 PERSISTENT_PRODUCTION_STEPS = ACCEPTED
 BOOK_TEXT_STRESS_SELECTION = ACCEPTED
-PRONUNCIATION_DICTIONARY_V1 = IMPLEMENTATION_PENDING
+PRONUNCIATION_DICTIONARY_V1 = ACCEPTED
 PR50_BOOK_DELETE = OPEN_NOT_ACCEPTED
 REAL_BOOK_PROGRESS = 1/16
 WHOLE_BOOK_RELEASE_READY = FALSE
 ```
 
-Следующий Studio engineering slice должен реализовать global pronunciation dictionary по `PRONUNCIATION-DICTIONARY-V1.md`, не переоткрывая уже принятые gates и не выполняя provider/paid calls.
+Следующие Studio slices обязаны сохранять контракт global pronunciation dictionary
+из `PRONUNCIATION-DICTIONARY-V1.md` и не переоткрывать уже принятые gates.

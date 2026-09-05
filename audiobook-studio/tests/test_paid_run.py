@@ -200,6 +200,58 @@ class PaidRunTests(unittest.TestCase):
         self.assertEqual(first["plan_digest"], second["plan_digest"])
         self.assertNotEqual(first["plan_id"], second["plan_id"])
 
+    def test_contextual_homograph_blocks_only_affected_openai_segment(self):
+        self.write_book([
+            "Старый замок.",
+            "Совсем другой безопасный сегмент без неоднозначного слова.",
+        ])
+        plan = self.prepare(self.service())
+        self.assertEqual(plan["decision"], "READY_FOR_CONFIRMATION")
+        self.assertEqual(plan["selected_segment_id"], "s0002")
+        self.assertEqual(plan["pronunciation_review_required_segments"], 1)
+        self.assertEqual(
+            plan["unresolved_contextual_pronunciation"][0]["segment_id"], "s0001"
+        )
+        self.assertEqual(self.calls, 0)
+
+        self.write_book(["Старый замок."])
+        blocked = self.prepare(self.service())
+        self.assertEqual(blocked["decision"], "BLOCKED")
+        self.assertIn("pronunciation_context_required", blocked["blockers"])
+        self.assertEqual(blocked["max_network_requests"], 1)
+        self.assertEqual(self.calls, 0)
+
+    def test_contextual_book_authority_reaches_openai_prepare(self):
+        self.write_book(["Старый замок закрыт."])
+        book = json.loads(self.book_path.read_text(encoding="utf-8"))
+        book["pronunciation_overrides"] = {
+            "schema_version": 1,
+            "revision": 1,
+            "entries": [{
+                "override_id": "PRON-BOOK-ZAMOK-0001",
+                "scope": "BOOK",
+                "word": "замок",
+                "vowel_number": 1,
+                "display": "за́мок",
+                "start": None,
+                "end": None,
+                "text_sha256": None,
+                "created_at": "2026-08-21T10:00:00+00:00",
+                "actor": "OWNER",
+            }],
+        }
+        atomic_write_json(self.book_path, book)
+        service = self.service()
+        _path, _book, _job, rendered = service._load_source(
+            self.book_path.name, "job-1"
+        )
+        self.assertEqual(rendered, "Старый за́мок закрыт.")
+        plan = self.prepare(service)
+        self.assertEqual(plan["decision"], "READY_FOR_CONFIRMATION")
+        self.assertEqual(plan["pronunciation_review_required_segments"], 0)
+        self.assertNotIn("pronunciation_context_required", plan["blockers"])
+        self.assertEqual(self.calls, 0)
+
     def test_digest_changes_for_text_profile_and_selected_segment(self):
         service = self.service()
         original = self.prepare(service)
