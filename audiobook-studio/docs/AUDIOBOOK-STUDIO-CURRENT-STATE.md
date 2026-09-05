@@ -1,103 +1,345 @@
 # Audiobook Studio — текущее каноническое состояние
 
 **Статус:** canonical current-state authority  
-**Дата фиксации:** 2026-08-29  
+**Дата фиксации:** 2026-09-05  
 **Проект:** `audiobook-studio/`  
-**Repository:** `niknikdym-hue/books-for-litres`  
-**Accepted main through PR #38:** `b6dcd7927d3a6df447ae6e4fc85177ddd642f5f0`
+**Repository:** `niknikdym-hue/books-for-litres`
+
+GitHub `main` — единственный source of truth кода и project authority. Последняя принятая Audiobook Studio feature-точка в `main` — merge PR #49 `5278b7734a16bfa66c4c42d18e9887104cbf8541`. После неё в `main` есть литературные/Book 2 коммиты и authority-обновления, не меняющие принятую Studio feature-точку.
 
 ---
 
-## 1. Authority и safety
+## 1. Safety и неизменяемые правила
 
-GitHub `main` — source of truth кода и project authority. Перед каждым действием сверять фактический `main`, launch issues/PR и exact-head CI.
+Без отдельного bounded owner action запрещены:
 
-Без отдельного bounded owner decision запрещены:
 - provider/network TTS execution;
 - paid execution;
-- production Desktop deployment;
-- system-package installation;
-- destructive Git / force push / reset;
-- предположение прав на сторонние audio/music assets.
+- silent retry после ambiguous/sent request;
+- destructive production-data operations;
+- предположение прав на сторонние audio assets;
+- изменение immutable source книги.
 
-Global OpenAI safety: `paid_execution_enabled = false`.
+OpenAI global safety остаётся `paid_execution_enabled = false`.
 
-Никогда не выполнять silent retry после неоднозначного или отправленного provider request.
-
----
-
-## 2. Accepted launch gates
-
-Приняты:
-
-1. `BOOK_TEXT_PREPARATION_V1`;
-2. `CHAPTER_PRODUCTION_V1`;
-3. `AUDIO_QA_REVIEW_V1`;
-4. `CHAPTER_ASSEMBLY_V1`;
-5. `MASTERING_EXPORT_V1`;
-6. `DILON_IDENTITY_V1_OFFLINE_PREFLIGHT` — PR #16;
-7. `DILON_IDENTITY_V1_NO_MUSIC_BUILD` — PR #17;
-8. `DILON_OPENING_CREDIT_OFFLINE_PREPARE` — PR #18;
-9. `DILON_IDENTITY_V1_TECHNICAL_QA` — PR #19;
-10. opening-credit immutable owner-plan store — PR #21;
-11. offline Dilon identity bridge service — PR #22;
-12. standalone Dilon current-status bridge — PR #24 + provenance correction PR #26;
-13. opening-credit PREPARE CLI / exact plan lookup — PR #25;
-14. `DILON_OPENING_CREDIT_REVIEW_AUTHORITY` — PR #27;
-15. `DILON_OPENING_CREDIT_REVIEW_BRIDGE_V1` — PR #29;
-16. `DILON_NATIVE_OFFLINE_SNAPSHOT_V1` — PR #30;
-17. exact-current Dilon native preview backend binding — PR #31;
-18. fail-closed native Swift Dilon card — PR #32;
-19. native Dilon flow orchestration / exact-listened approval controller — PR #33;
-20. mounted native Dilon flow in normal Studio form — PR #34;
-21. `DILON_IDENTITY_EXTERNAL_READINESS_V1` — PR #35;
-22. final exact-listened Dilon identity human-review authority + mounted native acceptance — PR #37;
-23. read-only executable `REAL_BOOK_E2E_ACCEPTANCE` preflight — PR #38.
-
-### PR #35 external-readiness acceptance
-
-- feature HEAD `fb8cf4d4280f0037f8b0184c553195f8c462435d`;
-- merge commit `f3620fb275ff86d98f5030436b0914c53b2f3cde`;
-- exact-head workflow `Audiobook Studio Offline` run `#193`: SUCCESS;
-- Python full offline suite SUCCESS;
-- macOS ARM64 native contract/build/strict codesign SUCCESS;
-- review threads 0;
-- real provider/network requests during implementation/CI: 0;
-- paid execution during implementation/CI: 0.
-
-The future one-request opening-credit executor requires exact persisted `plan_id + plan_digest`, fresh price/voice/route/segmentation/fingerprint revalidation, explicit owner authorization and a hard one-request cap. It reuses completed exact results with zero new requests, blocks AMBIGUOUS/unrecoverable IN_FLIGHT/sent-FAILED retries, validates remote DONE against the billing ledger, preserves provider WAV bytes, normalizes a review copy to PCM16 mono 48 kHz and may hand off only to immutable `PENDING_HUMAN_REVIEW`; it cannot auto-approve.
-
-`DILON_IDENTITY_EXTERNAL_READINESS_V1 = ACCEPTED`.
-
-### PR #37 final Dilon human-review acceptance primitive
-
-- feature HEAD `b8a69e066b16f29e7cb804195bcd884851847b3c`;
-- merge commit `7d354a5100c6ae7c5b6740f1a0dd098b5680e8c9`;
-- exact-head workflow run `#196`: SUCCESS;
-- Python full offline suite SUCCESS;
-- macOS native contract/build/strict codesign SUCCESS;
-- review threads 0.
-
-Final `identity.wav` now has a persisted exact-listened authority. Approval is possible only after full playback of the exact current Dilon identity and an independent rehash of live player binding (`build_identity + audio_sha256 + path_identity`). A changed/stale output returns to `PENDING_HUMAN_REVIEW`; no provider/paid action exists in this review path.
-
-`DILON_FINAL_IDENTITY_HUMAN_REVIEW_PRIMITIVE = ACCEPTED`.
-
-### PR #38 executable REAL_BOOK_E2E preflight
-
-- feature HEAD `19f652ccd963298ddc422f6fdebeb551268176cc`;
-- merge commit `b6dcd7927d3a6df447ae6e4fc85177ddd642f5f0`;
-- exact-head workflow run `#198`: SUCCESS;
-- Python full offline suite SUCCESS;
-- macOS native contract/build/strict codesign SUCCESS;
-- review threads 0.
-
-`real_book_e2e.py` / `real_book_e2e_runner.py` provide a read-only fail-closed verdict for the exact first-real-chapter chain. The preflight deliberately does not rescan/decide QA, assemble, master, export, reconcile release pointers, approve human review, call providers or mutate billing. It independently requires the accepted first Yandex SHA and explicitly rejects whole-book `ready=true` while progress is 1/16. Before real Dilon completion it reports the remaining Dilon blocker; after completion it can turn green without another code change.
-
-`REAL_BOOK_E2E_PREFLIGHT_V1 = ACCEPTED`.
+Обычная работа автора должна выполняться через `Audiobook Studio.app`, не через Terminal.
 
 ---
 
-## 3. Canonical real book — accepted first chapter is immutable
+## 2. Что принято за последние 48 часов
+
+### PR #45 — merged 2026-09-03
+
+Merge commit:
+
+```text
+a6377928856481456161a053701c2de79764182c
+```
+
+Приняты в `main`:
+
+- shared Content Quality lexicon infrastructure;
+- editorial junk scan в Studio только manual/opt-in и advisory;
+- mandatory auto-block только для реальных TTS/production technical defects, stale/unsafe identity и явно включённого owner text acceptance;
+- editable TTS working copy при неизменяемом source;
+- provider-neutral pronunciation/stress workflow;
+- materialization canonical Unicode stress в working text;
+- Yandex/OpenAI pronunciation adapters;
+- возможность исправлять уже поставленное ударение после прослушивания;
+- author-first native production flow;
+- chapter sound design downstream от TTS/QA;
+- approved Yandex Voice Library: Lera, Ermil, Kirill, Anton;
+- per-book narrator selection;
+- Help/onboarding/sidebar UX;
+- per-book delivery formats;
+- TXT import requirements;
+- Yandex application-level live QA path;
+- local updater without ZIP delivery;
+- stale release/cue identity hardening.
+
+PR #45 закрыт и merged. Его старое draft-description не является актуальной policy authority; актуальная policy находится в этом current-state и owner decision history.
+
+### PR #46 — merged 2026-09-03
+
+Merge commit:
+
+```text
+1bbb2265ad65b3a02c2c66e81f422d04abc4cc64
+```
+
+Yandex synthesis timeout больше не зашит в 60 s:
+
+```text
+production default = 180 s
+allowed range = 1…600 s
+```
+
+Timeout валидируется до transport. После sent/ambiguous timeout automatic retry не добавлен.
+
+### PR #47 — merged 2026-09-04
+
+Merge commit:
+
+```text
+f246b787887e664422c7a35e8bc796610a7c7891
+```
+
+Исправлен Yandex continuation/recovery UX:
+
+- PREPARE continuation — одна ожидаемая async operation;
+- recovery controls блокируются на время операции;
+- после готового continuation plan UI не запускает повторный PREPARE;
+- пользователь получает явный переход к подтверждению озвучки.
+
+### PR #48 — merged 2026-09-04
+
+Merge commit:
+
+```text
+6ce6b67ce2c9e964db7da908ded43c90f218b03b
+```
+
+Исправлен handoff после успешной Yandex-записи:
+
+```text
+provider execution complete
+→ re-resolve canonical current Yandex authority
+→ Audio QA
+```
+
+Legacy/symlink execution output path больше не передаётся напрямую как QA authority.
+
+### PR #49 — merged 2026-09-04
+
+Merge commit:
+
+```text
+5278b7734a16bfa66c4c42d18e9887104cbf8541
+```
+
+Принято:
+
+- все 7 production steps постоянно видимы и кликабельны;
+- выбранный production step сохраняется;
+- на `Ударения` снова виден текст книги;
+- двойной клик по слову отправляет его в проверку ударения;
+- Command-F помогает искать слово в длинной книге;
+- stale pronunciation selection invalidates safely;
+- duplicate horizontal step strip удалён.
+
+Acceptance PR #49:
+
+```text
+full offline suite = 707/707 PASS
+native build = PASS
+Info.plist = PASS
+Mach-O arm64 = PASS
+strict codesign = PASS
+render 1060×720 = PASS
+render 900×620 = PASS
+independent UX acceptance = PASS
+provider/network/paid requests = 0
+```
+
+---
+
+## 3. Незавершённая работа
+
+### PR #50 — OPEN, НЕ accepted
+
+```text
+title = Add simple permanent book deletion from the sidebar
+head = 1a021f164f76121da67e5a6cb236852a141f4e80
+base = 5278b7734a16bfa66c4c42d18e9887104cbf8541
+```
+
+Заявлено в PR:
+
+- trash action для user-added books;
+- выбор permanent removal или recoverable archive;
+- внешний TXT, rendered audio, billing/provider records должны сохраняться;
+- destructive action блокируется во время production/library operations;
+- local full suite 715/715 PASS;
+- independent safety/UX review PASS.
+
+До merge PR #50 не считать эту функцию частью canonical `main`.
+
+---
+
+## 4. Текущий native author flow
+
+Семь постоянных шагов:
+
+```text
+1. Текст
+2. Ударения
+3. Звук глав
+4. Диктор
+5. Глава
+6. Запись / прослушивание
+7. Выпуск
+```
+
+Основной экран — author-facing. Billing, SHA/fingerprint, advanced Content Quality и диагностика не должны доминировать в production flow.
+
+Help/onboarding является частью `.app`.
+
+---
+
+## 5. Импорт книги
+
+MVP contract:
+
+```text
+TXT
+UTF-8
+<= 20 MiB
+вся книга одним файлом
+```
+
+Immutable source:
+
+```text
+<book>/source/original.txt
+```
+
+Editable TTS working copy:
+
+```text
+<book>/tts/working.txt
+```
+
+Оригинал книги не изменяется при подготовке, расстановке ударений или синтезе.
+
+---
+
+## 6. Ударения — текущее состояние и новый канон
+
+### Уже реализовано
+
+Текущая Studio умеет:
+
+- выбрать слово из текста;
+- показать варианты ударения;
+- записать BOOK/OCCURRENCE pronunciation override;
+- материализовать BOOK stress в TTS working text;
+- исправить ранее поставленное ударение;
+- передать canonical stress provider adapter-у;
+- Yandex: Unicode acute → SpeechKit `+` markup;
+- OpenAI: Unicode acute → pronunciation instruction;
+- изменить working-copy/preparation identity только при реальном изменении текста/произношения.
+
+### Новый обязательный V1 — глобальный «Словарь ударений»
+
+Authority:
+
+```text
+docs/PRONUNCIATION-DICTIONARY-V1.md
+contracts/pronunciation-dictionary-v1.schema.json
+```
+
+Private runtime store:
+
+```text
+<AUDIOBOOK_STUDIO_HOME>/settings/pronunciation/user-dictionary-v1.json
+```
+
+Главное правило владельца:
+
+```text
+исправила ударение один раз
+→ Studio применяет его в текущей книге
+→ автоматически запоминает в глобальном словаре
+→ следующая книга использует правило автоматически
+```
+
+Приоритет:
+
+```text
+OCCURRENCE > BOOK > GLOBAL AUTO > default pronunciation
+```
+
+Омонимы защищены: если для одного normalized word появляются разные owner-approved варианты, global entry становится `REVIEW_REQUIRED` и не применяется слепо ко всем контекстам.
+
+Canonical storage — provider-neutral Unicode acute.
+
+Существующие согласованные BOOK pronunciation rules должны быть мигрированы идемпотентно: один вариант → `AUTO`; конфликтующие варианты → `REVIEW_REQUIRED`.
+
+На дату этой фиксации **authority/schema созданы, runtime implementation ещё не считается принятой**.
+
+```text
+PRONUNCIATION_DICTIONARY_V1 = AUTHORITY_DEFINED / IMPLEMENTATION_PENDING
+```
+
+---
+
+## 7. Voice Library
+
+Approved Yandex:
+
+```text
+yandex_lera   = lera   / neutral / 1.04
+yandex_ermil  = ermil  / neutral / 1.0
+yandex_kirill = kirill / neutral / 1.0
+yandex_anton  = anton  / neutral / 1.0
+```
+
+Approved OpenAI:
+
+```text
+openai_onyx
+openai_cedar
+```
+
+Выбранный narrator/profile сохраняется per book. Для текущей книги «Хватит себя обесценивать» accepted production narrator остаётся Lera 1.04, пока владелец явно не меняет его для будущей записи.
+
+---
+
+## 8. Звуковое оформление
+
+Chapter cue остаётся optional и downstream:
+
+```text
+clean TTS
+→ Audio QA
+→ approved narration
+→ chapter cue
+→ assembly
+→ mastering
+```
+
+Смена cue не запускает TTS заново.
+
+Studio поддерживает:
+
+- `Без звука`;
+- preview/playback;
+- per-book selection;
+- выбор фрагмента;
+- favorites/genre selection;
+- user WAV import с owner rights attestation;
+- локальные GarageBand assets при наличии и подтверждённой local license provenance.
+
+Историческое название `Lounge Vibes 05.7` точным исходным asset не найдено. На Mac найден реальный `Lounge Vibes 05.caf`, он используется под собственным честным именем как любимый вариант владельца; raw Apple asset отдельно не экспортируется.
+
+---
+
+## 9. Форматы выпуска
+
+Per-book selection, без default:
+
+```text
+По главам
+M4B одним файлом
+MP3 одним файлом
+Архив высокого качества
+```
+
+Whole-book форматы недоступны до готовности полного required chapter set.
+
+---
+
+## 10. Первая реальная книга
 
 ```text
 book = hvatit-sebya-obestsenivat
@@ -105,7 +347,6 @@ job = chapter-ch001
 section = Введение
 provider/profile = yandex_lera
 voice = lera
-emotion = neutral
 speed = 1.04
 segments = 35
 ```
@@ -116,7 +357,7 @@ Accepted provider WAV SHA-256:
 2311b300ea1d1769fd9b299a7cb8e20ff218393e36e71bb6d86fb523172784b6
 ```
 
-Known accepted facts:
+Accepted facts:
 
 ```text
 PCM16 mono 22050 Hz
@@ -129,35 +370,16 @@ automatic QA = PASS
 manual QA = APPROVED
 ```
 
-This chapter must **never be re-synthesized** merely to satisfy later gates.
-
 ```text
 REAL_BOOK_PROGRESS = 1/16
 WHOLE_BOOK_RELEASE_READY = FALSE
 ```
 
----
-
-## 4. Mastering / LitRes authority
-
-Clean-master preset: `spoken_word_master_v1`.
-
-Contract:
-- provider-neutral WAV/LPCM;
-- 48 kHz mono PCM16;
-- target `-19 LUFS-I`;
-- true-peak ceiling `-3.0 dBTP`;
-- deterministic two-pass mastering;
-- conservative boundaries;
-- clean master preserved independently from Dilon/delivery outputs.
-
-LitRes profile: `litres_author_v1`.
-
-Release authority fails closed on stale/corrupt/noncanonical pointers, path/symlink violations and invalid immutable packages. One chapter export may be valid while whole-book release remains correctly blocked by missing chapters.
+Эту принятую главу не пересинтезировать без фактического изменения нужного текста/произношения.
 
 ---
 
-## 5. DILON_IDENTITY_V1 authority
+## 11. Dilon Voices
 
 Brand:
 
@@ -165,203 +387,79 @@ Brand:
 Dilon Voices
 ```
 
-Description:
-
-```text
-Dilon Voices — проект аудиокниг с профессионально подготовленной синтезированной озвучкой и авторской аудиообработкой.
-```
-
-Opening credit:
+Canonical opening credit:
 
 ```text
 Елена Ди́лон. Хватит себя обесценивать. Читает Dilon Voices.
 ```
 
-Production voice:
+Canonical production voice:
 
 ```text
 Yandex Lera / neutral / 1.04
 ```
 
-Canonical no-music identity path:
-
-```text
-exact reviewed opening credit
-→ fixed 0.5 s digital silence
-→ exact-current clean master
-→ immutable identity.wav + MANIFEST.json
-→ independent technical QA
-→ full exact identity listening
-→ persisted exact-listened final identity approval
-```
-
-Candidate signature/music `Lounge Vibes 05.7` is **NOT release-approved**. Missing rights never blocks the canonical no-music path.
+No-music identity path остаётся безопасным default. Optional music/cue никогда не должен блокировать clean speech path.
 
 ---
 
-## 6. Current owner/provider gate — the active production blocker
+## 12. Private application-level Yandex acceptance — 2026-09-03
 
-Repository-side engineering and final read-only acceptance tooling are prepared. If no exact-current reviewed opening-credit WAV already exists locally, the next action must happen on the actual Mac/runtime:
-
-```text
-fresh offline PREPARE
-→ report exact current plan_id + plan_digest + provider request cap + current cost/price verification
-→ STOP with provider requests = 0
-→ explicit owner authorization
-→ maximum 1 Yandex request
-→ automatic candidate QA
-→ immutable PENDING_HUMAN_REVIEW
-→ exact candidate listening in mounted Studio UI
-→ explicit exact-listened opening-credit approval
-→ no-music Dilon identity build
-→ independent technical QA
-→ full exact identity listening
-→ persisted final identity approval
-→ rerun read-only REAL_BOOK_E2E preflight
-```
-
-Historical PREPARE estimate:
+Normal Audiobook Studio bridge + existing macOS Keychain credential прошли bounded live path:
 
 ```text
-billing units = 1
-provider request cap = 1
-estimated cost ≈ 0.21146666 RUB
-Dilon planning ceiling = 10.00 RUB
+Keychain → Yandex SpeechKit → valid WAV → provider-neutral Audio QA
 ```
 
-The historical estimate does **not** authorize execution. Fresh PREPARE is mandatory immediately before the real request.
-
----
-
-## 7. Final launch sequence after fresh PREPARE
-
-After the owner/provider/human-listening sequence completes, run `REAL_BOOK_E2E_PREFLIGHT_V1` against the actual Mac runtime. It must verify:
-
-```text
-source/prepared authority
-→ accepted Yandex chapter SHA unchanged
-→ persisted APPROVED QA
-→ exact chapter assembly
-→ exact clean master
-→ exact LitRes chapter export
-→ exact current Dilon identity + technical QA
-→ persisted exact-listened final identity approval
-```
-
-Expected whole-book state remains:
-
-```text
-1 / 16
-WHOLE_BOOK_RELEASE_READY = FALSE
-```
-
-If and only if this first-real-chapter E2E verdict is green, the remaining Studio launch action is production native candidate verification and **explicit owner authorization for production Desktop deployment**.
-
----
-
-## 8. Current checkpoint
-
-```text
-BOOK_TEXT_PREPARATION_V1 = ACCEPTED
-CHAPTER_PRODUCTION_V1 = ACCEPTED
-AUDIO_QA_REVIEW_V1 = ACCEPTED
-CHAPTER_ASSEMBLY_V1 = ACCEPTED
-MASTERING_EXPORT_V1 = ACCEPTED
-DILON_IDENTITY_V1_OFFLINE_PREFLIGHT = ACCEPTED
-DILON_IDENTITY_V1_NO_MUSIC_BUILD = ACCEPTED
-DILON_OPENING_CREDIT_OFFLINE_PREPARE = ACCEPTED
-DILON_IDENTITY_V1_TECHNICAL_QA = ACCEPTED
-DILON_OPENING_CREDIT_REVIEW_AUTHORITY = ACCEPTED
-DILON_OPENING_CREDIT_REVIEW_BRIDGE_V1 = ACCEPTED
-DILON_NATIVE_OFFLINE_SNAPSHOT_V1 = ACCEPTED
-DILON_NATIVE_IDENTITY_PREVIEW_BINDING_V1 = ACCEPTED
-DILON_NATIVE_CARD_V1 = ACCEPTED
-DILON_NATIVE_FLOW_ORCHESTRATION_V1 = ACCEPTED
-DILON_NATIVE_MOUNTED_UI_V1 = ACCEPTED
-DILON_IDENTITY_NATIVE_FLOW_V1 = ACCEPTED
-DILON_IDENTITY_EXTERNAL_READINESS_V1 = ACCEPTED
-DILON_FINAL_IDENTITY_HUMAN_REVIEW_PRIMITIVE = ACCEPTED
-REAL_BOOK_E2E_PREFLIGHT_V1 = ACCEPTED
-DILON_IDENTITY_V1 = OWNER_PROVIDER_GATE
-REAL_BOOK_E2E_ACCEPTANCE = WAITING_FOR_REAL_DILON_OUTPUT
-REAL_BOOK_PROGRESS = 1/16
-WHOLE_BOOK_RELEASE_READY = FALSE
-PROVIDER_REQUESTS_DURING_PR35_PR37_PR38_OFFLINE_WORK = 0
-PAID_EXECUTION_DURING_PR35_PR37_PR38_OFFLINE_WORK = 0
-PRODUCTION_DESKTOP_DEPLOYED = FALSE
-```
-
----
-
-## 9. Private application-level Yandex SpeechKit acceptance — 2026-09-03
-
-This bounded live acceptance used the normal Audiobook Studio bridge and the
-existing macOS Keychain credential.  The credential value was never exported,
-printed, copied into configuration, or persisted in repository artifacts.
-
-```text
-repository branch = brain/content-quality-lexicon-v1
-repository HEAD before evidence-only update = a3e61abd026228cbf1214e3fca23c5a88f7f9756
-authoritative origin/main = e1a7e1c2c0440476189fd7ba6945547da75ebb97
-Keychain service = AudiobookStudio-YandexSpeechKit
-Keychain account = elenadymova
-local health credentials_present = true
-local health remote_request_sent = false
-```
-
-The private production smoke contained one Russian execution segment only:
+Exact live smoke facts:
 
 ```text
 book = private-yandex-live-smoke-20260903
 job = chapter-ch001
 profile = yandex_lera
-voice / role / speed = lera / neutral / 1.04
-text characters = 46
-plan_id = 1767a2f93ce24df6be7030aa2de7ae25
-plan_digest = 9ae893dd7fad02e550d566862368d4a99295a229605d1627974a67b885310a71
-PREPARE decision = READY_FOR_CONFIRMATION
-credential_available = true
-max_network_requests = 1
-estimated_remaining_cost = 0.21146666 RUB
-hard_limit = 20.00 RUB
-PREPARE remote_request_sent = false
-```
-
-The exact plan was executed once.  No retry was performed:
-
-```text
-plan final state = CONSUMED
-provider = yandex / yandex_speechkit_v3
-network_requests = 1 / 1
-segment = s0001
-provider request id = dae0adc4-8474-4adb-82d4-b097a4c6a9fd
-segment synthesis fingerprint = 84c1730e6ea378271e25f481ea71e72c97c12bf390678a800f9e9b179e3a50a0
+voice = lera / neutral / 1.04
+text chars = 46
+max provider requests = 1
+actual provider requests = 1
+retry = 0
+estimated/actual local cost = 0.21146666 RUB
 joined WAV SHA-256 = 24271d1807cac78e5a1a23b1ff31b02d766db8099482a78fa26e4ba5945b64d6
-joined WAV = PCM Int16 mono / 22050 Hz / 3.524943 s / 155494 bytes
-billing transaction id = 1d19495a0e5d7ee7805be6ea3d71138c534a15eaf7adbf0c523c0683d4809bfd
-billing actual_cost = 0.21146666 RUB
-billing cost_source = local_actual
+automatic Audio QA = PASS
+manual review = UNREVIEWED
+secret disclosure = 0
 ```
-
-The same output then entered the normal provider-neutral Audio QA authority
-resolver and scanner without any provider access:
-
-```text
-Audio QA synthesis fingerprint = f87705df3aa42aba7b284c5cdb1b25feb083593125bd15c2e9518e5dc9d3b05d
-Audio QA audio SHA-256 = 24271d1807cac78e5a1a23b1ff31b02d766db8099482a78fa26e4ba5945b64d6
-automatic_status = PASS
-manual_state = UNREVIEWED
-downstream_eligible = false
-Audio QA remote_request_sent = false
-```
-
-Acceptance verdict:
 
 ```text
 APPLICATION_KEYCHAIN_TO_YANDEX_TO_AUDIO_QA = PASS
-TOTAL_PROVIDER_REQUESTS = 1
-AUTOMATIC_RETRIES = 0
-SECRET_DISCLOSURE = 0
 ```
 
-Главный принцип: каждый следующий action сокращает путь к production launch; принятые gates не переоткрываются без нового конкретного evidence-backed дефекта.
+PR #46–#48 после этого усилили timeout/recovery/canonical QA handoff без новых provider calls при разработке.
+
+---
+
+## 13. Current checkpoint
+
+```text
+BOOK_LIBRARY_V1 = ACCEPTED
+BOOK_TEXT_PREPARATION_V1 = ACCEPTED
+CHAPTER_PRODUCTION_V1 = ACCEPTED
+AUDIO_QA_REVIEW_V1 = ACCEPTED
+CHAPTER_ASSEMBLY_V1 = ACCEPTED
+MASTERING_EXPORT_V1 = ACCEPTED
+AUTHOR_FIRST_NATIVE_FLOW = ACCEPTED
+HELP_ONBOARDING_NATIVE = ACCEPTED
+PER_BOOK_YANDEX_NARRATOR_SELECTION = ACCEPTED
+CHAPTER_SOUND_DESIGN = ACCEPTED
+PER_BOOK_DELIVERY_FORMATS = ACCEPTED
+YANDEX_CONFIGURABLE_TIMEOUT = ACCEPTED
+YANDEX_RECOVERY_UI = ACCEPTED
+YANDEX_CANONICAL_QA_HANDOFF = ACCEPTED
+PERSISTENT_PRODUCTION_STEPS = ACCEPTED
+BOOK_TEXT_STRESS_SELECTION = ACCEPTED
+PRONUNCIATION_DICTIONARY_V1 = IMPLEMENTATION_PENDING
+PR50_BOOK_DELETE = OPEN_NOT_ACCEPTED
+REAL_BOOK_PROGRESS = 1/16
+WHOLE_BOOK_RELEASE_READY = FALSE
+```
+
+Следующий Studio engineering slice должен реализовать global pronunciation dictionary по `PRONUNCIATION-DICTIONARY-V1.md`, не переоткрывая уже принятые gates и не выполняя provider/paid calls.
