@@ -117,7 +117,7 @@ class BookSoundDesignTests(unittest.TestCase):
                 output.setnchannels(1)
                 output.setsampwidth(2)
                 output.setframerate(44_100)
-                output.writeframes(b"\x00\x00" * 44_100)
+                output.writeframes(b"\x00\x00" * 44_100 * 5)
             with self.assertRaisesRegex(Exception, "Подтвердите"):
                 import_book_sound(root, "my-book", source, label="Мой переход")
             imported = import_book_sound(
@@ -130,6 +130,9 @@ class BookSoundDesignTests(unittest.TestCase):
             self.assertEqual(selected["origin"], "USER_IMPORTED")
             self.assertEqual(selected["rights"], "USER_CONFIRMED_AUDIOBOOK_USE")
             self.assertTrue(selected["rights_provenance"]["confirmed"])
+            self.assertEqual(selected["selection_start_seconds"], 0.0)
+            self.assertEqual(selected["selection_duration_seconds"], 5.0)
+            self.assertEqual(selected["duration_seconds"], 5.0)
             self.assertEqual(selected["rights_provenance"]["source_sha256"], selected["sha256"])
             full_option = next(item for item in imported["options"] if item["sound_id"] == imported["sound_id"])
             self.assertEqual(selected["rights_provenance"]["imported_original_sha256"], full_option["sha256"])
@@ -179,6 +182,10 @@ class BookSoundDesignTests(unittest.TestCase):
                 self.assertEqual(audio.getsampwidth(), 2)
             selected = set_book_sound(root, "my-book", enabled=True, sound_id=option["sound_id"])
             self.assertEqual(selected["selected"]["source_sha256"], GARAGEBAND_SOURCE_SHA256)
+            self.assertEqual(
+                selected["selected"]["duration_seconds"],
+                option["duration_seconds"],
+            )
             cue = chapter_cue_for_book(root, "my-book")
             self.assertEqual(cue["origin"], "APPLE_GARAGEBAND_DIGITAL_MATERIAL")
             self.assertEqual(cue["rights_provenance"]["license_sha256"], GARAGEBAND_LICENSE_SHA256)

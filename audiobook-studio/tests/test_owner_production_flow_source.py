@@ -72,12 +72,23 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
             "Подтверждаю права и добавляю",
             "публиковать и распространять её, в том числе коммерчески",
             "Вы подтвердили право использовать этот звук",
-            "Выбрать фрагмент заново",
-            "Чтобы убрать заставку совсем, выберите «Без заставки» выше",
+            "Выбрать целиком",
+            "Что будет вставлено перед главой",
+            "Весь звук",
+            "Прослушать то, что будет вставлено",
+            "Использовать весь звук",
+            "Обрезать или выбрать другой участок (необязательно)",
+            "Сохранить этот фрагмент",
+            "При выборе новой заставки Studio сначала сохраняет её целиком",
+            "Чтобы убрать заставку совсем, выберите «Без заставки»",
         ):
             self.assertIn(label, panel)
         self.assertNotIn("Елена Ди́лон. Хватит себя обесценивать", panel)
         self.assertIn("func restartExcerptSelection()", panel)
+        self.assertIn("func useWholeSelectedSound()", panel)
+        self.assertIn("if maximumStart >= 0.1", panel)
+        self.assertIn("if maximumDuration - minimumDuration >= 0.1", panel)
+        self.assertNotIn("in: minimumDuration...max(minimumDuration", panel)
 
     def test_contextual_pronunciation_is_selected_for_one_exact_occurrence(self) -> None:
         panel = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")

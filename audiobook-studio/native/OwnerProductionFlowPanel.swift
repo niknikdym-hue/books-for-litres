@@ -235,28 +235,56 @@ final class BookSoundController: NSObject, ObservableObject, NSSoundDelegate {
         save(enabled: status.enabled, soundID: soundID)
     }
 
-    func choose(_ soundID: String) {
-        save(enabled: true, soundID: soundID)
+    func choose(_ option: BookSoundOption) {
+        stopPreview()
+        save(
+            enabled: true,
+            soundID: option.soundID,
+            clipStartSeconds: 0,
+            clipDurationSeconds: fullDuration(for: option)
+        )
     }
 
     func saveExcerpt() {
         guard let status else { return }
+        let fullDuration = fullDuration(for: status.selected)
+        let minimumDuration = min(0.5, fullDuration)
+        let start = min(max(0, clipStartSeconds), max(0, fullDuration - minimumDuration))
+        let duration = min(max(minimumDuration, clipDurationSeconds), fullDuration - start)
         save(
             enabled: status.enabled,
             soundID: status.soundID,
-            clipStartSeconds: clipStartSeconds,
-            clipDurationSeconds: clipDurationSeconds
+            clipStartSeconds: start,
+            clipDurationSeconds: duration
         )
     }
 
     func restartExcerptSelection() {
         guard let status else { return }
         stopPreview()
-        let fullDuration = status.selected.sourceDurationSeconds
-            ?? status.options.first(where: { $0.soundID == status.soundID })?.durationSeconds
-            ?? status.selected.durationSeconds
+        let fullDuration = fullDuration(for: status.selected)
         clipStartSeconds = 0
-        clipDurationSeconds = min(3.0, fullDuration)
+        clipDurationSeconds = fullDuration
+    }
+
+    func useWholeSelectedSound() {
+        guard let status else { return }
+        stopPreview()
+        save(
+            enabled: true,
+            soundID: status.soundID,
+            clipStartSeconds: 0,
+            clipDurationSeconds: fullDuration(for: status.selected)
+        )
+    }
+
+    func fullDuration(for option: BookSoundOption) -> Double {
+        max(0, option.sourceDurationSeconds ?? option.durationSeconds)
+    }
+
+    func isWholeSelection(_ status: BookSoundStatus) -> Bool {
+        abs(status.clipStartSeconds) < 0.000_1
+            && abs(status.clipDurationSeconds - fullDuration(for: status.selected)) < 0.001
     }
 
     func chooseGenre(_ genre: String) {
@@ -392,9 +420,9 @@ final class BookSoundController: NSObject, ObservableObject, NSSoundDelegate {
         clipStartSeconds: Double? = nil,
         clipDurationSeconds: Double? = nil
     ) {
-        guard !bookID.isEmpty else { return }
+        guard !bookID.isEmpty, !isLoading else { return }
+        isLoading = true
         Task {
-            isLoading = true
             defer { isLoading = false }
             do {
                 var arguments = [
@@ -420,9 +448,9 @@ final class BookSoundController: NSObject, ObservableObject, NSSoundDelegate {
     }
 
     private func accept(_ loaded: BookSoundStatus) {
-        status = loaded
         clipStartSeconds = loaded.clipStartSeconds
         clipDurationSeconds = loaded.clipDurationSeconds
+        status = loaded
         if !availableGenres.contains(selectedGenre) {
             selectedGenre = "Все"
         }
@@ -530,6 +558,7 @@ struct OwnerProductionFlowPanel: View {
     @StateObject private var soundController = BookSoundController()
     @State private var showingPronunciationDictionary =
         ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_PRONUNCIATION_DICTIONARY"] == "true"
+    @State private var isEditingSoundExcerpt = false
     @Binding var activeStep: OwnerProductionStep
     @Binding var acknowledgedSteps: Set<OwnerProductionStep>
     let selectedBookID: String
@@ -932,57 +961,121 @@ struct OwnerProductionFlowPanel: View {
                                 .help((option.isFavorite ?? false) ? "Убрать из избранного" : "Добавить в избранное")
                             }
                             if status.enabled, status.soundID == option.soundID {
-                                Label("Выбран", systemImage: "checkmark.circle.fill")
+                                Label(
+                                    soundController.isWholeSelection(status) ? "Выбран целиком" : "Выбран фрагмент",
+                                    systemImage: "checkmark.circle.fill"
+                                )
                                     .foregroundStyle(.green)
                             } else {
-                                Button("Выбрать") {
-                                    soundController.choose(option.soundID)
+                                Button("Выбрать целиком") {
+                                    isEditingSoundExcerpt = false
+                                    soundController.choose(option)
                                 }
+                                .disabled(soundController.isLoading)
                             }
                         }
                         .padding(.vertical, 4)
                     }
                     if status.enabled {
-                        GroupBox("Какой фрагмент вставлять") {
+                        GroupBox("Что будет вставлено перед главой") {
                             VStack(alignment: .leading, spacing: 10) {
-                                let fullDuration = status.selected.sourceDurationSeconds
-                                    ?? status.options.first(where: { $0.soundID == status.soundID })?.durationSeconds
-                                    ?? status.selected.durationSeconds
+                                let fullDuration = soundController.fullDuration(for: status.selected)
                                 let minimumDuration = min(0.5, fullDuration)
+                                let maximumStart = max(0, fullDuration - minimumDuration)
+                                let safeStart = min(max(0, soundController.clipStartSeconds), maximumStart)
+                                let maximumDuration = max(minimumDuration, fullDuration - safeStart)
+                                let safeDuration = min(max(minimumDuration, soundController.clipDurationSeconds), maximumDuration)
+                                Label(
+                                    soundController.isWholeSelection(status)
+                                        ? "Весь звук · \(fullDuration.formatted(.number.precision(.fractionLength(1)))) с"
+                                        : "Фрагмент \(safeStart.formatted(.number.precision(.fractionLength(1))))–\((safeStart + safeDuration).formatted(.number.precision(.fractionLength(1)))) с · длительность \(safeDuration.formatted(.number.precision(.fractionLength(1)))) с",
+                                    systemImage: soundController.isWholeSelection(status) ? "waveform" : "scissors"
+                                )
+                                .font(.callout.weight(.medium))
                                 HStack {
-                                    Text("Начало")
-                                    Slider(
-                                        value: $soundController.clipStartSeconds,
-                                        in: 0...max(0.01, fullDuration - soundController.clipDurationSeconds),
-                                        step: 0.1
-                                    )
-                                    Text("\(soundController.clipStartSeconds.formatted(.number.precision(.fractionLength(1)))) с")
-                                        .monospacedDigit().frame(width: 46, alignment: .trailing)
-                                }
-                                HStack {
-                                    Text("Длительность")
-                                    Slider(
-                                        value: $soundController.clipDurationSeconds,
-                                        in: minimumDuration...max(minimumDuration, min(4.0, fullDuration - soundController.clipStartSeconds)),
-                                        step: 0.1
-                                    )
-                                    Text("\(soundController.clipDurationSeconds.formatted(.number.precision(.fractionLength(1)))) с")
-                                        .monospacedDigit().frame(width: 46, alignment: .trailing)
-                                }
-                                HStack {
-                                    Button("Сохранить фрагмент", systemImage: "scissors") {
-                                        soundController.stopPreview()
-                                        soundController.saveExcerpt()
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    Button("Выбрать фрагмент заново", systemImage: "arrow.counterclockwise") {
-                                        soundController.restartExcerptSelection()
-                                    }
-                                    Button("Прослушать сохранённый фрагмент", systemImage: "play.fill") {
+                                    Button("Прослушать то, что будет вставлено", systemImage: "play.fill") {
                                         soundController.preview(status.selected)
                                     }
+                                    if !soundController.isWholeSelection(status) {
+                                        Button("Использовать весь звук", systemImage: "arrow.up.left.and.arrow.down.right") {
+                                            isEditingSoundExcerpt = false
+                                            soundController.useWholeSelectedSound()
+                                        }
+                                    }
                                 }
-                                Text("«Выбрать фрагмент заново» вернёт ползунки к началу. Настройте их и нажмите «Сохранить фрагмент». Чтобы убрать заставку совсем, выберите «Без заставки» выше.")
+                                DisclosureGroup(
+                                    "Обрезать или выбрать другой участок (необязательно)",
+                                    isExpanded: $isEditingSoundExcerpt
+                                ) {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        HStack {
+                                            Text("Начало")
+                                            if maximumStart >= 0.1 {
+                                                Slider(
+                                                    value: Binding(
+                                                        get: { min(max(0, soundController.clipStartSeconds), maximumStart) },
+                                                        set: { value in
+                                                            soundController.clipStartSeconds = min(max(0, value), maximumStart)
+                                                            soundController.clipDurationSeconds = min(
+                                                                soundController.clipDurationSeconds,
+                                                                fullDuration - soundController.clipStartSeconds
+                                                            )
+                                                        }
+                                                    ),
+                                                    in: 0...maximumStart,
+                                                    step: 0.1
+                                                )
+                                            } else {
+                                                Spacer()
+                                            }
+                                            Text("\(safeStart.formatted(.number.precision(.fractionLength(1)))) с")
+                                                .monospacedDigit().frame(width: 46, alignment: .trailing)
+                                        }
+                                        HStack {
+                                            Text("Длительность")
+                                            if maximumDuration - minimumDuration >= 0.1 {
+                                                Slider(
+                                                    value: Binding(
+                                                        get: {
+                                                            min(
+                                                                max(minimumDuration, soundController.clipDurationSeconds),
+                                                                maximumDuration
+                                                            )
+                                                        },
+                                                        set: { value in
+                                                            soundController.clipDurationSeconds = min(
+                                                                max(minimumDuration, value),
+                                                                maximumDuration
+                                                            )
+                                                        }
+                                                    ),
+                                                    in: minimumDuration...maximumDuration,
+                                                    step: 0.1
+                                                )
+                                            } else {
+                                                Spacer()
+                                            }
+                                            Text("\(safeDuration.formatted(.number.precision(.fractionLength(1)))) с")
+                                                .monospacedDigit().frame(width: 46, alignment: .trailing)
+                                        }
+                                        HStack {
+                                            Button("Сохранить этот фрагмент", systemImage: "scissors") {
+                                                soundController.stopPreview()
+                                                soundController.saveExcerpt()
+                                                isEditingSoundExcerpt = false
+                                            }
+                                            .buttonStyle(.borderedProminent)
+                                            Button("Сбросить обрезку", systemImage: "arrow.counterclockwise") {
+                                                soundController.restartExcerptSelection()
+                                            }
+                                        }
+                                        Text("При выборе новой заставки Studio сначала сохраняет её целиком. Эти ползунки нужны только если вы сами хотите оставить отдельный участок.")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.top, 8)
+                                }
+                                Text("Чтобы поменять музыку, выберите другой вариант выше. Чтобы убрать заставку совсем, выберите «Без заставки».")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -1024,6 +1117,7 @@ struct OwnerProductionFlowPanel: View {
             PronunciationDictionaryView(controller: textController)
         }
         .task(id: selectedBookID) {
+            isEditingSoundExcerpt = false
             async let textLoad: Void = textController.reload(bookID: selectedBookID)
             async let soundLoad: Void = soundController.reload(bookID: selectedBookSlug)
             _ = await (textLoad, soundLoad)

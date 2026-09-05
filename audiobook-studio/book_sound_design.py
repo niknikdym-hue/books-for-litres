@@ -699,7 +699,10 @@ def _clip_values(preference: dict[str, Any], option: dict[str, Any]) -> tuple[fl
     source_duration = float(option["duration_seconds"])
     minimum_duration = min(0.5, source_duration)
     start = float(preference.get("clip_start_seconds", 0.0))
-    default_duration = min(3.0, source_duration)
+    # Choosing a sound means choosing the sound the owner just heard.  Trimming
+    # is an explicit, optional follow-up action; never shorten a newly selected
+    # cue behind the owner's back.
+    default_duration = source_duration
     duration = float(preference.get("clip_duration_seconds", default_duration))
     if (
         not math.isfinite(start)
@@ -707,12 +710,12 @@ def _clip_values(preference: dict[str, Any], option: dict[str, Any]) -> tuple[fl
         or start < 0.0
         or duration <= 0.0
         or duration < minimum_duration
-        or duration > 4.0
+        or duration > source_duration + (1.0 / SAMPLE_RATE)
         or start + duration > source_duration + (1.0 / SAMPLE_RATE)
     ):
         raise BookSoundDesignError(
             "invalid_chapter_cue_excerpt",
-            "Фрагмент звука должен длиться от 0,5 до 4 секунд и находиться внутри записи.",
+            "Фрагмент звука должен длиться не менее 0,5 секунды и находиться внутри записи.",
         )
     return start, min(duration, source_duration - start)
 
@@ -970,8 +973,8 @@ def set_book_sound(
         "clip_duration_seconds": (
             clip_duration_seconds
             if clip_duration_seconds is not None
-            else previous.get("clip_duration_seconds", min(3.0, float(option["duration_seconds"])))
-            if same_sound else min(3.0, float(option["duration_seconds"]))
+            else previous.get("clip_duration_seconds", float(option["duration_seconds"]))
+            if same_sound else float(option["duration_seconds"])
         ),
     }
     start, duration = _clip_values(proposed, option)
@@ -1092,7 +1095,7 @@ def import_book_sound(
             "sound_id": sound_id,
             "apply_before": "EACH_CHAPTER",
             "clip_start_seconds": 0.0,
-            "clip_duration_seconds": min(3.0, duration_seconds),
+            "clip_duration_seconds": duration_seconds,
             "custom_sound": custom,
         },
     )
