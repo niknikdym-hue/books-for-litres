@@ -30,6 +30,7 @@ from book_library import BookLibrary
 from book_text_preparation import BookTextPreparationService
 from chapter_production import ChapterProductionError, YandexChapterProductionService
 from cloud_billing import CloudBillingService, CloudBillingSettings, save_settings
+from tts_text_review import add_pronunciation_override
 
 
 NOW = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
@@ -176,6 +177,50 @@ class ChapterProductionTests(unittest.TestCase):
             profile_id="yandex_lera",
         )
         self.assertEqual(ready["decision"], "READY_FOR_CONFIRMATION")
+        self.assertEqual(self.requests, 0)
+
+    def test_contextual_book_authority_reaches_yandex_prepare_without_mutating_job(self) -> None:
+        source = self.root / "contextual-book-authority.txt"
+        source.write_text("Глава 1. Первая\n\nСтарый замок закрыт.\n", encoding="utf-8")
+        library = BookLibrary(self.books)
+        library.import_text_book(
+            source_file=source,
+            title="Контекстная книга с решением",
+            author="Автор",
+            slug="contextual-book-authority",
+        )
+        book = library.load_book_profile("contextual-book-authority")
+        book["selected_backend"] = "yandex"
+        book["selected_profile_id"] = "yandex_lera"
+        library.replace_book_profile("contextual-book-authority", book)
+        BookTextPreparationService(
+            library, now=lambda: "2026-08-23T10:00:00+00:00"
+        ).prepare("contextual-book-authority")
+        prepared_path = self.books / "contextual-book-authority/prepared/segments.json"
+        prepared_before = prepared_path.read_bytes()
+        self.assertIn("замок", prepared_before.decode("utf-8"))
+        self.assertNotIn("за́мок", prepared_before.decode("utf-8"))
+        add_pronunciation_override(
+            library,
+            "contextual-book-authority",
+            word="замок",
+            vowel_number=1,
+            scope="BOOK",
+        )
+        self.assertEqual(prepared_path.read_bytes(), prepared_before)
+
+        service = self.service()
+        _path, _book, _job, rendered = service._load_chapter(
+            "contextual-book-authority", "chapter-ch001"
+        )
+        self.assertIn("за́мок", rendered)
+        plan = service.prepare(
+            book_name="contextual-book-authority",
+            job_id="chapter-ch001",
+            profile_id="yandex_lera",
+        )
+        self.assertEqual(plan["decision"], "READY_FOR_CONFIRMATION")
+        self.assertNotIn("pronunciation_context_required", plan["blockers"])
         self.assertEqual(self.requests, 0)
 
     def test_preview_job_cannot_enter_chapter_production(self) -> None:

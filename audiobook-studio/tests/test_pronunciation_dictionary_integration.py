@@ -265,6 +265,27 @@ class PronunciationDictionaryIntegrationTests(unittest.TestCase):
             {"за́мок", "замо́к"},
         )
 
+    def test_direct_book_import_repairs_legacy_contextual_auto_before_use(self) -> None:
+        store = PronunciationDictionary(self.root)
+        store.upsert("замок", 2, "замо́к")
+        document = json.loads(store.path.read_text(encoding="utf-8"))
+        entry = document["entries"][0]
+        entry["mode"] = "AUTO"
+        entry["preferred"] = next(
+            variant for variant in entry["variants"] if variant["vowel_number"] == 2
+        )
+        entry["variants"] = [entry["preferred"]]
+        store.path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        store.path.chmod(0o600)
+
+        self.import_book("direct-route", "Глава 1.\n\nСтарый замок закрыт.\n")
+        working = (self.books / "direct-route/tts/working.txt").read_text(encoding="utf-8")
+        self.assertIn("замок", working)
+        self.assertNotIn("замо́к", working)
+        repaired = store.snapshot()["entries"][0]
+        self.assertEqual(repaired["mode"], "REVIEW_REQUIRED")
+        self.assertIsNone(repaired["preferred"])
+
     def test_contextual_occurrence_change_preserves_unrelated_segment_identity(self) -> None:
         self.import_book(
             "context-segments",

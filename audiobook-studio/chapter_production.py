@@ -20,7 +20,11 @@ from book_library import BookLibrary, BookLibraryError
 from cloud_billing import CloudBillingService, decimal_text, decimal_value
 from paid_run import PaidRunPlanStore
 from production_authority_lock import production_authority_lock
-from pronunciation_dictionary import contextual_review_items
+from pronunciation_dictionary import (
+    apply_book_pronunciations_for_render,
+    book_pronunciation_entries,
+    contextual_review_items,
+)
 from voice_library import load_voice_library
 
 
@@ -166,7 +170,10 @@ class YandexChapterProductionService:
             if not isinstance(text, str) or not text.strip():
                 raise ChapterProductionError("Prepared chapter contains invalid text.", category="invalid_book_job")
             texts.append(text.strip())
-        return profile_path, book, job, "\n\n".join(texts)
+        text = apply_book_pronunciations_for_render(
+            "\n\n".join(texts), book_pronunciation_entries(book)
+        )
+        return profile_path, book, job, text
 
     def _job_dir(
         self,

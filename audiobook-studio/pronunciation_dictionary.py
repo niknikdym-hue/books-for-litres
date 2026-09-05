@@ -564,8 +564,16 @@ class PronunciationDictionary:
             )
 
     def auto_entries(self) -> list[dict[str, Any]]:
+        # Every consumer is also a migration boundary.  A direct bridge route
+        # must never get one last chance to apply a persisted legacy AUTO
+        # homograph before the UI snapshot has repaired the private store.
+        self.repair_known_contextual_entries()
+        contextual_words = set(self.contextual_registry())
         return [
-            deepcopy(entry) for entry in self._load_unlocked()["entries"] if entry["mode"] == "AUTO"
+            deepcopy(entry)
+            for entry in self._load_unlocked()["entries"]
+            if entry["mode"] == "AUTO"
+            and entry["normalized_word"] not in contextual_words
         ]
 
     def repair_known_contextual_entries(self) -> dict[str, Any]:
@@ -788,7 +796,14 @@ class PronunciationDictionary:
             return self._result(next_document, changed=True, entry=deepcopy(entry))
 
     def set_preferred(self, entry_id: str, vowel_number: int) -> dict[str, Any]:
+        contextual_words = set(self.contextual_registry())
+
         def mutation(entry: dict[str, Any]) -> bool:
+            if entry["normalized_word"] in contextual_words:
+                raise PronunciationDictionaryError(
+                    "contextual_preferred_forbidden",
+                    "A context-sensitive word cannot have one global preferred pronunciation.",
+                )
             variant = next(
                 (item for item in entry["variants"] if item["vowel_number"] == vowel_number), None
             )
@@ -894,6 +909,63 @@ def apply_auto_pronunciations(
     for start, end, replacement in sorted(replacements, reverse=True):
         working = working[:start] + replacement + working[end:]
     return unicodedata.normalize("NFC", working)
+
+
+def apply_book_pronunciations_for_render(
+    text: str,
+    book_entries: Iterable[Mapping[str, Any]] = (),
+) -> str:
+    """Apply authoritative BOOK choices to an ephemeral provider input.
+
+    The editable working copy and immutable source are not modified here.
+    OCCURRENCE choices are already materialized against an exact working-copy
+    SHA; BOOK choices intentionally apply to every exact word in this book.
+    """
+    if not isinstance(text, str):
+        raise PronunciationDictionaryError(
+            "invalid_text", "Pronunciation text must be Unicode text."
+        )
+    rules: dict[str, tuple[str, int]] = {}
+    for raw in book_entries:
+        if not isinstance(raw, Mapping) or str(raw.get("scope") or "").upper() != "BOOK":
+            continue
+        word = str(raw.get("word") or "")
+        normalized = normalize_word(word)
+        vowel_number = raw.get("vowel_number")
+        if isinstance(vowel_number, bool) or not isinstance(vowel_number, int):
+            raise PronunciationDictionaryError(
+                "pronunciation_invalid", "BOOK pronunciation has no valid vowel number."
+            )
+        existing = rules.get(normalized)
+        candidate = (word, vowel_number)
+        if existing is not None and existing[1] != vowel_number:
+            raise PronunciationDictionaryError(
+                "pronunciation_conflict", "BOOK pronunciation contains conflicting choices."
+            )
+        rules[normalized] = candidate
+    working = unicodedata.normalize("NFC", text)
+    for word, vowel_number in sorted(rules.values(), key=lambda item: len(item[0]), reverse=True):
+        working = _word_pattern(word).sub(
+            lambda match: _canonical_display(match.group(0), vowel_number),
+            working,
+        )
+    return unicodedata.normalize("NFC", working)
+
+
+def book_pronunciation_entries(book: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Read the versioned per-book overlay without weakening schema safety."""
+    document = book.get("pronunciation_overrides")
+    if document in (None, {}):
+        return []
+    if (
+        not isinstance(document, Mapping)
+        or document.get("schema_version") != 1
+        or not isinstance(document.get("entries"), list)
+    ):
+        raise PronunciationDictionaryError(
+            "pronunciation_invalid", "Book pronunciation overlay is malformed."
+        )
+    return [deepcopy(entry) for entry in document["entries"] if isinstance(entry, Mapping)]
 
 
 def contextual_review_items(

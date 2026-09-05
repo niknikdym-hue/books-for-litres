@@ -18,6 +18,7 @@ from pronunciation_dictionary import (
     PronunciationDictionary,
     PronunciationDictionaryError,
     apply_auto_pronunciations,
+    apply_book_pronunciations_for_render,
     contextual_review_items,
     load_contextual_registry,
     migrate_book_rules,
@@ -102,7 +103,42 @@ class PronunciationDictionaryTests(unittest.TestCase):
             [variant["display"] for variant in result["entry"]["variants"]],
             ["за́мок", "замо́к"],
         )
+        with self.assertRaises(PronunciationDictionaryError) as captured:
+            self.store.set_preferred(result["entry"]["entry_id"], 1)
+        self.assertEqual(captured.exception.code, "contextual_preferred_forbidden")
+        persisted = self.store.snapshot()["entries"][0]
+        self.assertEqual(persisted["mode"], "REVIEW_REQUIRED")
+        self.assertIsNone(persisted["preferred"])
         self.assertEqual(self.store.auto_entries(), [])
+
+    def test_direct_auto_consumer_repairs_legacy_contextual_entry_first(self) -> None:
+        self.store.upsert("замок", 2, "замо́к")
+        document = json.loads(self.store.path.read_text(encoding="utf-8"))
+        entry = document["entries"][0]
+        entry["mode"] = "AUTO"
+        entry["preferred"] = next(
+            variant for variant in entry["variants"] if variant["vowel_number"] == 2
+        )
+        entry["variants"] = [entry["preferred"]]
+        self.store.path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        self.store.path.chmod(0o600)
+
+        self.assertEqual(self.store.auto_entries(), [])
+        repaired = self.store.snapshot()["entries"][0]
+        self.assertEqual(repaired["mode"], "REVIEW_REQUIRED")
+        self.assertIsNone(repaired["preferred"])
+        self.assertEqual(
+            [variant["display"] for variant in repaired["variants"]],
+            ["за́мок", "замо́к"],
+        )
+
+    def test_book_choice_is_applied_only_to_ephemeral_provider_text(self) -> None:
+        text = "Старый замок и дверной замо́к."
+        rendered = apply_book_pronunciations_for_render(text, [{
+            "scope": "BOOK", "word": "замок", "vowel_number": 1,
+        }])
+        self.assertEqual(rendered, "Старый за́мок и дверной за́мок.")
+        self.assertEqual(text, "Старый замок и дверной замо́к.")
 
     def test_disable_delete_and_missing_variant_fail_closed(self) -> None:
         entry_id = self._dilon()["entry"]["entry_id"]

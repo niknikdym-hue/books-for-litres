@@ -26,7 +26,11 @@ from backends.openai_tts import (
 from cloud_billing import BillingLedger, CloudBillingService, decimal_text
 from book_library import BookLibrary, BookLibraryError
 from production_authority_lock import production_authority_lock
-from pronunciation_dictionary import contextual_review_items
+from pronunciation_dictionary import (
+    apply_book_pronunciations_for_render,
+    book_pronunciation_entries,
+    contextual_review_items,
+)
 
 
 SCHEMA_VERSION = 1
@@ -207,7 +211,10 @@ class PaidRunService:
             if not isinstance(value, str) or not value.strip():
                 raise PaidRunError("Prepared job contains invalid text.", category="invalid_book_job")
             texts.append(value.strip())
-        return path, book, job, "\n\n".join(texts)
+        text = apply_book_pronunciations_for_render(
+            "\n\n".join(texts), book_pronunciation_entries(book)
+        )
+        return path, book, job, text
 
     def _job_dir(
         self,
