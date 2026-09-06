@@ -23,21 +23,24 @@ GitHub `main` — source of truth. Chat не является project authority.
 3. provider-specific contracts;
 4. [`docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md`](docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md) — фактическая текущая production-точка.
 
-## Текущее состояние Studio
+## Текущая Studio feature-точка
 
-За 2026-09-03 — 2026-09-05 в `main` приняты:
+Последний принятый Studio merge:
 
-- PR #45 — author-first native Studio, editable TTS working copy, manual/advisory editorial scan, provider-neutral ударения, chapter sound design, per-book delivery formats, production safeguards;
-- PR #46 — Yandex synthesis timeout вынесен в config; production default 180 s, допустимо 1…600 s, silent retry не добавлен;
-- PR #47 — исправлено состояние Yandex continuation/recovery UI;
-- PR #48 — после готовой Yandex-главы Audio QA получает canonical authority, а не legacy/symlink execution path;
-- PR #49 — семь production-шагов постоянно видимы; на шаге произношения снова виден текст книги; слово можно отправлять на проверку ударения двойным кликом; для длинного текста доступен Command-F; выбор шага сохраняется.
+```text
+PR #52
+fa5e1ed9a3796333246af88b5fddd697720f0055
+```
 
-PR #50 (`Add simple permanent book deletion from the sidebar`) на момент этой фиксации открыт и не считается принятой функцией `main`.
+После PR #49 дополнительно приняты:
+
+- **PR #51** — global pronunciation dictionary + contextual homograph safety;
+- **PR #50** — simple permanent/archive book deletion from sidebar с сохранением external source/audio/billing/provider records;
+- **PR #52** — fix native chapter-cue crash и явный trimming UX.
 
 ## Пользовательский путь
 
-Основной native flow:
+Семь постоянных native production steps:
 
 1. Текст
 2. Ударения
@@ -47,7 +50,9 @@ PR #50 (`Add simple permanent book deletion from the sidebar`) на момент
 6. Запись / прослушивание
 7. Выпуск
 
-Инженерные сведения, расходы и advanced Content Quality не должны доминировать в основном author flow.
+Все шаги видимы и кликабельны. На `Ударения` доступен текст книги, double-click word и Command-F.
+
+Инженерные SHA/fingerprint, billing и advanced Content Quality не должны доминировать в author flow.
 
 ## Импорт книги
 
@@ -60,11 +65,11 @@ UTF-8
 вся книга одним файлом
 ```
 
-Immutable source сохраняется без изменений. Для подготовки и озвучки создаётся отдельная TTS working copy.
+Immutable source остаётся неизменным. Для подготовки и TTS используется отдельная working copy.
+
+Book Library поддерживает recoverable archive и owner-confirmed permanent removal Studio book profile/imported assets. Внешний исходный TXT, произведённое audio, billing и provider records при permanent removal сохраняются.
 
 ## Словарь ударений
-
-Новый канон: пользователь не исправляет одно и то же слово в каждой книге заново.
 
 Private runtime store:
 
@@ -78,34 +83,48 @@ Contract:
 contracts/pronunciation-dictionary-v1.schema.json
 ```
 
-Правило:
+Основное правило:
 
 ```text
 исправить ударение в Studio
-→ применить к текущей TTS working copy
-→ сохранить book evidence
-→ автоматически upsert в глобальный Словарь ударений
-→ применять AUTO-правило в следующих книгах
+→ применить к текущему context/book
+→ сохранить owner evidence
+→ автоматически upsert в global dictionary
+→ применять в следующих книгах только если запись безопасна для AUTO
 ```
 
-Приоритет:
+Priority:
 
 ```text
-exact occurrence > book override > global dictionary AUTO > default pronunciation
+exact occurrence > book override > global AUTO > default pronunciation
 ```
 
-Известный омограф с первого исправления создаётся как контекстная запись, а не как
-`AUTO`. Для `замок` Studio показывает `за́мок / замо́к`, просит выбрать вариант в
-конкретном предложении и сохраняет точное место. Неразобранный омограф блокирует
-только затронутый сегмент записи.
+### Контекстные омографы
 
-Canonical representation — Unicode acute (`Ди́лон`); provider-specific синтаксис создаётся только adapter-слоем.
+Studio не делает silent guess для слов, где ударение зависит от значения.
 
-В native Studio словарь открывается на шаге «Ударения». Там можно искать слова,
-видеть статус `Зависит от контекста`, временно отключать или удалять записи. Выбор
-варианта омонима делается в карточке конкретного предложения, а не глобально. Все эти
-действия выполняются локально, без TTS-запросов и расходов; исходный файл книги
-остаётся неизменным.
+V1 canonical case:
+
+```text
+замок
+→ за́мок = строение, дворец или крепость
+→ замо́к = запирающее устройство
+```
+
+Такое слово хранится как:
+
+```text
+mode = REVIEW_REQUIRED
+preferred = null
+```
+
+В конкретном предложении пользователь выбирает нужный вариант; unresolved pronunciation блокирует только затронутый Yandex chapter/OpenAI segment.
+
+Реальная ранее созданная owner-test запись `замок → замо́к / AUTO` уже мигрирована production-кодом в `за́мок / замо́к / REVIEW_REQUIRED`: revision `10→11`, повторный repair идемпотентен, существующий BOOK choice `замо́к` сохранён.
+
+`PRONUNCIATION_DICTIONARY_V1 = ACCEPTED` после PR #51, full offline `750/750 PASS`, 1060×720 и 900×620 PASS, independent UX PASS, GitHub CI PASS, provider/network/model/paid = 0.
+
+Canonical representation — Unicode acute (`Ди́лон`). Provider-specific Yandex/OpenAI rendering создаётся adapter-слоем.
 
 ## Voice Library
 
@@ -123,45 +142,56 @@ Approved OpenAI:
 
 Qwen profiles загружаются из local runtime catalog.
 
-Выбранный narrator/profile сохраняется отдельно для каждой книги.
+Narrator/profile сохраняется per book.
 
 ## Yandex production safety
 
-Yandex production timeout configurable через canonical config:
-
 ```text
-default = 180 s
+timeout default = 180 s
 allowed = 1…600 s
+silent automatic retry after ambiguous/sent request = 0
 ```
 
-Timeout после отправленного запроса классифицируется безопасно; silent automatic retry не допускается.
+Continuation PREPARE — одна ожидаемая async-operation. После успешной записи Audio QA получает re-resolved canonical Yandex authority.
 
-Continuation PREPARE — одна ожидаемая async-операция. После успешной записи UI заново разрешает canonical Yandex authority перед Audio QA.
-
-Private application-level Keychain → Yandex → Audio QA acceptance 2026-09-03: PASS. Подробные exact facts находятся в current-state authority.
+Private Keychain → Yandex → Audio QA acceptance 2026-09-03: PASS.
 
 ## Звуковое оформление
 
-Chapter cue — downstream-слой:
+Chapter cue — downstream:
 
 ```text
 clean TTS → Audio QA → approved narration → chapter cue → assembly → mastering
 ```
 
-Смена звука не должна запускать TTS заново.
+Смена cue или trimming не запускает TTS заново.
 
-Поддерживаются per-book выбор, отключение звука, preview, пользовательский WAV с подтверждением прав и локальные лицензированные GarageBand assets при наличии на Mac.
+Поддерживаются:
+
+- `Без звука`;
+- preview/playback;
+- per-book selection;
+- favorites/genre selection;
+- user WAV с owner rights attestation;
+- локальные лицензированные GarageBand assets при наличии;
+- explicit optional trimming;
+- exact saved-fragment preview;
+- one-click restore full sound.
+
+После PR #52 выбор cue по умолчанию использует **весь звук, который пользователь прослушал**. Скрытого trimming больше нет. PR #52 также устранил native crash из zero-width SwiftUI Slider range. Full offline `757/757 PASS`, native build/codesign PASS, GitHub CI PASS.
+
+На Mac найден реальный `Lounge Vibes 05.caf`; он показывается под честным именем как любимый вариант владельца. Exact исторический asset `Lounge Vibes 05.7` не найден.
 
 ## Форматы выпуска
 
-Формат выбирается отдельно для каждой книги; default не навязывается:
+Per-book, без default:
 
 - по главам;
 - M4B;
 - MP3;
 - архив высокого качества.
 
-Whole-book output остаётся заблокирован до готовности всех required chapters.
+Whole-book output закрыт до полного required chapter set.
 
 ## Первая реальная книга
 
@@ -169,11 +199,10 @@ Whole-book output остаётся заблокирован до готовно�
 book = hvatit-sebya-obestsenivat
 accepted first chapter = chapter-ch001 / Введение
 accepted Yandex WAV SHA-256 = 2311b300ea1d1769fd9b299a7cb8e20ff218393e36e71bb6d86fb523172784b6
-production progress = 1 / 16
 WHOLE_BOOK_RELEASE_READY = FALSE
 ```
 
-Первую принятую главу не пересинтезировать без реальной текстовой/произносительной причины.
+Принятый WAV не пересинтезировать без реального изменения затронутого text/pronunciation identity.
 
 Canonical opening credit:
 
@@ -185,13 +214,11 @@ Canonical opening credit:
 
 Никакой provider execution без explicit owner action.
 
-Общий cloud flow:
-
 ```text
 owner action
 → offline PREPARE + current pricing
 → immutable plan/request/cost cap
-→ отдельное подтверждение
+→ separate confirmation
 → authority/price revalidation
 → bounded provider execution
 → automatic QA
@@ -210,7 +237,7 @@ Default:
 
 Path authority — `workspace_paths.py`.
 
-Реальные книги, renders, cache, QA, billing, pronunciation dictionary, settings, masters и exports находятся вне Git и должны переживать обновления приложения.
+Реальные книги, renders, cache, QA, billing, pronunciation dictionary, settings, masters и exports находятся вне Git и должны переживать обновления `.app`.
 
 ## Тесты
 
@@ -218,18 +245,14 @@ Path authority — `workspace_paths.py`.
 python3 -m unittest discover -s audiobook-studio/tests -v
 ```
 
-Последняя принятая UX-функциональная точка PR #49:
+Последняя Studio acceptance point — PR #52:
 
 ```text
-full offline suite = 707/707 PASS
-native build = PASS
-Info.plist = PASS
-Mach-O arm64 = PASS
+full offline suite = 757/757 PASS
+fresh native build = PASS
 strict codesign = PASS
-render 1060×720 = PASS
-render 900×620 = PASS
-independent UX acceptance = PASS
-provider/network/paid requests during implementation = 0
+GitHub CI = PASS
+provider/remote/paid = 0
 ```
 
 Точную текущую launch-точку всегда брать из `docs/AUDIOBOOK-STUDIO-CURRENT-STATE.md` и фактического GitHub `main`.
