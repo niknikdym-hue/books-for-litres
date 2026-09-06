@@ -1,6 +1,6 @@
 # SERIES BRAIN — «Секреты продвижения услуг»
 
-**Статус:** DRAFT canonical series-level authority  
+**Статус:** CANONICAL / BINDING series-level authority  
 **Source of truth:** актуальный `main` репозитория `niknikdym-hue/books-for-litres`  
 **Дата создания:** 2026-09-06  
 **Последнее обновление:** 2026-09-06  
