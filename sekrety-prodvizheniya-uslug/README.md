@@ -51,35 +51,27 @@ GitHub — source of truth. Новый чат/исполнитель снача�
 
 `kak-prodavat-uslugi/` — **«Как продавать услуги»**, книга №1, режим WRITE FROM ZERO.
 
-Текущий статус: `DEFINITION-DRAFT / RESEARCH`, `WRITING=CLOSED`.
+Текущий статус: `DEFINITION-APPROVED / ARCHITECTURE-DRAFT`, `WRITING=CLOSED`.
 
-Внутри книги сейчас обязательны:
+Definition утверждён пользователем 2026-09-07. Обязательные authority:
 
 - `BOOK-BRAIN.md`;
 - `BOOK-DEFINITION.md`;
+- `DEFINITION-APPROVAL-2026-09-07.md`;
 - `CATEGORY-COMPETITOR-MAP-2026.md`;
 - `WORLD-CLASS-BENCHMARK-2026.md`;
 - `RESEARCH-MAP.md`;
 - `PRACTICAL-VALUE-MAP.md`;
+- `RUSSIA-APPLICATION-MAP-2026.md`;
 - `UNIQUENESS-LEDGER.md`.
 
-После `DEFINITION-APPROVED` создаются Architecture v1 и chapter contracts **по `CHAPTER-CONTRACT-TEMPLATE.md`**. Текст глав разрешён только после прямого пользовательского `ARCHITECTURE-APPROVED`.
+Следующий объект — Architecture v1 и chapter contracts по `CHAPTER-CONTRACT-TEMPLATE.md`. Текст глав разрешён только после прямого пользовательского `ARCHITECTURE-APPROVED`.
 
 ## Главный закон
 
 **Каждая книга серии уникальна.**
 
-Не допускаются смысловые повторы предыдущих книг и повторные версии уже использованных:
-
-- механизмов;
-- причинных схем;
-- сцен и типов кейсов;
-- аналогий и метафор;
-- исследовательских функций;
-- фреймворков и практических инструментов;
-- классификаций;
-- композиционных решений;
-- риторических ходов.
+Не допускаются смысловые повторы предыдущих книг и повторные версии уже использованных механизмов, причинных схем, сцен/типов кейсов, аналогий/метафор, research functions, frameworks/tools, классификаций, композиционных решений и риторических ходов.
 
 Та же проверка действует внутри одной книги между её главами.
 
@@ -99,13 +91,14 @@ GitHub — source of truth. Новый чат/исполнитель снача�
 
 ## Legacy vs accepted exclusion
 
-Legacy-книги 2024 года защищают обещанные территории и подлежат отдельной инвентаризации при rework. Они не считаются автоматически `USED-ACCEPTED` новой quality system.
+Legacy-книги защищают обещанные территории и подлежат отдельной инвентаризации при rework. Они не считаются автоматически `USED-ACCEPTED` новой quality system.
 
 После принятия нового Literary Master он становится жёстким exclusion corpus для всех следующих новых книг серии.
 
 ## Status discipline
 
-`DRAFT` ≠ `APPROVED`.  
+`DEFINITION-APPROVED` не открывает WRITING.  
+`ARCHITECTURE-DRAFT` ≠ `ARCHITECTURE-APPROVED`.  
 `LITERARY MASTER` ≠ `ACCEPTED/LOCKED` без прямого принятия пользователем.
 
-AI не присваивает `DEFINITION-APPROVED`, `ARCHITECTURE-APPROVED`, `ACCEPTED` или `LOCKED` самостоятельно.
+AI не присваивает `ARCHITECTURE-APPROVED`, `ACCEPTED` или `LOCKED` самостоятельно.
