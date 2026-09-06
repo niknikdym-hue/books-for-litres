@@ -1154,6 +1154,14 @@ struct OwnerProductionFlowPanel: View {
                     Text("Для каждого предложения выберите значение слова. После сохранения проверенное место исчезнет из списка, а исправление сразу появится в тексте книги.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                    if textController.workingTextHasUnsavedChanges {
+                        Label(
+                            "Сначала сохраните или отмените правки текста на шаге «Текст».",
+                            systemImage: "exclamationmark.circle"
+                        )
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.orange)
+                    }
                     DisclosureGroup("Проверить найденные места", isExpanded: $isHomonymReviewExpanded) {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(review.contextualReviewItems) { item in
@@ -1207,6 +1215,7 @@ struct OwnerProductionFlowPanel: View {
                             }
                         }
                     }
+                    .disabled(textController.workingTextHasUnsavedChanges)
                 }
             }
         }

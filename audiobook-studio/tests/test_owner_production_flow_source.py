@@ -99,6 +99,7 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
             "Проверить найденные места",
             "Непроверенных омонимов из встроенного списка не найдено",
             "После сохранения проверенное место исчезнет из списка",
+            "Сначала сохраните или отмените правки текста на шаге «Текст»",
             "variant.meaning",
             "Сохранить для этого места",
             'systemName: (',
@@ -117,6 +118,7 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
         ):
             self.assertIn(token, controller)
         self.assertIn("Так можно исправить ранее поставленное ударение", panel)
+        self.assertIn(".disabled(textController.workingTextHasUnsavedChanges)", panel)
 
     def test_sidebar_help_onboarding_and_contextual_next_actions_are_native(self) -> None:
         app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
