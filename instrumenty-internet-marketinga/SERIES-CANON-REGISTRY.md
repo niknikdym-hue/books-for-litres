@@ -3,31 +3,48 @@
 **Статус:** CANONICAL / LIVING  
 **Дата:** 2026-09-07
 
-## 1. Статусы
+## 1. Binding reboot rule
 
-- `LEGACY-PROTECTED` — существующая опубликованная территория, нельзя потерять до нового решения;
-- `RESEARCH-ANEW` — требуется полный современный аудит;
-- `KEEP-CANDIDATE` — потенциально сохраняется как самостоятельная книга;
-- `REFRAME-CANDIDATE` — тема сохраняется, но центральная модель/границы должны быть изменены;
-- `MERGE-CANDIDATE` — самостоятельная книга может быть не нужна;
-- `RETIRE-CANDIDATE` — отдельная книга может больше не оправдываться;
-- `NEW-BOOK-CANDIDATE` — новая территория, ещё не утверждённая пользователем;
-- `RESERVED` — утверждённая пользователем territory;
-- `USED-DRAFT` — фактически используется в manuscript;
-- `USED-ACCEPTED` — вошло в accepted Literary Master;
-- `RELEASED` — зарезервировано, но не вошло в accepted master.
+For the three existing LitRes books, **only the titles are inherited**. Everything else is created from zero.
 
-## 2. Legacy portfolio
+Canonical Owner Decision: `OWNER-DECISION-2026-09-07-LEGACY-TITLES-WRITE-FROM-ZERO.md`.
 
-| № | Legacy book | Territory | Current reboot status |
+The old manuscripts are not an evidence corpus, not a content source, and not an authority for Book Definition, architecture, research, examples, tools, style or prose.
+
+## 2. Statuses
+
+- `TITLE-LOCKED` — existing title must be preserved for the rebooted standalone book;
+- `WRITE-FROM-ZERO` — no content inheritance from the old manuscript;
+- `NEW-BOOK-CANDIDATE` — new territory, not yet approved by the user;
+- `RESERVED` — territory/asset reserved by approved new Architecture;
+- `USED-DRAFT` — actually used in a new manuscript;
+- `USED-ACCEPTED` — entered an accepted new Literary Master and becomes exclusion material;
+- `RELEASED` — reserved but absent from the accepted master.
+
+`MERGE / RETIRE / RENAME` are not valid decisions for the three locked legacy titles.
+
+## 3. Locked reboot portfolio
+
+| № | Preserved title | Reboot status | Content inheritance |
 |---:|---|---|---|
-| 1 | «Квиз-маркетинг. Как собирать лиды, вовлекать и продавать через тесты» | interactive lead generation / qualification / conversion via quiz mechanics | `LEGACY-PROTECTED / RESEARCH-ANEW` |
-| 2 | «Как оценивать эффективность рекламы» | marketing measurement / advertising effectiveness | `LEGACY-PROTECTED / RESEARCH-ANEW` |
-| 3 | «SMM продвижение» | social media marketing / content / social acquisition | `LEGACY-PROTECTED / RESEARCH-ANEW` |
+| 1 | «Квиз-маркетинг. Как собирать лиды, вовлекать и продавать через тесты» | `TITLE-LOCKED / WRITE-FROM-ZERO` | NONE |
+| 2 | «Как оценивать эффективность рекламы» | `TITLE-LOCKED / WRITE-FROM-ZERO` | NONE |
+| 3 | «SMM продвижение» | `TITLE-LOCKED / WRITE-FROM-ZERO` | NONE |
 
-Ни одна legacy-книга пока не имеет статуса `KEEP` или нового Book Definition.
+For each of these books the following are rebuilt from current evidence and current reader needs:
 
-## 3. Protected neighboring author territories
+- reader and problem;
+- promise and thesis;
+- mechanism/contribution;
+- boundaries;
+- benchmark;
+- research map;
+- practical system;
+- Russia execution layer;
+- architecture and chapter contracts;
+- style and manuscript.
+
+## 4. Protected neighboring author territories
 
 Чтобы новая серия не поглощала другие авторские проекты без решения пользователя:
 
@@ -38,7 +55,7 @@
 
 Пересечение возможно только по короткой необходимой предпосылке; отдельная intellectual territory требует owner decision.
 
-## 4. New-book candidate rule
+## 5. New-book candidate rule
 
 Новая territory попадает сюда только после доказательства:
 
@@ -51,23 +68,23 @@
 - time/freshness viability;
 - no destructive overlap with existing series/books.
 
-Новые названия и порядок книг пока **не утверждены**.
+Новые названия и порядок дополнительных книг пока **не утверждены**.
 
-## 5. Portfolio decision table
+## 6. Portfolio research purpose
 
-Заполняется по результатам Series Portfolio Re-Architecture 2026+.
+Portfolio research больше не решает судьбу трёх существующих названий. Оно решает:
 
-| Territory | Legacy link | Reader problem | Distinct mechanism | Practical system | Russia relevance | Freshness risk | AI-substitution risk | Proposed decision | Owner status |
-|---|---|---|---|---|---|---|---|---|---|
-| Quiz / interactive conversion | legacy #1 | TBD | TBD | TBD | TBD | TBD | TBD | `RESEARCH-ANEW` | NOT DECIDED |
-| Advertising effectiveness / measurement | legacy #2 | TBD | TBD | TBD | TBD | TBD | TBD | `RESEARCH-ANEW` | NOT DECIDED |
-| Social media marketing | legacy #3 | TBD | TBD | TBD | TBD | TBD | TBD | `RESEARCH-ANEW` | NOT DECIDED |
+1. какой должна быть сильнейшая современная книга под каждым из трёх locked titles;
+2. как провести границы между ними, чтобы они не повторяли друг друга;
+3. какие дополнительные новые книги действительно нужны серии.
 
-## 6. Exclusion / uniqueness registry
+## 7. Exclusion / uniqueness registry
 
 Пока новых accepted masters нет, новый exclusion corpus пуст.
 
-После первого accepted Literary Master сюда заносятся фактически использованные:
+Старые рукописи **не входят** в exclusion corpus новой системы.
+
+После первого accepted Literary Master сюда заносятся фактически использованные в новых книгах:
 
 - mechanisms;
 - diagnostic distinctions;
@@ -78,10 +95,10 @@
 - composition patterns;
 - signature analogies/metaphors.
 
-Full Literary Master остаётся финальным evidence.
+Full accepted Literary Master новой системы остаётся финальным evidence.
 
-## 7. Current next gate
+## 8. Current next gate
 
-**SERIES PORTFOLIO RE-ARCHITECTURE 2026+**.
+**NEW BOOK DEFINITION RESEARCH for the three TITLE-LOCKED books + research of additional book candidates.**
 
-До его завершения не открывать Writing ни одной книги серии и не считать legacy title автоматическим названием новой версии.
+Writing закрыт до утверждения Book Definition и Architecture конкретной новой книги.
