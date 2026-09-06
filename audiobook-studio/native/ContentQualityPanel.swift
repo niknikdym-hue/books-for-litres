@@ -489,7 +489,17 @@ final class ContentQualityController: ObservableObject {
             .replacingOccurrences(of: "\n", with: " ")
     }
 
+    @discardableResult
+    private func requireSavedTextForPronunciation() -> Bool {
+        guard !workingTextHasUnsavedChanges else {
+            errorMessage = "Сначала сохраните или отмените правки текста, затем ставьте ударение."
+            return false
+        }
+        return true
+    }
+
     func selectStressOccurrence(word: String, start: Int, end: Int) {
+        guard requireSavedTextForPronunciation() else { return }
         stressWord = word
         stressSelectionStart = start
         stressSelectionEnd = end
@@ -504,6 +514,7 @@ final class ContentQualityController: ObservableObject {
         _ variant: TTSContextualPronunciationVariant,
         for item: TTSContextualReviewItem
     ) {
+        guard requireSavedTextForPronunciation() else { return }
         selectStressOccurrence(word: item.word, start: item.start, end: item.end)
         stressPreview = TTSStressPreviewEnvelope(
             engine: "canonical",
@@ -698,33 +709,37 @@ final class ContentQualityController: ObservableObject {
         }
     }
 
-    func saveWorkingCopy(onSaved: (@MainActor () -> Void)? = nil) {
+    func saveWorkingCopy(onSaved: (@MainActor (String) -> Void)? = nil) {
         guard let review = ttsReview, !currentBookID.isEmpty else { return }
         guard !workingTextDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "Рабочий текст озвучки не может быть пустым."
             return
         }
+        let targetBookID = currentBookID
+        let draft = workingTextDraft
+        let expectedSHA = review.workingCopySHA256
         Task {
             isLoading = true
             defer { isLoading = false }
             let temporary = FileManager.default.temporaryDirectory
                 .appendingPathComponent("audiobook-studio-text-\(UUID().uuidString).txt")
             do {
-                try workingTextDraft.write(to: temporary, atomically: true, encoding: .utf8)
+                try draft.write(to: temporary, atomically: true, encoding: .utf8)
                 defer { try? FileManager.default.removeItem(at: temporary) }
                 let result: TTSOfflineEnvelope = try await runJSON(
                     script: "tts_text_review_runner.py",
                     arguments: [
                         "--save-working-copy",
-                        "--book", currentBookID,
+                        "--book", targetBookID,
                         "--input-file", temporary.path,
-                        "--expected-sha256", review.workingCopySHA256,
+                        "--expected-sha256", expectedSHA,
                     ]
                 )
                 try assertOffline(result)
+                guard currentBookID == targetBookID else { return }
                 draftBaseSHA = ""
-                await reload(bookID: currentBookID)
-                onSaved?()
+                await reload(bookID: targetBookID)
+                onSaved?(targetBookID)
             } catch {
                 try? FileManager.default.removeItem(at: temporary)
                 errorMessage = error.localizedDescription
@@ -783,6 +798,7 @@ final class ContentQualityController: ObservableObject {
     }
 
     func loadStressCandidates() {
+        guard requireSavedTextForPronunciation() else { return }
         let word = stressWord.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !word.isEmpty else {
             errorMessage = "Введите одно слово, в котором нужно указать ударение."
@@ -810,6 +826,7 @@ final class ContentQualityController: ObservableObject {
     }
 
     func previewStress(_ candidate: TTSStressCandidate) {
+        guard requireSavedTextForPronunciation() else { return }
         let word = stressWord.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !word.isEmpty else { return }
         let selectionGeneration = stressSelectionGeneration
@@ -841,10 +858,13 @@ final class ContentQualityController: ObservableObject {
     }
 
     func saveStressForBook() {
+        guard requireSavedTextForPronunciation() else { return }
         let word = stressWord.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let preview = stressPreview,
+        guard let preview = stressPreview, let review = ttsReview,
               preview.word == word,
               !currentBookID.isEmpty else { return }
+        let targetBookID = currentBookID
+        let expectedReviewSHA = review.workingCopySHA256
         let contextual = stressWordIsContextual
         let selectedStart = stressSelectionStart
         let selectedEnd = stressSelectionEnd
@@ -855,7 +875,7 @@ final class ContentQualityController: ObservableObject {
             do {
                 var arguments = [
                     "--add-pronunciation-override",
-                    "--book", currentBookID,
+                    "--book", targetBookID,
                     "--word", preview.word,
                     "--vowel-number", String(preview.vowelNumber),
                 ]
@@ -863,7 +883,7 @@ final class ContentQualityController: ObservableObject {
                     guard let start = selectedStart,
                           let end = selectedEnd,
                           let expectedSHA = selectedSHA,
-                          expectedSHA == ttsReview?.workingCopySHA256 else {
+                          expectedSHA == expectedReviewSHA else {
                         errorMessage = "Это слово зависит от контекста. Выделите нужное место в тексте двойным щелчком."
                         return
                     }
@@ -881,8 +901,10 @@ final class ContentQualityController: ObservableObject {
                     arguments: arguments
                 )
                 try assertOffline(result)
+                guard currentBookID == targetBookID else { return }
                 stressWord = ""
-                await reload(bookID: currentBookID)
+                await reload(bookID: targetBookID)
+                guard currentBookID == targetBookID else { return }
                 pronunciationSaveNotice = result.confirmationMessage
                     ?? "Ударение сохранено в книге и добавлено в общий словарь."
             } catch {

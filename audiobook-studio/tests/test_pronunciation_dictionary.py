@@ -80,8 +80,8 @@ class PronunciationDictionaryTests(unittest.TestCase):
         self.assertEqual(self.store.snapshot()["revision"], 1)
 
     def test_conflict_requires_review_then_owner_selects_preferred(self) -> None:
-        first = self.store.upsert("мука", 1, "му́ка")
-        conflict = self.store.upsert("МУКА", 2, "МУКА́")
+        first = self.store.upsert("звонит", 1, "зво́нит")
+        conflict = self.store.upsert("ЗВОНИТ", 2, "ЗВОНИ́Т")
         self.assertTrue(conflict["conflict"])
         self.assertEqual(conflict["entry"]["mode"], "REVIEW_REQUIRED")
         self.assertIsNone(conflict["entry"]["preferred"])
@@ -110,6 +110,25 @@ class PronunciationDictionaryTests(unittest.TestCase):
         self.assertEqual(persisted["mode"], "REVIEW_REQUIRED")
         self.assertIsNone(persisted["preferred"])
         self.assertEqual(self.store.auto_entries(), [])
+
+    def test_contextual_registry_stays_narrow_and_owner_proven(self) -> None:
+        registry = load_contextual_registry()
+        self.assertEqual(set(registry), {"замок"})
+        text = "Этот атлас стоит дорого, а старый замок похож на дворец."
+        items = contextual_review_items(text)
+        self.assertEqual(
+            [item["normalized_word"] for item in items],
+            ["замок"],
+        )
+        self.assertEqual(
+            [variant["display"] for variant in items[0]["variants"]],
+            ["за́мок", "замо́к"],
+        )
+        self.assertTrue(all(
+            variant["meaning"]
+            for item in items
+            for variant in item["variants"]
+        ))
 
     def test_direct_auto_consumer_repairs_legacy_contextual_entry_first(self) -> None:
         self.store.upsert("замок", 2, "замо́к")
