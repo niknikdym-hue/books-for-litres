@@ -12,16 +12,18 @@
 
 1. `../SERIES-BRAIN.md`;
 2. `../SERIES-QUALITY-CONSTITUTION.md`;
-3. `../SERIES-CANON-REGISTRY.md`;
-4. `../SERIES-PRODUCTION-PROTOCOL.md`;
-5. `../LEGACY-SERIES-INVENTORY-2026-09-06.md`;
-6. этот `BOOK-BRAIN.md`;
-7. `BOOK-DEFINITION.md`;
-8. `CATEGORY-COMPETITOR-MAP-2026.md`;
-9. `RESEARCH-MAP.md`;
-10. `UNIQUENESS-LEDGER.md`;
-11. Architecture / chapter contracts после их появления;
-12. Content Quality Lexicon `BOOK_PROSE`.
+3. `../WORLD-CLASS-PRACTICAL-RUSSIA-STANDARD.md`;
+4. `../SERIES-CANON-REGISTRY.md`;
+5. `../SERIES-PRODUCTION-PROTOCOL.md`;
+6. `../LEGACY-SERIES-INVENTORY-2026-09-06.md`;
+7. этот `BOOK-BRAIN.md`;
+8. `BOOK-DEFINITION.md`;
+9. `CATEGORY-COMPETITOR-MAP-2026.md`;
+10. `WORLD-CLASS-BENCHMARK-2026.md`;
+11. `RESEARCH-MAP.md`;
+12. `UNIQUENESS-LEDGER.md`;
+13. Architecture / chapter contracts после их появления;
+14. Content Quality Lexicon `BOOK_PROSE`.
 
 Обязательный общий quality gate:
 
@@ -40,8 +42,22 @@
 - Общий Content Quality Lexicon / «словарь мусорных слов» обязателен.
 - Каждая книга серии должна быть уникальной.
 - Запрещены повторы/пересечения, включая повторные аналогии, повторные механизмы, кейсы с той же смысловой функцией и другие переупаковки ранее использованного материала.
+- Книга должна иметь **очень сильное практическое значение и быть актуальной**, иначе она не выполняет рыночную задачу.
+- Планка — **уровень очень сильных мировых деловых книг**, не средний мировой рынок.
+- При этом книга должна давать **конкретное применение для России**.
 
-## 3. Фактический legacy context
+## 3. Четыре обязательных качества книги
+
+Книга не может считаться сильной, если не проходит одновременно:
+
+1. **TOP-TIER GLOBAL** — сравнение с очень сильными мировыми benchmark-книгами.
+2. **ORIGINAL CONTRIBUTION** — собственная интеллектуальная модель, а не компиляция.
+3. **PRACTICAL VALUE** — сильные конкретные решения и business outputs.
+4. **RUSSIA APPLICATION** — применимость к российской реальности и freshness-check локальной конкретики.
+
+Провал любого блока = `REWORK`.
+
+## 4. Фактический legacy context
 
 Публичная серия ЛитРес на 2026-09-06 содержит четыре содержательные книги под именем **Елена Дым**:
 
@@ -54,7 +70,7 @@
 
 Территории legacy-книг №2–4 защищены от поглощения новой книгой №1.
 
-## 4. Текущий Definition proposal
+## 5. Текущий Definition proposal
 
 `BOOK-DEFINITION.md` предлагает стратегический центр:
 
@@ -64,7 +80,40 @@
 
 До прямого принятия пользователем Definition нельзя считать центральное обещание/механизм окончательно закреплёнными.
 
-## 5. Что пока НЕ зафиксировано
+## 6. Практический результат всей книги — обязательное требование
+
+Финальная книга должна не только объяснить механику продажи услуги, но и позволить читателю **перестроить собственную систему продажи**.
+
+К моменту завершения книги у подходящего читателя должен появиться набор реальных business artifacts. Предварительные типы artifacts:
+
+- карта неопределённостей покупателя его услуги;
+- формулировка результата/границ услуги;
+- доказательная база / evidence inventory;
+- карта процесса и точек контроля;
+- набор диагностических и квалификационных вопросов;
+- переработанное предложение;
+- логика цены/объёма/риска;
+- варианты безопасного следующего шага;
+- схема разбора проигранной сделки;
+- собственная рабочая sales system без зависимости от одного скрипта или платформы.
+
+Эти artifacts пока не являются утверждённой Architecture. После Architecture каждый output резервируется в `UNIQUENESS-LEDGER.md` и не повторяет соседнюю главу.
+
+## 7. World-class benchmark state
+
+Создан `WORLD-CLASS-BENCHMARK-2026.md`.
+
+Минимальные benchmark-направления:
+
+- Harry Beckwith / `Selling the Invisible` — category-defining service insight;
+- Maister/Green/Galford / `The Trusted Advisor` — professional trust depth;
+- Neil Rackham / `SPIN Selling` — research discipline in complex selling;
+- Michael Port / `Book Yourself Solid` — implementation depth for service professionals;
+- Dixon/Adamson / `The Challenger Sale` — memorable research-driven B2B thesis.
+
+Нельзя копировать их frameworks, архитектуру или фирменные различения. Наша книга обязана доказать собственную contribution для 2026 года и России.
+
+## 8. Что пока НЕ зафиксировано
 
 До отдельного решения пользователя не считать окончательно установленными:
 
@@ -76,13 +125,13 @@
 - число глав;
 - Architecture;
 - chapter contracts;
-- окончательный набор практических frameworks;
+- окончательный набор practical artifacts/frameworks;
 - оформление ссылок / примечаний;
 - окончательное название издания, если пользователь позднее решит его изменить.
 
 Эти пробелы не заполнять случайными предположениями внутри рукописи.
 
-## 6. Роль старого издания
+## 9. Роль старого издания
 
 Старое издание «Как продавать услуги» — **legacy source**, не draft новой книги.
 
@@ -105,13 +154,15 @@
 
 Публичный legacy-фрагмент может использоваться только для category/legacy diagnosis.
 
-## 7. Уникальность первой книги
+## 10. Уникальность первой книги
 
 Хотя accepted exclusion corpus новой системы ещё не создан, книга №1 обязана соблюдать:
 
 - внутрикнижный zero-overlap;
 - protected legacy territories книг №2–4;
-- future-book leakage control.
+- future-book leakage control;
+- practical-output uniqueness;
+- world-class anti-copy benchmark.
 
 Каждая будущая глава должна иметь собственные:
 
@@ -121,6 +172,8 @@
 - сцену/кейс;
 - research function;
 - практический результат;
+- business artifact или иной наблюдаемый output, если применимо;
+- Russia application;
 - композиционную функцию.
 
 Аналогии не повторяются между главами в новой декорации.
@@ -129,7 +182,7 @@
 
 После принятия Literary Master книга №1 становится первым жёстким межкнижным exclusion corpus новой системы.
 
-## 8. Research state
+## 11. Research state
 
 Создан `RESEARCH-MAP.md`.
 
@@ -145,49 +198,56 @@
 
 Открытые вопросы не маскировать под доказанные. Конкретная глава не получает contract, если её ключевой тезис зависит от unresolved evidence.
 
-## 9. Category state
+## 12. Category state
 
-Создан `CATEGORY-COMPETITOR-MAP-2026.md`.
+Созданы:
 
-Главные конкурентные классы:
+- `CATEGORY-COMPETITOR-MAP-2026.md`;
+- `WORLD-CLASS-BENCHMARK-2026.md`.
 
-- Beckwith / classic services marketing;
-- Тургунов / techniques of selling professional services;
-- широкие учебники маркетинга услуг;
-- lead-generation / personal-brand / platform books;
-- современные international professional-services books;
-- бесплатные guides;
-- AI-компиляции.
+Category gap: цельная decision-oriented система продажи услуги через buyer uncertainty, а не очередной список советов.
 
-Category gate выявил рабочую gap-territory: цельная decision-oriented система продажи услуги через buyer uncertainty, а не очередной список советов.
+World-class gate требует не просто отличаться от прямых конкурентов, а доказать, что книга по центральной мысли, evidence, practical depth и применимости достойна сравнения с сильными международными benchmark-работами.
 
-## 10. Первый производственный gate
+## 13. Russia application rule
+
+Рабочий маршрут каждой применимой главы:
+
+`мировой mechanism → international evidence → границы применимости → российская ситуация → конкретное действие российского читателя`.
+
+Российская конкретика должна учитывать реальный контекст на дату master, но не превращать книгу в платформенный справочник.
+
+Time-sensitive local details проходят отдельный freshness audit перед финальным master.
+
+## 14. Первый производственный gate
 
 До написания первой главы должны существовать и пройти порядок:
 
 1. `BOOK-DEFINITION.md` — direct user approval required;
 2. `CATEGORY-COMPETITOR-MAP-2026.md`;
-3. `RESEARCH-MAP.md`;
-4. Architecture v1;
-5. chapter contracts;
-6. intra-book uniqueness map / provisional reservations;
-7. pre-writing audit;
-8. direct user approval of Architecture.
+3. `WORLD-CLASS-BENCHMARK-2026.md`;
+4. `RESEARCH-MAP.md`;
+5. practical-value map / outputs;
+6. Architecture v1;
+7. chapter contracts с полями `BUSINESS PROBLEM / DECISION / ACTION / ARTIFACT / OBSERVABLE CHECK / RUSSIA APPLICATION / WORLD-CLASS BENCHMARK / UNIQUENESS`;
+8. intra-book uniqueness map / provisional reservations;
+9. pre-writing audit;
+10. direct user approval of Architecture.
 
 Только после `ARCHITECTURE-APPROVED` переходить к системному написанию master-текста.
 
-## 11. Quality target
+## 15. Quality target
 
-Первая книга должна стать эталоном перезапущенной серии, поэтому при конфликте приоритетов:
+При конфликте приоритетов:
 
-`качество и современность → смысловая цельность → практическая ценность → скорость`.
+`top-tier global quality + original contribution + доказательная честность + очень сильная практическая ценность + российская применимость + уникальность → скорость`.
 
-Не заполнять объём ради объёма. Не спасать слабую главу красивым стилем. Если интеллектуальная функция дублируется, материал объединяется, переносится или удаляется.
+Не заполнять объём ради объёма. Не спасать слабую главу красивым стилем. Если интеллектуальная или практическая функция дублируется, материал объединяется, переносится или удаляется.
 
-## 12. Current next stage
+## 16. Current next stage
 
 Текущий разрешённый этап: **DEFINITION-DRAFT / RESEARCH**.
 
-Следующий user gate: принять или отклонить стратегический центр `BOOK-DEFINITION.md`.
+Следующий user gate: принять или отклонить стратегический центр `BOOK-DEFINITION.md` после учёта top-tier/practical/Russia требований.
 
-До `DEFINITION-APPROVED` можно закрывать research gaps, но не фиксировать финальный Book Contract. WRITING закрыт.
+До `DEFINITION-APPROVED` можно закрывать research gaps и practical map, но не фиксировать финальный Book Contract. WRITING закрыт.
