@@ -7,6 +7,41 @@ NATIVE = ROOT / "native"
 
 
 class OwnerProductionFlowSourceTests(unittest.TestCase):
+    def test_cumulative_owner_workflow_matrix_remains_present(self) -> None:
+        app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        panel = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
+        quality = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
+        interface = app + panel + quality
+        for capability in (
+            "ШАГИ РАБОТЫ",
+            "Сохранить текст и обновить главы",
+            "Текст книги — выделите нужное слово",
+            "Сохранить для этого места",
+            "Открыть общий словарь ударений",
+            "Заставка перед главами — необязательно",
+            "Добавить свой звук…",
+            "Выбрать целиком",
+            "Обрезать или выбрать другой участок (необязательно)",
+            "4. Выберите диктора",
+            "Выберите главу",
+            "Запись остановлена",
+            "Прослушать главу",
+            "Одобрить",
+            "Отклонить этот вариант",
+            "Собрать главу",
+            "Подготовить мастер",
+            "Собрать аудиокнигу",
+            "Как пользоваться Audiobook Studio",
+            "Удалить полностью из библиотеки",
+            "Убрать, сохранив архив",
+        ):
+            self.assertIn(capability, interface)
+        for step in (
+            ".text", ".pronunciation", ".chapterSound", ".narrator",
+            ".chapter", ".review", ".release",
+        ):
+            self.assertIn(step, panel)
+
     def test_main_flow_is_author_first_and_costs_are_moved_out(self) -> None:
         app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
         panel = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
@@ -112,13 +147,20 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
             '"--scope", "OCCURRENCE"',
             '"--expected-sha256", expectedSHA',
             'arguments += ["--scope", "BOOK"]',
-            "expectedSHA == ttsReview?.workingCopySHA256",
+            "expectedSHA == expectedReviewSHA",
             "selectedContextualReviewItem",
             "stressSelectionContext",
         ):
             self.assertIn(token, controller)
         self.assertIn("Так можно исправить ранее поставленное ударение", panel)
         self.assertIn(".disabled(textController.workingTextHasUnsavedChanges)", panel)
+        self.assertIn("@State private var isHomonymReviewExpanded = false", panel)
+        self.assertIn("isHomonymReviewExpanded = false", panel)
+        self.assertNotIn("@State private var isHomonymReviewExpanded = true", panel)
+        self.assertIn("Сначала сохраните или отмените правки текста — затем можно ставить ударения", panel)
+        self.assertIn("requireSavedTextForPronunciation()", controller)
+        self.assertIn("let targetBookID = currentBookID", controller)
+        self.assertIn(".id(book.id)", (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8"))
 
     def test_sidebar_help_onboarding_and_contextual_next_actions_are_native(self) -> None:
         app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
@@ -205,12 +247,19 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
             'help("Удалить книгу из библиотеки")',
             'Button("Удалить полностью из библиотеки", role: .destructive)',
             'Button("Убрать, сохранив архив")',
-            'model.removeBook(book, permanently: true)',
-            'model.removeBook(book, permanently: false)',
+            'permanently: true,',
+            'permanently: false,',
+            'ownerMutationBusy: ownerMutationBusy',
             'let mode = permanently ? "--delete-book" : "--archive-book"',
-            'guard !isRunning, !isPreparingBookText, !isAddingBook, !isRemovingBook else',
+            '!isSavingBookVoice, !ownerMutationBusy else',
             "removalDisabled: model.isRemovingBook",
             "|| model.isRunning",
+            "|| model.isSavingBookVoice",
+            "|| ownerBookMutationBusy",
+            ".disabled(ownerBookMutationBusy || model.isSavingBookVoice)",
+            '.disabled(removalDisabled)',
+            'bookMutationBusy: $ownerBookMutationBusy',
+            'ownerMutationBusy: $ownerBookMutationBusy',
             "Полное удаление не создаёт архив",
             "Исходный TXT в вашей папке",
             "готовые аудиофайлы и финансовая история не изменятся",
@@ -218,6 +267,14 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
             self.assertIn(token, app)
         self.assertIn("struct BookRemovalResult: Codable", contracts)
         self.assertIn('mode.add_argument("--delete-book"', runner)
+        self.assertIn(
+            "bookMutationBusy = textController.isLoading || soundController.isLoading",
+            (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8"),
+        )
+        panel = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
+        self.assertIn(".disabled(bookMutationBusy || model.isSavingBookVoice)", panel)
+        self.assertIn("if !textController.isLoading && !soundController.isLoading", panel)
+        self.assertNotIn(".onDisappear {\n            bookMutationBusy = false", panel)
 
 
 if __name__ == "__main__":

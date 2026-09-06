@@ -111,22 +111,18 @@ class PronunciationDictionaryTests(unittest.TestCase):
         self.assertIsNone(persisted["preferred"])
         self.assertEqual(self.store.auto_entries(), [])
 
-    def test_curated_homograph_registry_finds_common_words_with_meanings(self) -> None:
+    def test_contextual_registry_stays_narrow_and_owner_proven(self) -> None:
         registry = load_contextual_registry()
-        self.assertTrue({
-            "атлас", "белок", "броня", "вычитать", "ирис", "кружки", "мука",
-            "орган", "парить", "передохнуть", "плачу", "полки", "пора",
-            "пропасть", "село", "стоит", "стрелки", "хлопок", "замок",
-        }.issubset(registry))
+        self.assertEqual(set(registry), {"замок"})
         text = "Этот атлас стоит дорого, а старый замок похож на дворец."
         items = contextual_review_items(text)
         self.assertEqual(
             [item["normalized_word"] for item in items],
-            ["атлас", "стоит", "замок"],
+            ["замок"],
         )
         self.assertEqual(
             [variant["display"] for variant in items[0]["variants"]],
-            ["а́тлас", "атла́с"],
+            ["за́мок", "замо́к"],
         )
         self.assertTrue(all(
             variant["meaning"]

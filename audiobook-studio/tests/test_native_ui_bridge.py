@@ -770,8 +770,12 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('Button("Подготовить текст и найти главы") { model.requestBookTextPreparation() }', owner_panel)
         self.assertIn('Обновить список глав', owner_panel)
         self.assertGreaterEqual(owner_panel.count('Button("Сохранить текст и обновить главы")'), 2)
-        self.assertIn('func saveWorkingCopy(onSaved: (@MainActor () -> Void)? = nil)', (ROOT / "native" / "ContentQualityPanel.swift").read_text(encoding="utf-8"))
-        self.assertEqual(owner_panel.count('model.prepareBookTextAfterSave()'), 2)
+        self.assertIn('func saveWorkingCopy(onSaved: (@MainActor (String) -> Void)? = nil)', (ROOT / "native" / "ContentQualityPanel.swift").read_text(encoding="utf-8"))
+        self.assertEqual(owner_panel.count('model.prepareBookTextAfterSave(expectedBookID: savedBookID)'), 2)
+        self.assertIn('onSaved?(targetBookID)', (ROOT / "native" / "ContentQualityPanel.swift").read_text(encoding="utf-8"))
+        self.assertIn('func prepareBookTextAfterSave(expectedBookID: String)', source)
+        self.assertIn('guard selectedBook?.id == expectedBookID else { return }', source)
+        self.assertIn('guard bookID == expectedBookID else { return }', source)
         self.assertIn('Ничего выделять и отмечать не нужно', owner_panel)
         self.assertIn('"Подготовить текст книги?"', source)
         self.assertIn("Исходный файл не изменится", source)
@@ -801,6 +805,11 @@ class NativeUIBridgeTests(unittest.TestCase):
         selection = swift_function_body(source, "private func currentYandexChapterSelection()")
         self.assertIn("ForEach(model.availableProfiles)", source)
         self.assertIn(".pickerStyle(.radioGroup)", source)
+        self.assertIn("guard !isSavingBookVoice", select)
+        self.assertIn("isSavingBookVoice = true", select)
+        self.assertIn("defer { isSavingBookVoice = false }", select)
+        self.assertIn(".disabled(model.isSavingBookVoice)", source)
+        self.assertIn('ProgressView("Сохраняем диктора…")', source)
         self.assertNotIn('.disabled(true)\n                            LabeledContent("Стиль"', source)
         self.assertIn('"--set-book-voice"', select)
         self.assertIn('"--profile-id", profileID', select)
@@ -815,6 +824,18 @@ class NativeUIBridgeTests(unittest.TestCase):
         self.assertIn('profile.status == "approved"', selection)
         self.assertIn('Label("Диктор: \\(narrator.label)"', source)
         self.assertIn("struct BookVoiceSelectionResult", contracts)
+
+    def test_all_production_engines_pick_only_prepared_chapters(self):
+        source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        choose = swift_function_body(source, "func selectDefaultJob()")
+        self.assertIn('if selectedBook?.kind == "production"', choose)
+        self.assertIn('selectedJobID = chapterJobs.first?.id ?? ""', choose)
+        self.assertNotIn('engine == .yandex', choose)
+        self.assertGreaterEqual(
+            source.count('Picker("Выберите главу", selection: $model.selectedJobID)'),
+            3,
+        )
+        self.assertGreaterEqual(source.count("ForEach(model.chapterJobs)"), 3)
 
     def test_native_yandex_chapter_production_uses_separate_plan_and_confirmation(self):
         source = (ROOT / "native" / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
