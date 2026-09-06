@@ -1,7 +1,7 @@
 # PRACTICAL VALUE MAP — «Как продавать услуги»
 
-**Статус:** DRAFT / PRE-ARCHITECTURE  
-**Дата:** 2026-09-06  
+**Статус:** DEFINITION-APPROVED / PRE-ARCHITECTURE  
+**Дата:** 2026-09-07  
 **Назначение:** не допустить книгу, которая хорошо объясняет продажи услуг, но не меняет реальную коммерческую практику читателя.
 
 ## 1. Главный gate
@@ -18,27 +18,27 @@
 
 Если практический результат нельзя сформулировать конкретно, глава не допускается в Architecture.
 
-## 2. Book-level practical promise — DRAFT
+## 2. Book-level practical promise — APPROVED BY DEFINITION
 
 После прохождения всей книги читатель должен иметь не только понимание, но и **рабочую систему продажи собственной услуги**.
 
-Предварительный комплект результатов:
+Candidate pool для Architecture:
 
 | Business output | Что меняет | Статус |
 |---|---|---|
-| Buyer Uncertainty Map | показывает, что именно клиенту трудно понять/проверить/решить | PLANNED |
-| Service Decision Definition | переводит услугу из перечня работ в понятную задачу, результат, границы и условия | PLANNED |
-| Evidence Inventory | собирает релевантные и проверяемые доказательства компетентности/результата | PLANNED |
-| Process Visibility Map | делает процесс, роли, этапы и точки контроля наблюдаемыми до покупки | PLANNED |
-| Diagnostic Conversation Map | помогает понять задачу до предложения, не скатываясь в скрипт | PLANNED |
-| Qualification Criteria | показывает, когда клиент/задача/формат не подходят | PLANNED |
-| Offer Decision Sheet | проверяет предложение на ясность результата, scope, evidence, process, risk и next step | PLANNED |
-| Price–Scope–Risk Map | помогает обсуждать цену вместе с объёмом, неопределённостью и распределением риска | PLANNED |
-| Next-Step Design | создаёт логичный следующий шаг без ложного давления | PLANNED |
-| Lost-Deal Diagnostic | разбирает проигранную сделку по причине, а не по эмоции | PLANNED |
-| Personal Service Sales System | соединяет принятые решения в повторяемую систему | PLANNED |
+| Buyer Uncertainty Map | показывает, что именно клиенту трудно понять/проверить/решить | CANDIDATE |
+| Service Decision Definition | переводит услугу из перечня работ в понятную задачу, результат, границы и условия | CANDIDATE |
+| Evidence Inventory | собирает релевантные и проверяемые доказательства компетентности/результата | CANDIDATE |
+| Process Visibility Map | делает процесс, роли, этапы и точки контроля наблюдаемыми до покупки | CANDIDATE |
+| Diagnostic Conversation Map | помогает понять задачу до предложения, не скатываясь в скрипт | CANDIDATE |
+| Qualification Criteria | показывает, когда клиент/задача/формат не подходят | CANDIDATE |
+| Offer Decision Sheet | проверяет предложение на ясность результата, scope, evidence, process, risk и next step | CANDIDATE |
+| Price–Scope–Risk Map | помогает обсуждать цену вместе с объёмом, неопределённостью и распределением риска | CANDIDATE |
+| Uncertainty/Objection Diagnostic | отличает разные причины «подумаю/дорого/не сейчас» и выбирает разное действие | CANDIDATE |
+| Lost-Deal Learning Loop | отделяет предположения продавца от evidence о причине проигрыша | CANDIDATE |
+| Personal Service Sales System | соединяет принятые решения в повторяемую систему | CANDIDATE / SYNTHESIS |
 
-Это **не оглавление** и не означает, что каждому output нужна отдельная глава. Architecture обязана определить минимальное число уникальных шагов без повторов.
+Это **не оглавление**. Architecture обязана определить минимальное число уникальных шагов без повторов.
 
 ## 3. Next-business-day test
 
@@ -109,7 +109,7 @@
 
 ## 8. Practical output uniqueness ledger
 
-После Architecture сюда заносить фактические chapter outputs.
+Заполняется при Architecture v1.
 
 | Глава | Business problem | Decision | Action | Artifact | Observable check | Russia application | Status |
 |---|---|---|---|---|---|---|---|
@@ -129,6 +129,6 @@
 
 ## 10. Current status
 
-`PRE-ARCHITECTURE`.
+Definition принята пользователем 2026-09-07.
 
-Ни один output ещё не `RESERVED`. После принятия Book Definition и проектирования Architecture этот файл должен быть переработан из candidate map в фактический practical contract книги.
+Следующий этап — `ARCHITECTURE-DRAFT`. Ни один chapter output ещё не `RESERVED`; до пользовательского `ARCHITECTURE-APPROVED` будущие allocations имеют статус только `PLANNED`.
