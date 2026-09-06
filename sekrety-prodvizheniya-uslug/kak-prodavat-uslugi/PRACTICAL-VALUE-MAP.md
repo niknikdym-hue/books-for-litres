@@ -1,134 +1,80 @@
 # PRACTICAL VALUE MAP — «Как продавать услуги»
 
-**Статус:** DEFINITION-APPROVED / PRE-ARCHITECTURE  
+**Статус:** ARCHITECTURE-APPROVED / RESERVED OUTPUTS  
 **Дата:** 2026-09-07  
-**Назначение:** не допустить книгу, которая хорошо объясняет продажи услуг, но не меняет реальную коммерческую практику читателя.
+**Definition:** APPROVED  
+**Architecture v1:** APPROVED  
+**WRITING:** PER-CHAPTER ONLY AFTER CONTRACT PASS
 
 ## 1. Главный gate
 
-Каждый крупный раздел и будущая глава должны отвечать:
+Каждая глава должна отвечать:
 
-1. какую реальную коммерческую проблему решает читатель;
-2. какое решение он сможет принять;
-3. что конкретно сделает;
-4. какой business artifact создаст или изменит;
+1. какую реальную коммерческую проблему решает;
+2. какое новое решение читатель сможет принять;
+3. что конкретно он сделает;
+4. какой business artifact создаст/изменит;
 5. как проверит качество результата;
-6. что изменится в российском контексте;
-7. чем этот output уникален относительно соседних глав и всей серии.
+6. как output применяется в России;
+7. чем он уникален относительно соседних глав и серии.
 
-Если практический результат нельзя сформулировать конкретно, глава не допускается в Architecture.
+Слабая practical value = `REWORK / MERGE / DELETE` даже после Architecture approval.
 
-## 2. Book-level practical promise — APPROVED BY DEFINITION
+## 2. Book-level practical promise
 
-После прохождения всей книги читатель должен иметь не только понимание, но и **рабочую систему продажи собственной услуги**.
+После книги у читателя должна остаться **рабочая система продажи собственной профессиональной услуги**, а не конспект советов.
 
-Candidate pool для Architecture:
+Architecture v1 резервирует outputs так:
 
-| Business output | Что меняет | Статус |
-|---|---|---|
-| Buyer Uncertainty Map | показывает, что именно клиенту трудно понять/проверить/решить | CANDIDATE |
-| Service Decision Definition | переводит услугу из перечня работ в понятную задачу, результат, границы и условия | CANDIDATE |
-| Evidence Inventory | собирает релевантные и проверяемые доказательства компетентности/результата | CANDIDATE |
-| Process Visibility Map | делает процесс, роли, этапы и точки контроля наблюдаемыми до покупки | CANDIDATE |
-| Diagnostic Conversation Map | помогает понять задачу до предложения, не скатываясь в скрипт | CANDIDATE |
-| Qualification Criteria | показывает, когда клиент/задача/формат не подходят | CANDIDATE |
-| Offer Decision Sheet | проверяет предложение на ясность результата, scope, evidence, process, risk и next step | CANDIDATE |
-| Price–Scope–Risk Map | помогает обсуждать цену вместе с объёмом, неопределённостью и распределением риска | CANDIDATE |
-| Uncertainty/Objection Diagnostic | отличает разные причины «подумаю/дорого/не сейчас» и выбирает разное действие | CANDIDATE |
-| Lost-Deal Learning Loop | отделяет предположения продавца от evidence о причине проигрыша | CANDIDATE |
-| Personal Service Sales System | соединяет принятые решения в повторяемую систему | CANDIDATE / SYNTHESIS |
+| Ch | Business problem | Decision | Artifact | Observable check | Russia application | Status |
+|---:|---|---|---|---|---|---|
+| 1 | непонятна реальная причина no-decision | какую uncertainty диагностировать | Buyer Uncertainty Map | 3–5 сделок разложены по конкретным hypotheses/evidence | B2C / owner-led B2B / multi-stakeholder B2B | RESERVED |
+| 2 | услуга описана задачами/компетенциями | что именно buyer решается купить | Service Decision Definition | ясны situation/result/boundaries/client role | B2C clarity + B2B scope | RESERVED |
+| 3 | proof заменён self-claims | какое evidence закрывает конкретный risk | Evidence Inventory + Gap Map | у каждого proof указаны relevance/limits | cases/reviews/credentials/registries where relevant | RESERVED |
+| 4 | delivery — black box | что показать о future process | Process Visibility Map | ясны stages/roles/checkpoints/change rules | российский small agency/IT/consulting context | RESERVED |
+| 5 | предложение делается до понимания задачи | достаточно ли information для offer | Diagnostic Conversation Map | known/missing info явно отделены | B2C/self-employed + small B2B + buying group | RESERVED / RESEARCH BLOCKER |
+| 6 | принимается плохой fit | proceed/clarify/redesign/decline | Qualification / No-Go Criteria | observable criteria дают repeatable decision | capacity risk solo/ИП/small agency | RESERVED / CONDITIONAL |
+| 7 | КП не собирает decision logic | что buyer должен увидеть для решения | Offer Decision Sheet + revised proposal | decision-maker понимает situation/scope/proof/process/investment/next step | B2B КП vs B2C context | RESERVED / RESEARCH BLOCKER |
+| 8 | price отделена от scope/risk | что менять при ценовом напряжении | Price–Scope–Risk Map | price change связан с scope/obligation/risk | payment/staging/B2B-B2C after fresh check | RESERVED / HIGH BLOCKER |
+| 9 | одинаковая фраза скрывает разные причины | clarify/redesign/wait/decline etc. | Uncertainty/Objection Diagnostic | competing hypotheses проверяются до response | no unsupported Russia stereotypes | RESERVED / HIGH BLOCKER |
+| 10 | seller неверно объясняет wins/losses | какое system change тестировать | Lost-Deal Learning Loop + system assembly | facts/assumptions/pattern/test separated | usable without BI stack | RESERVED |
 
-Это **не оглавление**. Architecture обязана определить минимальное число уникальных шагов без повторов.
+`Personal Service Sales System` — не одиннадцатый tool. Это финальная интеграция Ch1–10.
 
 ## 3. Next-business-day test
 
-Каждый инструмент должен выдержать проверку:
-
-> Что читатель сможет изменить в своём бизнесе завтра?
-
-Слабые ответы:
-
-- «лучше понимать клиента»;
-- «повысить доверие»;
-- «лучше продавать»;
-- «работать над ценностью».
-
-Сильный ответ описывает конкретное действие и результат: например, переработать один блок коммерческого предложения по ясным критериям или разложить последние пять несостоявшихся сделок по разным причинам uncertainty.
+Каждый artifact должен быть применим к реальной продаже уже на следующий рабочий день. «Повышать ценность / доверие / качество» не считается action.
 
 ## 4. Economic significance test
 
-Практический output должен быть связан с реально значимой коммерческой ошибкой.
+Отдельная глава допустима только если её ошибка частая или дорогая и влияет на потерю сделки, unnecessary discount, bad fit, expectation conflict или wasted capacity/time.
 
-Для каждого кандидата на главу оценивать:
+Ch6 сохраняет **условный reservation**: если research/draft не докажут самостоятельную economic/intellectual function, она MERGE с Ch5 и книга становится 9-главной.
 
-- ошибка частая или дорогая?
-- приводит к потере продажи, скидке, плохому клиенту, конфликту ожиданий или неэффективному времени?
-- может ли читатель реально повлиять на неё?
-- не решена ли она уже бесплатным шаблоном без необходимости книги?
+## 5. Russia applicability
 
-Если экономическая значимость слабая, материал не получает отдельную главу.
-
-## 5. Russia applicability test
-
-Для каждого output проверить:
-
-- применим ли он у российского самозанятого / ИП / эксперта / агентства / небольшой сервисной компании;
-- не требует ли недоступного канала или сервиса;
-- не конфликтует ли с российским договорным, рекламным или потребительским контекстом;
-- нужно ли различать B2B и B2C;
-- какие локальные примеры действительно помогают применению.
-
-Локальный слой не должен ломать evergreen core.
+В каждой главе global mechanism сохраняется, а локальный слой меняет конкретное действие только там, где российская практика materially relevant. Legal/tax/payment/platform specifics получают freshness check перед master.
 
 ## 6. No duplicate tools
 
-Если два инструмента приводят к одному и тому же действию, они объединяются.
-
 Запрещено:
 
-- делать отдельные чек-листы для одного механизма под разными названиями;
-- повторять одни и те же вопросы в диагностике, предложении и финальном чек-листе;
-- выдавать summary главы за самостоятельный tool;
-- создавать worksheet только для увеличения ощущения практичности.
-
-Финальный набор инструментов должен быть компактным и сильным.
+- делать отдельный checklist для уже существующего artifact;
+- повторять diagnostic questions внутри proposal/objection tools;
+- выдавать chapter summary за самостоятельный tool;
+- создавать workbook-пункты ради объёма;
+- переименовывать один и тот же reader action.
 
 ## 7. Tool evidence rule
 
-Инструмент не объявляется «проверенным методом», если он авторски синтезирован.
+Каждый artifact маркируется по происхождению: research-derived / synthesis / author-created framework / checklist from chapter logic. Авторский synthesis не называется scientifically validated без evidence.
 
-Различать:
+## 8. Whole-book completion test
 
-- research-derived diagnostic;
-- synthesis of established findings;
-- author-created practical framework;
-- model example;
-- checklist based on explicit chapter logic.
+Practical gate FAIL, если reader должен сам придумывать применение, outputs дублируются, российская реальность требует самостоятельного «перевода», либо tools устаревают вместе с одной platform.
 
-Авторский framework может быть очень полезным, но его происхождение должно быть честным.
+## 9. Current status
 
-## 8. Practical output uniqueness ledger
+Все принятые architecture allocations = **`RESERVED`**.
 
-Заполняется при Architecture v1.
-
-| Глава | Business problem | Decision | Action | Artifact | Observable check | Russia application | Status |
-|---|---|---|---|---|---|---|---|
-| TBD | TBD | TBD | TBD | TBD | TBD | TBD | PRE-ARCHITECTURE |
-
-## 9. Whole-book completion test
-
-Перед Literary Master книга не проходит practical gate, если:
-
-- читателю приходится самому придумывать, как применить большую часть идей;
-- инструменты повторяются;
-- практическая часть выглядит как приложение к теории;
-- нет понятной последовательности от диагностики к изменению продажи;
-- российский читатель вынужден переводить половину советов на свою реальность;
-- значительная часть tools устарела вместе с платформами;
-- после книги нельзя назвать конкретные business artifacts, которые у читателя стали лучше.
-
-## 10. Current status
-
-Definition принята пользователем 2026-09-07.
-
-Следующий этап — `ARCHITECTURE-DRAFT`. Ни один chapter output ещё не `RESERVED`; до пользовательского `ARCHITECTURE-APPROVED` будущие allocations имеют статус только `PLANNED`.
+Reservation не означает Writing permission. Следующий этап — закрыть research blockers и по одной главе переводить contract в `WRITING_ALLOWED=YES` только после полного PASS.

@@ -1,11 +1,12 @@
 # BOOK BRAIN — «Как продавать услуги»
 
 **Серия:** «Секреты продвижения услуг», книга №1  
-**Статус:** DEFINITION-APPROVED / ARCHITECTURE-DRAFT  
+**Статус:** DEFINITION-APPROVED / ARCHITECTURE-APPROVED / PRE-WRITING-RESEARCH  
 **Режим:** WRITE FROM ZERO  
 **Дата старта:** 2026-09-06  
 **Definition approved:** 2026-09-07  
-**WRITING:** CLOSED
+**Architecture v1 approved:** 2026-09-07  
+**WRITING:** CLOSED GLOBALLY / OPEN ONLY PER-CHAPTER AFTER CONTRACT PASS
 
 ## 1. Обязательный authority read set
 
@@ -21,136 +22,163 @@
 8. этот `BOOK-BRAIN.md`;
 9. `BOOK-DEFINITION.md`;
 10. `DEFINITION-APPROVAL-2026-09-07.md`;
-11. `CATEGORY-COMPETITOR-MAP-2026.md`;
-12. `WORLD-CLASS-BENCHMARK-2026.md`;
-13. `RESEARCH-MAP.md`;
-14. `PRACTICAL-VALUE-MAP.md`;
-15. `RUSSIA-APPLICATION-MAP-2026.md`;
-16. `UNIQUENESS-LEDGER.md`;
-17. Architecture / chapter contracts после их появления;
-18. Content Quality Lexicon `BOOK_PROSE`.
+11. `ARCHITECTURE-V1.md`;
+12. `ARCHITECTURE-APPROVAL-2026-09-07.md`;
+13. `ARCHITECTURE-AUDIT-V1.md`;
+14. `ARCHITECTURE-RESEARCH-ADDENDUM-2026-09-07.md`;
+15. `CATEGORY-COMPETITOR-MAP-2026.md`;
+16. `WORLD-CLASS-BENCHMARK-2026.md`;
+17. `RESEARCH-MAP.md`;
+18. `PRACTICAL-VALUE-MAP.md`;
+19. `RUSSIA-APPLICATION-MAP-2026.md`;
+20. `UNIQUENESS-LEDGER.md`;
+21. relevant file in `chapter-contracts-v1/`;
+22. Content Quality Lexicon `BOOK_PROSE`.
 
-Обязательный общий quality gate:
+GitHub — source of truth. Память чата не заменяет этот read set.
 
-- `../../audiobook-studio/contracts/content-quality-core-ru-v1.json`;
-- профиль `BOOK_PROSE` из `../../audiobook-studio/content_quality_lexicon.py`.
+## 2. Подтверждено пользователем
 
-Этот файл не заменяет Book Definition и не является Architecture.
+- Название: **«Как продавать услуги»**.
+- Серия: **«Секреты продвижения услуг»**, книга №1 перезапуска.
+- Новая версия пишется с нуля; старое издание — только legacy source.
+- Все существующие книги серии планируется обновить, затем писать новые.
+- Каждая книга и каждая глава должны быть уникальны по смысловой функции.
+- Запрещены повторные механизмы, сцены, аналогии, research functions, frameworks и practical tools под новыми названиями.
+- Обязателен Content Quality Lexicon `BOOK_PROSE`.
+- Книга должна иметь **очень сильное практическое значение и актуальность**.
+- Планка — **уровень очень сильных мировых деловых книг**, с original contribution.
+- Применение — **конкретно для России**, без превращения книги в локальный платформенный справочник.
+- `BOOK-DEFINITION.md` утверждён 2026-09-07.
+- `ARCHITECTURE-V1.md` утверждена 2026-09-07.
 
-## 2. Что подтверждено пользователем
+## 3. Четыре обязательных качества
 
-- Название книги: **«Как продавать услуги»**.
-- Это первая книга серии **«Секреты продвижения услуг»**.
-- Новая версия создаётся **с нуля**, а не глубокой редактурой старого текста.
-- После первой книги пользователь хочет обновить все остальные существующие книги серии и написать новые.
-- Серия, правила и состояние фиксируются в `niknikdym-hue/books-for-litres`.
-- Общий Content Quality Lexicon / «словарь мусорных слов» обязателен.
-- Каждая книга серии должна быть уникальной; запрещены смысловые повторы, повторные аналогии и переупаковки старых механизмов.
-- Книга должна иметь **очень сильное практическое значение и быть актуальной**.
-- Планка — **уровень очень сильных мировых деловых книг**, не средний мировой рынок.
-- При этом книга должна давать **конкретное применение для России**.
-- 2026-09-07 пользователь прямо утвердил `BOOK-DEFINITION.md`: **`DEFINITION-APPROVED`**.
+Любой крупный объект книги должен пройти одновременно:
 
-## 3. Четыре обязательных качества книги
-
-Книга не может считаться сильной, если не проходит одновременно:
-
-1. **TOP-TIER GLOBAL** — сравнение с очень сильными мировыми benchmark-книгами.
-2. **ORIGINAL CONTRIBUTION** — собственная интеллектуальная модель, а не компиляция.
-3. **PRACTICAL VALUE** — сильные конкретные решения и business outputs.
-4. **RUSSIA APPLICATION** — применимость к российской реальности и freshness-check локальной конкретики.
+1. **TOP-TIER GLOBAL**;
+2. **ORIGINAL CONTRIBUTION**;
+3. **PRACTICAL VALUE**;
+4. **RUSSIA APPLICATION**.
 
 Провал любого блока = `REWORK`.
 
-## 4. Фактический legacy context
+## 4. Утверждённый стратегический центр
 
-Публичная серия ЛитРес на 2026-09-06 содержит четыре содержательные книги под именем **Елена Дым**:
+Продажа профессиональной услуги рассматривается как работа с неопределённостью покупки: результат, поставщик, доказательства, процесс, цена, границы и следующий шаг должны стать достаточно ясными, чтобы подходящий клиент мог принять решение.
+
+Книга должна провести российского читателя от этой модели к собственной работающей системе продажи услуги.
+
+Изменение центрального обещания/механизма требует нового прямого пользовательского решения.
+
+## 5. Утверждённая Architecture v1
+
+10 глав / 5 частей:
+
+1. Почему хорошую услугу трудно купить.
+2. Что именно клиент должен решиться купить.
+3. Доказательства вместо уверений.
+4. Показать работу до начала работы.
+5. Диагноз до предложения.
+6. Когда хорошая продажа заканчивается отказом.
+7. Коммерческое предложение как документ решения.
+8. Цена, объём и риск.
+9. «Я подумаю» — это не одно возражение.
+10. Почему вы проиграли сделку — и что менять на самом деле.
+
+Точные functions, outputs, boundaries и research constraints находятся в `ARCHITECTURE-V1.md` и chapter contracts.
+
+Число 10 не является целью. Глава 6 сохраняет обязательный merge-test с главой 5; любая другая глава также может быть объединена/удалена, если при production перестаёт проходить deletion/uniqueness gate.
+
+## 6. Reservation state
+
+По `ARCHITECTURE-APPROVAL-2026-09-07.md` все принятые chapter territories, causal mechanisms и practical outputs Architecture v1 имеют статус **`RESERVED`**.
+
+Это reservation, а не permission to write.
+
+Аналогии по-прежнему не зарезервированы: `NONE RESERVED`.
+
+## 7. Практический результат всей книги
+
+После книги читатель должен иметь улучшенную систему продажи собственной услуги, а не набор заметок.
+
+Утверждённые architecture-level outputs:
+
+- Buyer Uncertainty Map;
+- Service Decision Definition;
+- Evidence Inventory + Gap Map;
+- Process Visibility Map;
+- Diagnostic Conversation Map;
+- Qualification / No-Go Criteria;
+- Offer Decision Sheet;
+- Price–Scope–Risk Map;
+- Uncertainty/Objection Diagnostic;
+- Lost-Deal Learning Loop.
+
+`Personal Service Sales System` — финальная сборка этих результатов, а не отдельный повторный framework.
+
+## 8. Research blockers / pre-writing queue
+
+Architecture approval не снимает chapter-level evidence blockers.
+
+Приоритетные открытые блоки:
+
+- Ch5 — sales-specific diagnosis evidence;
+- Ch6 — final fit/qualification synthesis + merge-test;
+- Ch7 — proposal-specific evidence;
+- Ch8 — guarantees/fee/risk + Russia transaction specifics;
+- Ch9 — uncertainty/objection taxonomy + status-quo evidence.
+
+Ch1–4 и Ch10 имеют более сильную research foundation, но всё равно проходят финальный contract refinement до Writing.
+
+## 9. Writing governance
+
+Нельзя открыть `WRITING` для всей книги одним решением.
+
+Каждая глава получает `WRITING_ALLOWED=YES` только после:
+
+- research/evidence PASS;
+- world-class benchmark PASS;
+- practical-value PASS;
+- Russia application/freshness PASS;
+- intra-book zero-overlap PASS;
+- проверенных boundaries `NOT THIS CHAPTER`;
+- readiness к Content Quality / anti-junk режиму.
+
+После draft главы обязательны chapter QA и обновление `UNIQUENESS-LEDGER.md` до перехода к следующей.
+
+## 10. Legacy / future-book protection
+
+Legacy-книги под именем Елена Дым:
 
 1. «Как продавать услуги»;
 2. «Секреты продвижения услуг психолога в Яндекс Директ»;
 3. «Как продвигать юридические услуги в Яндекс Директ: Практическое руководство»;
 4. «Как продать онлайн-курсы».
 
-Подробности: `../LEGACY-SERIES-INVENTORY-2026-09-06.md`. Территории legacy-книг №2–4 защищены от поглощения новой книгой №1.
+Книга №1 не поглощает территории №2–4 и не превращается в книгу про acquisition channels, SEO/GEO, SMM, личный бренд, CRM, retention/LTV, полноценную pricing strategy, productization или масштабирование сервисной компании.
 
-## 5. Утверждённый Definition
+## 11. World-class / Russia rule
 
-Source: `BOOK-DEFINITION.md` + `DEFINITION-APPROVAL-2026-09-07.md`.
+Рабочий маршрут применимой главы:
 
-Утверждённый стратегический центр:
+`сильный мировой mechanism → international evidence → границы применимости → российская реальная ситуация → конкретное действие российского читателя`.
 
-> продажа профессиональной услуги — работа с неопределённостью покупки: результат, поставщик, доказательства, процесс, цена, границы и следующий шаг должны стать достаточно ясными, чтобы подходящий клиент мог принять решение.
+Benchmark задают сильные стороны `Selling the Invisible`, `The Trusted Advisor`, `SPIN Selling`, `Book Yourself Solid`, `The Challenger Sale`; их frameworks, архитектура и фирменные различения не копируются.
 
-Статус: **DEFINITION-APPROVED**.
-
-Definition закрепляет top-tier global benchmark, original contribution, сильную практическую систему и конкретный российский application layer. Изменение центрального обещания/механизма требует нового явного пользовательского решения.
-
-## 6. Практический результат всей книги
-
-Финальная книга должна позволить читателю **перестроить собственную систему продажи** и оставить компактный набор реальных business artifacts. Candidate pool хранится в `PRACTICAL-VALUE-MAP.md`; Architecture обязана объединить его до минимального числа неповторяющихся outputs.
-
-## 7. World-class benchmark state
-
-`WORLD-CLASS-BENCHMARK-2026.md` задаёт benchmark против сильных сторон `Selling the Invisible`, `The Trusted Advisor`, `SPIN Selling`, `Book Yourself Solid`, `The Challenger Sale` без копирования их frameworks/архитектуры.
-
-## 8. Russia application state
-
-`RUSSIA-APPLICATION-MAP-2026.md` задаёт маршрут:
-
-`мировой mechanism → international evidence → границы применимости → российская ситуация → конкретное действие российского читателя`.
-
-Локальная конкретика проходит freshness audit и не превращает книгу в юридический/платформенный справочник.
-
-## 9. Что пока НЕ зафиксировано
-
-До отдельного решения пользователя не считать окончательно установленными:
-
-- подзаголовок;
-- byline нового издания, если пользователь захочет изменить legacy-псевдоним Елена Дым;
-- целевой объём;
-- число глав;
-- Architecture;
-- chapter contracts;
-- окончательный набор practical artifacts/frameworks;
-- оформление ссылок/примечаний.
-
-## 10. Роль старого издания
-
-Старое издание «Как продавать услуги» — **legacy source**, не draft новой книги. Оно может давать вопросы для повторной проверки, но не диктует новую Architecture, стиль или актуальные факты.
-
-## 11. Уникальность первой книги
-
-До accepted master действуют внутрикнижный zero-overlap, protected legacy territories, future-book leakage control, practical-output uniqueness и world-class anti-copy benchmark. Всё резервируется через `UNIQUENESS-LEDGER.md`; аналогии по умолчанию не резервируются и допускаются только при реальной объяснительной необходимости.
-
-## 12. Research state
-
-`RESEARCH-MAP.md` даёт достаточную опору для Architecture по perceived risk/uncertainty, information asymmetry, ex-ante quality signals, process visibility, customer participation/co-production и AI-era context. Открытые вопросы остаются chapter-level blockers до получения достаточного evidence.
-
-## 13. Category state
-
-`CATEGORY-COMPETITOR-MAP-2026.md` и `WORLD-CLASS-BENCHMARK-2026.md` фиксируют gap: цельная decision-oriented система продажи услуги через buyer uncertainty, а не список советов.
-
-## 14. Следующий производственный gate
-
-Definition принят. Следующий разрешённый этап:
-
-1. `ARCHITECTURE-V1.md`;
-2. chapter contracts;
-3. `PLANNED` intra-book uniqueness entries;
-4. practical-output allocation;
-5. research blockers per chapter;
-6. Russia application allocation;
-7. world-class benchmark/deletion audit;
-8. прямое пользовательское решение `ARCHITECTURE-APPROVED / REWORK`.
-
-Только после `ARCHITECTURE-APPROVED` переходить к WRITING.
-
-## 15. Quality target
+## 12. Quality target
 
 `top-tier global quality + original contribution + доказательная честность + очень сильная practical value + российская применимость + уникальность → скорость`.
 
-## 16. Current next stage
+Слабая глава удаляется/объединяется, а не спасается стилем. Потраченное время не является аргументом за сохранение текста.
 
-Текущий разрешённый этап: **DEFINITION-APPROVED / ARCHITECTURE-DRAFT**.
+## 13. Current next stage
 
-Следующий user gate: **ARCHITECTURE-APPROVED / REWORK**. До него WRITING остаётся `CLOSED`.
+Текущий этап: **ARCHITECTURE-APPROVED / PRE-WRITING-RESEARCH**.
+
+Следующая работа:
+
+1. закрыть chapter research blockers;
+2. финализировать chapter contracts по очереди;
+3. открыть первую главу, которая получает полный `PASS`, на `WRITING_ALLOWED=YES`;
+4. писать строго по contract с последующим chapter QA.
