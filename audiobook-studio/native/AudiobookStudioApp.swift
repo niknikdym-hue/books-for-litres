@@ -2185,7 +2185,7 @@ struct StudioView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
             List(selection: $model.selectedBookID) {
                 Section("ШАГИ РАБОТЫ") {
                     ForEach(OwnerProductionStep.allCases) { step in
@@ -2339,8 +2339,17 @@ struct StudioView: View {
                                 .font(.headline)
                         }
                         if model.selectedBook?.jobs.isEmpty ?? true {
-                            Text("Подготовленных задач пока нет")
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Список глав ещё не создан", systemImage: "list.bullet.rectangle")
+                                    .font(.headline)
+                                Text("Сначала Studio должна офлайн найти введение и названия глав в тексте. Уже записанные части при этом не удаляются.")
+                                    .foregroundStyle(.secondary)
+                                Button("Перейти к подготовке текста") {
+                                    showingHelp = false
+                                    activeOwnerStep = .text
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
                         } else if model.engine == .openai {
                             if let book = model.selectedBook, !book.jobs.isEmpty {
                                 Picker("Подготовленная задача", selection: $model.selectedJobID) {
@@ -2361,11 +2370,14 @@ struct StudioView: View {
                                 Text("Для книги нет подготовленных глав.")
                                     .foregroundStyle(.secondary)
                             } else {
-                                Picker("Подготовленная глава", selection: $model.selectedJobID) {
+                                Label("Найдено глав: \(model.chapterJobs.count)", systemImage: "checklist")
+                                    .foregroundStyle(.secondary)
+                                Picker("Выберите главу", selection: $model.selectedJobID) {
                                     ForEach(model.chapterJobs) { job in
                                         Text(job.label).tag(job.id)
                                     }
                                 }
+                                .pickerStyle(.menu)
                             }
                             Text("Перед записью Studio покажет стоимость и число возможных запросов. Ничего не отправится без подтверждения.")
                                 .font(.caption)
@@ -2677,6 +2689,7 @@ struct StudioView: View {
                 StudioOnboardingView(isPresented: $showOnboarding)
             }
         }
+        .navigationSplitViewStyle(.balanced)
     }
 }
 
