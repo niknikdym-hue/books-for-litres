@@ -15,15 +15,18 @@
 3. `../WORLD-CLASS-PRACTICAL-RUSSIA-STANDARD.md`;
 4. `../SERIES-CANON-REGISTRY.md`;
 5. `../SERIES-PRODUCTION-PROTOCOL.md`;
-6. `../LEGACY-SERIES-INVENTORY-2026-09-06.md`;
-7. этот `BOOK-BRAIN.md`;
-8. `BOOK-DEFINITION.md`;
-9. `CATEGORY-COMPETITOR-MAP-2026.md`;
-10. `WORLD-CLASS-BENCHMARK-2026.md`;
-11. `RESEARCH-MAP.md`;
-12. `UNIQUENESS-LEDGER.md`;
-13. Architecture / chapter contracts после их появления;
-14. Content Quality Lexicon `BOOK_PROSE`.
+6. `../CHAPTER-CONTRACT-TEMPLATE.md`;
+7. `../LEGACY-SERIES-INVENTORY-2026-09-06.md`;
+8. этот `BOOK-BRAIN.md`;
+9. `BOOK-DEFINITION.md`;
+10. `CATEGORY-COMPETITOR-MAP-2026.md`;
+11. `WORLD-CLASS-BENCHMARK-2026.md`;
+12. `RESEARCH-MAP.md`;
+13. `PRACTICAL-VALUE-MAP.md`;
+14. `RUSSIA-APPLICATION-MAP-2026.md`;
+15. `UNIQUENESS-LEDGER.md`;
+16. Architecture / chapter contracts после их появления;
+17. Content Quality Lexicon `BOOK_PROSE`.
 
 Обязательный общий quality gate:
 
@@ -113,7 +116,21 @@
 
 Нельзя копировать их frameworks, архитектуру или фирменные различения. Наша книга обязана доказать собственную contribution для 2026 года и России.
 
-## 8. Что пока НЕ зафиксировано
+## 8. Russia application state
+
+Создан `RUSSIA-APPLICATION-MAP-2026.md`.
+
+Уже зафиксированы первичные официальные anchors по:
+
+- информации об услуге и исполнителе до B2C-договора;
+- потребительскому контексту;
+- НПД/чекам самозанятых;
+- договорной конкретике в применимых категориях;
+- быстро меняющемуся интернет-рекламному регулированию как NOT CORE / high-freshness territory.
+
+Российский слой не превращается в юридический справочник. В главу попадает только то, что materially меняет решение или business artifact читателя.
+
+## 9. Что пока НЕ зафиксировано
 
 До отдельного решения пользователя не считать окончательно установленными:
 
@@ -131,7 +148,7 @@
 
 Эти пробелы не заполнять случайными предположениями внутри рукописи.
 
-## 9. Роль старого издания
+## 10. Роль старого издания
 
 Старое издание «Как продавать услуги» — **legacy source**, не draft новой книги.
 
@@ -154,7 +171,7 @@
 
 Публичный legacy-фрагмент может использоваться только для category/legacy diagnosis.
 
-## 10. Уникальность первой книги
+## 11. Уникальность первой книги
 
 Хотя accepted exclusion corpus новой системы ещё не создан, книга №1 обязана соблюдать:
 
@@ -182,7 +199,7 @@
 
 После принятия Literary Master книга №1 становится первым жёстким межкнижным exclusion corpus новой системы.
 
-## 11. Research state
+## 12. Research state
 
 Создан `RESEARCH-MAP.md`.
 
@@ -198,7 +215,7 @@
 
 Открытые вопросы не маскировать под доказанные. Конкретная глава не получает contract, если её ключевой тезис зависит от unresolved evidence.
 
-## 12. Category state
+## 13. Category state
 
 Созданы:
 
@@ -209,7 +226,7 @@ Category gap: цельная decision-oriented система продажи у�
 
 World-class gate требует не просто отличаться от прямых конкурентов, а доказать, что книга по центральной мысли, evidence, practical depth и применимости достойна сравнения с сильными международными benchmark-работами.
 
-## 13. Russia application rule
+## 14. Russia application rule
 
 Рабочий маршрут каждой применимой главы:
 
@@ -219,7 +236,7 @@ World-class gate требует не просто отличаться от пр
 
 Time-sensitive local details проходят отдельный freshness audit перед финальным master.
 
-## 14. Первый производственный gate
+## 15. Первый производственный gate
 
 До написания первой главы должны существовать и пройти порядок:
 
@@ -227,16 +244,17 @@ Time-sensitive local details проходят отдельный freshness audit
 2. `CATEGORY-COMPETITOR-MAP-2026.md`;
 3. `WORLD-CLASS-BENCHMARK-2026.md`;
 4. `RESEARCH-MAP.md`;
-5. practical-value map / outputs;
-6. Architecture v1;
-7. chapter contracts с полями `BUSINESS PROBLEM / DECISION / ACTION / ARTIFACT / OBSERVABLE CHECK / RUSSIA APPLICATION / WORLD-CLASS BENCHMARK / UNIQUENESS`;
-8. intra-book uniqueness map / provisional reservations;
-9. pre-writing audit;
-10. direct user approval of Architecture.
+5. `PRACTICAL-VALUE-MAP.md`;
+6. `RUSSIA-APPLICATION-MAP-2026.md`;
+7. Architecture v1;
+8. chapter contracts по `../CHAPTER-CONTRACT-TEMPLATE.md`;
+9. intra-book uniqueness map / provisional reservations;
+10. pre-writing audit;
+11. direct user approval of Architecture.
 
 Только после `ARCHITECTURE-APPROVED` переходить к системному написанию master-текста.
 
-## 15. Quality target
+## 16. Quality target
 
 При конфликте приоритетов:
 
@@ -244,7 +262,7 @@ Time-sensitive local details проходят отдельный freshness audit
 
 Не заполнять объём ради объёма. Не спасать слабую главу красивым стилем. Если интеллектуальная или практическая функция дублируется, материал объединяется, переносится или удаляется.
 
-## 16. Current next stage
+## 17. Current next stage
 
 Текущий разрешённый этап: **DEFINITION-DRAFT / RESEARCH**.
 
