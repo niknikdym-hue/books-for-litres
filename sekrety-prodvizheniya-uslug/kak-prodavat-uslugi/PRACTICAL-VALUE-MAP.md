@@ -28,7 +28,7 @@
 |---:|---|---|---|---|---|---|
 | 1 | непонятна реальная причина no-decision | какую uncertainty диагностировать | Buyer Uncertainty Map | 3–5 сделок разложены по конкретным hypotheses/evidence | B2C / owner-led B2B / multi-stakeholder B2B | **USED-DRAFT** |
 | 2 | услуга описана задачами/компетенциями | что именно buyer решается купить | Service Decision Definition | ясны situation/work result/boundaries/client role/non-guaranteed outcome | B2C clarity + B2B scope/assumptions | **USED-DRAFT** |
-| 3 | proof заменён self-claims | какое evidence закрывает конкретный risk | Evidence Inventory + Gap Map | у каждого proof указаны relevance/limits | cases/reviews/credentials/registries where relevant | RESERVED |
+| 3 | proof заменён self-claims / нерелевантными регалиями | какое evidence отвечает на конкретный buyer risk | Evidence Inventory + Gap Map | у каждого proof есть relevance/verifiability/support/limits/gap | cases/reviews/credentials/registries only where relevant | **USED-DRAFT** |
 | 4 | delivery — black box | что показать о future process | Process Visibility Map | ясны stages/roles/checkpoints/change rules | российский small agency/IT/consulting context | RESERVED |
 | 5 | предложение делается до понимания задачи | достаточно ли information для offer | Diagnostic Conversation Map | known/missing info явно отделены | B2C/self-employed + small B2B + buying group | RESERVED / RESEARCH BLOCKER |
 | 6 | принимается плохой fit | proceed/clarify/redesign/decline | Qualification / No-Go Criteria | observable criteria дают repeatable decision | capacity risk solo/ИП/small agency | RESERVED / CONDITIONAL |
@@ -53,6 +53,15 @@
 - observable stranger-retell test: PASS;
 - separates controllable work result from external outcome and specifies client participation boundary;
 - does not duplicate Ch3 evidence or Ch4 process map: PASS WITH PROTECTED BOUNDARIES.
+
+### Ch3 — Evidence Inventory + Gap Map
+- next-business-day: PASS;
+- reader maps 3–5 real buyer risks to evidence instead of collecting generic credentials;
+- observable fields: relevance, verifiability, supported claim, limits, gap;
+- author-created synthesis clearly labelled;
+- does not duplicate Ch2 service definition;
+- Ch4 protected: future stages/roles/checkpoints are not part of this artifact;
+- Russia layer avoids invented universal hierarchy of reviews/registries.
 
 ## 4. Next-business-day test
 
@@ -88,6 +97,6 @@ Practical gate FAIL, если reader должен сам придумывать 
 
 ## 10. Current status
 
-Ch1–2 practical outputs = **USED-DRAFT**.
+Ch1–3 practical outputs = **USED-DRAFT / QA PASS-DRAFT**.
 
-Ch3–10 remain `RESERVED` until their own contract gates. No later chapter may create a renamed Buyer Uncertainty Map or Service Decision Definition.
+Ch4–10 remain `RESERVED` until their own contract gates. No later chapter may create renamed versions of Buyer Uncertainty Map, Service Decision Definition or Evidence Inventory + Gap Map.
