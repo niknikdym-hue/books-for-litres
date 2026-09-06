@@ -1,6 +1,6 @@
 # SERIES PRODUCTION PROTOCOL — «Секреты продвижения услуг»
 
-**Статус:** DRAFT binding production authority  
+**Статус:** CANONICAL / BINDING production authority  
 **Дата:** 2026-09-06  
 **Цель:** обеспечить одинаково высокий процесс качества для каждой книги без превращения самих книг в одинаковые произведения.
 
