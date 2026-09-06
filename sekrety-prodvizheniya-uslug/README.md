@@ -6,27 +6,45 @@
 
 GitHub — source of truth. Новый чат/исполнитель сначала проверяет актуальный `main` и рабочий PR/branch. Не восстанавливать производственное состояние по памяти, если его можно проверить в репозитории.
 
-## Обязательный read order перед написанием
+## Обязательный read order перед содержательной работой
 
 1. `SERIES-BRAIN.md` — мозг, границы и канон серии.
 2. `SERIES-QUALITY-CONSTITUTION.md` — жёсткие законы качества и zero-overlap.
-3. `SERIES-CANON-REGISTRY.md` — что уже использовано/зарезервировано и больше нельзя повторять.
+3. `SERIES-CANON-REGISTRY.md` — что использовано/зарезервировано/защищено и нельзя случайно поглотить.
 4. `SERIES-PRODUCTION-PROTOCOL.md` — последовательность производства каждой книги.
-5. `audiobook-studio/contracts/content-quality-core-ru-v1.json` — системный русский Content Quality Lexicon core.
-6. Book-level authority текущей книги.
-7. Полные принятые Literary Masters всех предыдущих книг серии.
+5. `LEGACY-SERIES-INVENTORY-2026-09-06.md` — фактические четыре legacy-книги прежней серии и protected territories.
+6. `audiobook-studio/contracts/content-quality-core-ru-v1.json` — системный русский Content Quality Lexicon core.
+7. Book-level authorities текущей книги.
+8. Полные принятые Literary Masters всех предыдущих новых книг серии после их появления.
 
 Без этого read set не начинать новое написание.
 
+## Фактический legacy-состав
+
+Прежняя серия опубликована под именем **Елена Дым** и содержит четыре содержательные книги:
+
+1. «Как продавать услуги»;
+2. «Секреты продвижения услуг психолога в Яндекс Директ»;
+3. «Как продвигать юридические услуги в Яндекс Директ: Практическое руководство»;
+4. «Как продать онлайн-курсы».
+
+Пользователь хочет обновить все существующие книги и написать новые. Первая книга перезапуска — «Как продавать услуги».
+
 ## Текущая книга
 
-1. `kak-prodavat-uslugi/` — **«Как продавать услуги»**, книга №1, режим WRITE FROM ZERO.
+`kak-prodavat-uslugi/` — **«Как продавать услуги»**, книга №1, режим WRITE FROM ZERO.
 
-Внутри книги обязательны:
+Текущий статус: `DEFINITION-DRAFT / RESEARCH`, `WRITING=CLOSED`.
+
+Внутри книги сейчас обязательны:
 
 - `BOOK-BRAIN.md`;
-- `UNIQUENESS-LEDGER.md`;
-- позже: Book Definition / Research Map / Architecture / chapter contracts / Literary Master.
+- `BOOK-DEFINITION.md`;
+- `CATEGORY-COMPETITOR-MAP-2026.md`;
+- `RESEARCH-MAP.md`;
+- `UNIQUENESS-LEDGER.md`.
+
+После `DEFINITION-APPROVED` создаются Architecture v1 и chapter contracts. Текст глав разрешён только после прямого пользовательского `ARCHITECTURE-APPROVED`.
 
 ## Главный закон
 
@@ -46,9 +64,15 @@ GitHub — source of truth. Новый чат/исполнитель снача�
 
 Та же проверка действует внутри одной книги между её главами.
 
+## Legacy vs accepted exclusion
+
+Legacy-книги 2024 года защищают обещанные территории и подлежат отдельной инвентаризации при rework. Они не считаются автоматически `USED-ACCEPTED` новой quality system.
+
+После принятия нового Literary Master он становится жёстким exclusion corpus для всех следующих новых книг серии.
+
 ## Status discipline
 
 `DRAFT` ≠ `APPROVED`.  
 `LITERARY MASTER` ≠ `ACCEPTED/LOCKED` без прямого принятия пользователем.
 
-После принятия книги полный master становится exclusion corpus для всех следующих книг серии, а `SERIES-CANON-REGISTRY.md` обновляется фактическими использованными активами.
+AI не присваивает `DEFINITION-APPROVED`, `ARCHITECTURE-APPROVED`, `ACCEPTED` или `LOCKED` самостоятельно.
