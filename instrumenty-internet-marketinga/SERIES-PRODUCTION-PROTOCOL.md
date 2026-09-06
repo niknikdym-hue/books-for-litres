@@ -3,39 +3,45 @@
 **Статус:** CANONICAL / BINDING production authority  
 **Дата:** 2026-09-07
 
-## 1. Сначала серия, потом отдельная книга
+## 1. Locked titles, new books
 
-До начала Writing любой книги перезапуска провести **Series Portfolio Re-Architecture 2026+**.
+Три существующих названия серии заранее зафиксированы и не требуют portfolio-решения о сохранении:
 
-Обязательный результат этапа:
+1. «Квиз-маркетинг. Как собирать лиды, вовлекать и продавать через тесты»;
+2. «Как оценивать эффективность рекламы»;
+3. «SMM продвижение».
 
-- фактическая карта legacy-книг;
-- карта современного digital-marketing landscape;
-- карта сильных мировых benchmark territories;
-- карта реальных российских задач и ограничений;
-- список крупных reader problems;
-- overlap/merge risks;
-- candidate book territories;
-- решение для каждой legacy territory: `KEEP / REFRAME / MERGE / RETIRE / RESEARCH-ANEW`;
-- proposed новые территории без автоматического утверждения названий;
-- owner-approved portfolio map.
+Для каждой книги действует `TITLE-LOCKED / WRITE-FROM-ZERO`.
 
-Пока portfolio map не утверждён, ни одна старая книга не получает автоматический статус «переписываем первой».
+**Старый manuscript не читается как содержательный input.** Нельзя извлекать из него старый promise, главы, механизмы, идеи, кейсы, инструменты, стиль или «удачные фрагменты» для новой версии.
 
-## 2. Legacy inventory
+Portfolio research нужен не для решения `KEEP / MERGE / RETIRE`, а для:
 
-Для каждой старой книги определить:
+- определения новой современной Book Definition под каждым locked title;
+- построения границ между тремя новыми книгами;
+- поиска дополнительных новых книг серии;
+- проверки overlap и общей архитектуры серии 2026+.
 
-- что в ней было центральным promise;
-- какие вопросы всё ещё актуальны;
-- какие механизмы evergreen;
-- какие факты/инструменты устарели;
-- что стало банальным/AI-replaceable;
-- что требует нового research;
-- что пересекается с другими legacy/new territories;
-- оправдывает ли тема отдельную книгу сегодня.
+## 2. Clean-room Book Definition
 
-Старый текст не формирует новое оглавление.
+Каждая из трёх книг начинается как новый проект с чистого листа.
+
+До Architecture исследовать заново:
+
+- современного reader;
+- дорогую/частую problem territory;
+- current market/category;
+- world-class benchmark;
+- лучшие free/AI substitutes;
+- центральное обещание;
+- mechanism / causal model;
+- original contribution;
+- practical end state;
+- Russia execution reality;
+- freshness profile;
+- series overlap.
+
+Единственный inherited field из старой книги — **title**.
 
 ## 3. Series Market / Problem Map
 
