@@ -5,157 +5,113 @@
 **Проект:** `audiobook-studio/`  
 **Repository:** `niknikdym-hue/books-for-litres`
 
-GitHub `main` — единственный source of truth кода и project authority.
+GitHub `main` — единственный source of truth. Exact repository HEAD всегда проверяется live и не фиксируется здесь как вечный указатель, потому что `main` движется также из-за книжных и authority-коммитов.
 
-Текущий `main` на момент этой фиксации:
+Последний принятый **Audiobook Studio runtime feature merge**:
 
 ```text
+PR #52
 fa5e1ed9a3796333246af88b5fddd697720f0055
 ```
 
-Последняя принятая Audiobook Studio feature-точка — merge PR #52 на этом же SHA. Открытый PR #53 относится к книге №3 и не изменяет канон Audiobook Studio.
+Открытый PR #53 относится к книге №3 и не меняет runtime authority Audiobook Studio.
 
 ---
 
-## 1. Safety и неизменяемые правила
+## 1. Safety
 
 Без отдельного bounded owner action запрещены:
 
 - provider/network TTS execution;
 - paid execution;
 - silent retry после ambiguous/sent request;
+- изменение immutable source книги;
 - уничтожение внешнего исходного TXT, уже произведённого audio, billing/provider records при удалении книги из Library;
-- предположение прав на сторонние audio assets;
-- изменение immutable source книги.
+- предположение прав на сторонние audio assets.
 
-OpenAI global safety остаётся `paid_execution_enabled = false`.
+OpenAI global safety: `paid_execution_enabled = false`.
 
-Обычная работа автора должна выполняться через `Audiobook Studio.app`, не через Terminal.
+Обычная работа автора — через `Audiobook Studio.app`, не Terminal.
 
 ---
 
-## 2. Принятые Studio-изменения 2026-09-03 — 2026-09-06
+## 2. Accepted Studio changes
 
 ### PR #45 — author-first Studio / production integration
 
-Merge:
-
 ```text
-a6377928856481456161a053701c2de79764182c
+merge = a6377928856481456161a053701c2de79764182c
 ```
 
-Приняты:
+Приняты editable TTS working copy, manual/advisory editorial scan, provider-neutral pronunciation, Yandex/OpenAI adapters, author-first native flow, Help/onboarding, chapter sound design, Voice Library, per-book narrator, delivery formats, TXT import, updater without ZIP и production identity guards.
 
-- editable TTS working copy при неизменяемом source;
-- manual/opt-in editorial junk scan, advisory only;
-- обязательный fail-closed только для реальных TTS/production defects и stale/unsafe identity;
-- provider-neutral pronunciation/stress workflow;
-- Unicode acute как canonical stress;
-- Yandex/OpenAI pronunciation adapters;
-- author-first native flow, Help/onboarding/sidebar;
-- chapter sound design downstream от TTS/QA;
-- approved Yandex Voice Library: Lera, Ermil, Kirill, Anton;
-- per-book narrator selection;
-- per-book delivery formats;
-- TXT UTF-8 import contract;
-- local updater without ZIP;
-- release/cue identity hardening.
-
-Старое draft-description PR #45 больше не является policy authority.
-
-### PR #46 — Yandex configurable timeout
-
-Merge:
+### PR #46 — configurable Yandex timeout
 
 ```text
-1bbb2265ad65b3a02c2c66e81f422d04abc4cc64
-```
-
-```text
+merge = 1bbb2265ad65b3a02c2c66e81f422d04abc4cc64
 production default = 180 s
-allowed range = 1…600 s
+allowed = 1…600 s
 ```
 
-Timeout валидируется до transport. Silent retry после sent/ambiguous request не добавлен.
+Silent retry после sent/ambiguous request не добавлен.
 
 ### PR #47 — Yandex recovery UX
 
-Merge:
-
 ```text
-f246b787887e664422c7a35e8bc796610a7c7891
+merge = f246b787887e664422c7a35e8bc796610a7c7891
 ```
 
-Continuation PREPARE — одна ожидаемая async-operation; recovery controls блокируются на время выполнения; готовый plan не готовится повторно.
+Continuation PREPARE — одна awaited async-operation; повторный PREPARE готового plan не допускается.
 
 ### PR #48 — canonical Yandex QA handoff
 
-Merge:
-
 ```text
-6ce6b67ce2c9e964db7da908ded43c90f218b03b
+merge = 6ce6b67ce2c9e964db7da908ded43c90f218b03b
 ```
 
-После успешной записи Studio заново разрешает canonical current Yandex authority перед Audio QA; legacy/symlink execution path не используется как QA authority.
+После успешной записи Audio QA получает re-resolved canonical current Yandex authority, а не legacy/symlink execution path.
 
-### PR #49 — persistent production steps / text stress selector
-
-Merge:
+### PR #49 — persistent production navigation / text stress selector
 
 ```text
-5278b7734a16bfa66c4c42d18e9887104cbf8541
+merge = 5278b7734a16bfa66c4c42d18e9887104cbf8541
 ```
 
-Приняты:
+Приняты 7 постоянно видимых шагов, persistent step selection, текст книги на `Ударения`, double-click word и Command-F.
 
-- 7 production steps всегда видимы и кликабельны;
-- выбранный step сохраняется;
-- на `Ударения` виден текст книги;
-- double-click word → stress checking;
-- Command-F для длинного текста;
-- stale pronunciation selection invalidates safely.
-
-Final acceptance after merge:
+Final acceptance:
 
 ```text
-full offline suite = 708/708 PASS
+full offline = 708/708 PASS
 Python CI = PASS
 macOS ARM64 CI = PASS
-render 1060×720 = PASS
-render 900×620 = PASS
+1060×720 = PASS
+900×620 = PASS
 independent UX = PASS
-native build / Info.plist / Mach-O / codesign = PASS
+build / Info.plist / Mach-O / codesign = PASS
 provider/network/paid = 0
 ```
 
-### PR #51 — Global Pronunciation Dictionary / contextual homographs
-
-Feature HEAD:
+### PR #51 — global pronunciation dictionary + contextual homographs
 
 ```text
-2944a56e4844eecb10c445ac6e28de38d682f0fa
+feature HEAD = 2944a56e4844eecb10c445ac6e28de38d682f0fa
+merge = c3b0b301e6f04714f318a0a6d4ab21252011a947
+GitHub Audiobook Studio Offline run #332 = SUCCESS
 ```
-
-Merge:
-
-```text
-c3b0b301e6f04714f318a0a6d4ab21252011a947
-```
-
-GitHub workflow `Audiobook Studio Offline` run #332: SUCCESS.
 
 Принято:
 
 - private global `Словарь ударений`;
-- global AUTO rules для однозначных owner corrections;
+- safe AUTO rules для однозначных owner corrections;
 - priority `OCCURRENCE > BOOK > GLOBAL AUTO > default`;
-- small versioned contextual registry для омографов;
-- known contextual word никогда не становится AUTO только потому, что пользователь выбрал один вариант;
-- unresolved contextual pronunciation блокирует только затронутый Yandex chapter/OpenAI segment;
-- exact-place contextual save в native pronunciation UI;
-- provider input получает выбранный BOOK/OCCURRENCE вариант без мутации immutable source.
+- small versioned contextual registry;
+- known contextual word не становится AUTO после первого выбора;
+- contextual choice сохраняется для exact place/book;
+- unresolved contextual pronunciation блокирует только affected Yandex chapter/OpenAI segment;
+- provider input получает выбранный pronunciation без мутации immutable source.
 
-Канонический contextual registry V1 содержит:
+Canonical contextual V1:
 
 ```text
 замок
@@ -163,17 +119,16 @@ GitHub workflow `Audiobook Studio Offline` run #332: SUCCESS.
 → замо́к = запирающее устройство
 ```
 
-Реальная owner-test migration доказана:
+Реальная owner-test migration:
 
 ```text
-dictionary revision: 10 → 11
-legacy global: замок → замо́к / AUTO
-new global: замок → за́мок / замо́к / REVIEW_REQUIRED
+revision 10 → 11
+legacy global = замок → замо́к / AUTO
+new global = замок → за́мок / замо́к / REVIEW_REQUIRED
 preferred = null
-repeat migration: revision remains 11
+repeat migration = revision 11, no duplicate change
 existing BOOK choice замо́к = preserved
-source bytes = preserved
-working text bytes = preserved
+source / working text / profile evidence = preserved
 provider/network/model/paid = 0
 billing mutation = false
 ```
@@ -181,9 +136,9 @@ billing mutation = false
 Acceptance:
 
 ```text
-full offline suite = 750/750 PASS
-render 1060×720 = PASS
-render 900×620 = PASS
+full offline = 750/750 PASS
+1060×720 = PASS
+900×620 = PASS
 independent UX = PASS
 Mach-O / Info.plist / strict codesign = PASS
 GitHub CI = PASS
@@ -191,32 +146,30 @@ GitHub CI = PASS
 
 ```text
 PRONUNCIATION_DICTIONARY_V1 = ACCEPTED
+KNOWN_HOMOGRAPH_ZAMOK_REPAIR = ACCEPTED
 ```
 
 ### PR #50 — simple permanent book deletion
 
-Merge:
-
 ```text
-34017fdaed0d13f99e74bab2abb71d1ca9a8248d
+merge = 34017fdaed0d13f99e74bab2abb71d1ca9a8248d
 ```
 
-Принято:
+Приняты:
 
 - visible trash action для user-added production books;
-- confirmation позволяет выбрать permanent archive-free removal либо recoverable archive;
-- permanent removal удаляет canonical Studio book profile/imported Studio assets;
-- внешний исходный TXT, rendered audio, billing и provider records сохраняются;
+- permanent archive-free removal или recoverable archive;
+- permanent removal очищает canonical Studio book profile/imported Studio assets;
+- внешний TXT, rendered audio, billing и provider records сохраняются;
 - demo/legacy/traversal/symlink targets fail closed;
-- destructive action блокируется во время recording/production/library mutation;
-- UI сохраняет согласованное состояние при post-commit cleanup warning.
+- deletion блокируется во время recording/production/library mutation.
 
-Acceptance PR #50:
+Acceptance:
 
 ```text
-full offline suite = 715/715 PASS
-native build / Info.plist / Mach-O / strict codesign = PASS
-independent safety + UX review = PASS after P2 fixes
+full offline = 715/715 PASS
+native build / Info.plist / Mach-O / codesign = PASS
+independent safety + UX = PASS after P2 fixes
 provider/network/paid = 0
 real books removed during tests = 0
 ```
@@ -225,38 +178,30 @@ real books removed during tests = 0
 BOOK_LIBRARY_PERMANENT_DELETE = ACCEPTED
 ```
 
-### PR #52 — chapter cue crash + explicit trimming UX
-
-Feature HEAD:
+### PR #52 — chapter cue crash + explicit trimming
 
 ```text
-7660fe3c610643960bc3d9cd76778eef2c250cfb
+feature HEAD = 7660fe3c610643960bc3d9cd76778eef2c250cfb
+merge = fa5e1ed9a3796333246af88b5fddd697720f0055
+GitHub Audiobook Studio Offline run #335 = SUCCESS
 ```
 
-Merge/current main:
+Исправлен доказанный native crash из zero-width chapter-cue SwiftUI `Slider` range.
 
-```text
-fa5e1ed9a3796333246af88b5fddd697720f0055
-```
+Owner-facing contract:
 
-GitHub workflow `Audiobook Studio Offline` run #335: SUCCESS.
-
-Исправлен доказанный native SwiftUI crash: zero-width chapter-cue slider ranges падали в `Normalizing.init`.
-
-Новый owner-facing контракт:
-
-- выбор cue по умолчанию использует весь звук, который пользователь только что прослушал;
-- trimming не происходит скрыто;
-- trimming — отдельное явное optional действие;
-- после сохранения фрагмента можно прослушать exact saved selection;
-- есть one-click `вернуть весь звук`;
+- выбор cue использует весь звук, который только что прослушан;
+- hidden trimming запрещён;
+- trimming — explicit optional action;
+- saved fragment можно прослушать exact;
+- есть one-click restore full sound;
 - overlapping selection saves защищены.
 
 Acceptance:
 
 ```text
-targeted sound/UI regressions = PASS
-full offline suite = 757/757 PASS
+targeted sound/UI = PASS
+full offline = 757/757 PASS
 fresh native build = PASS
 strict codesign = PASS
 GitHub CI = PASS
@@ -269,9 +214,7 @@ CHAPTER_CUE_SELECTION_UX = ACCEPTED
 
 ---
 
-## 3. Текущий native author flow
-
-Семь постоянных шагов:
+## 3. Current native author flow
 
 ```text
 1. Текст
@@ -283,15 +226,11 @@ CHAPTER_CUE_SELECTION_UX = ACCEPTED
 7. Выпуск
 ```
 
-Основной экран — author-facing. Billing, SHA/fingerprint, advanced Content Quality и diagnostics не должны доминировать в production flow.
-
-Help/onboarding является частью `.app`.
+Help/onboarding — внутри `.app`. Engineering diagnostics и billing не доминируют в основном flow.
 
 ---
 
-## 4. Импорт и Book Library
-
-MVP import:
+## 4. Book Library / import
 
 ```text
 TXT
@@ -300,21 +239,12 @@ UTF-8
 вся книга одним файлом
 ```
 
-Immutable source:
-
 ```text
-<book>/source/original.txt
+immutable source = <book>/source/original.txt
+editable TTS copy = <book>/tts/working.txt
 ```
 
-Editable TTS working copy:
-
-```text
-<book>/tts/working.txt
-```
-
-Оригинал книги не изменяется при подготовке, ударениях или синтезе.
-
-Book Library поддерживает recoverable archive и, после PR #50, owner-confirmed permanent archive-free removal с сохранением внешнего source и downstream production records.
+Book Library поддерживает recoverable archive и accepted permanent removal с preservation boundaries PR #50.
 
 ---
 
@@ -327,39 +257,35 @@ docs/PRONUNCIATION-DICTIONARY-V1.md
 contracts/pronunciation-dictionary-v1.schema.json
 ```
 
-Private runtime store:
+Private store:
 
 ```text
 <AUDIOBOOK_STUDIO_HOME>/settings/pronunciation/user-dictionary-v1.json
 ```
 
-Rule:
-
 ```text
-исправить ударение один раз
-→ применить к текущему context/book
-→ сохранить owner evidence
-→ upsert в global dictionary
-→ AUTO применять в следующих книгах только если слово безопасно однозначно
+исправить ударение
+→ применить к current context/book
+→ сохранить evidence
+→ upsert global dictionary
+→ AUTO reuse only if safe and unambiguous
 ```
 
-Priority:
-
 ```text
-OCCURRENCE > BOOK > GLOBAL AUTO > default pronunciation
+OCCURRENCE > BOOK > GLOBAL AUTO > default
 ```
 
-Known homograph:
+Known homograph `замок` всегда contextual:
 
 ```text
-замок → за́мок / замо́к · зависит от контекста
+за́мок / замо́к
 mode = REVIEW_REQUIRED
 preferred = null
 ```
 
-Никакой silent contextual guessing в V1.
+V1 не делает silent contextual guessing.
 
-Canonical storage — provider-neutral Unicode acute. Yandex/OpenAI adapters рендерят provider-specific форму позднее.
+Canonical storage — Unicode acute; provider syntax создаётся adapter-слоем.
 
 ---
 
@@ -387,40 +313,23 @@ Narrator/profile сохраняется per book.
 
 ## 7. Звуковое оформление
 
-Chapter cue остаётся optional downstream layer:
-
 ```text
-clean TTS
-→ Audio QA
-→ approved narration
-→ chapter cue
-→ assembly
-→ mastering
+clean TTS → Audio QA → approved narration → chapter cue → assembly → mastering
 ```
 
-Смена cue или его trimming не запускает TTS заново.
+Смена cue/trimming не запускает TTS.
 
-Поддерживаются:
+Поддерживаются `Без звука`, preview, per-book selection, favorites, user WAV с rights attestation, local GarageBand assets, explicit trimming, exact saved-fragment preview и restore full sound.
 
-- `Без звука`;
-- preview/playback;
-- per-book selection;
-- favorites/genre selection;
-- user WAV import с owner rights attestation;
-- локальные GarageBand assets при подтверждённой local provenance;
-- explicit optional trimming;
-- exact saved-selection preview;
-- restore full sound.
+По умолчанию выбирается весь прослушанный cue; trimming включается только явно.
 
-Выбор cue использует весь прослушанный asset, пока владелец явно не включает trimming.
-
-Исторический exact asset `Lounge Vibes 05.7` не найден. На Mac найден реальный `Lounge Vibes 05.caf`; он показывается под честным именем как любимый вариант владельца. Raw Apple asset отдельно не экспортируется.
+На Mac найден `Lounge Vibes 05.caf`, он показывается под честным именем как любимый owner option. Exact historical `Lounge Vibes 05.7` не найден.
 
 ---
 
-## 8. Форматы выпуска
+## 8. Delivery
 
-Per-book, без default:
+Per-book без default:
 
 ```text
 По главам
@@ -429,7 +338,7 @@ MP3
 Архив высокого качества
 ```
 
-Whole-book output заблокирован до готовности полного required chapter set.
+Whole-book output закрыт до полного required chapter set.
 
 ---
 
@@ -437,13 +346,10 @@ Whole-book output заблокирован до готовности полно�
 
 ```text
 book = hvatit-sebya-obestsenivat
-accepted first job = chapter-ch001 / Введение
-accepted provider/profile = yandex_lera
-voice = lera / neutral / 1.04
-accepted provider WAV SHA-256 = 2311b300ea1d1769fd9b299a7cb8e20ff218393e36e71bb6d86fb523172784b6
+accepted chapter = chapter-ch001 / Введение
+profile = yandex_lera
+accepted WAV SHA-256 = 2311b300ea1d1769fd9b299a7cb8e20ff218393e36e71bb6d86fb523172784b6
 ```
-
-Known accepted facts:
 
 ```text
 PCM16 mono 22050 Hz
@@ -451,19 +357,12 @@ duration = 347.001768707483 s
 cost = 7.40133310 RUB
 provider requests = 35
 retries = 0
-billing duplicates = 0
 automatic QA = PASS
 manual QA = APPROVED
-```
-
-Исторический gate denominator:
-
-```text
-REAL_BOOK_PROGRESS = 1/16
 WHOLE_BOOK_RELEASE_READY = FALSE
 ```
 
-Позднейшие pronunciation/preparation changes не дают права пересинтезировать уже хороший WAV без реального изменения затронутого speech identity.
+Accepted good WAV не пересинтезируется без реального изменения affected speech identity.
 
 ---
 
@@ -475,44 +374,27 @@ Opening credit = Елена Ди́лон. Хватит себя обесцени
 Production voice = Yandex Lera / neutral / 1.04
 ```
 
-No-music identity path остаётся безопасным default. Optional music/cue не должен блокировать clean speech path.
+No-music path — safe default; optional cue/music не блокирует clean speech path.
 
 ---
 
-## 11. Private application-level Yandex acceptance — 2026-09-03
-
-Normal Studio bridge + existing macOS Keychain credential прошли bounded live path:
+## 11. Private Yandex acceptance — 2026-09-03
 
 ```text
-Keychain → Yandex SpeechKit → valid WAV → provider-neutral Audio QA
-```
-
-Exact smoke facts:
-
-```text
-book = private-yandex-live-smoke-20260903
-job = chapter-ch001
-profile = yandex_lera
-text chars = 46
-max provider requests = 1
-actual provider requests = 1
+Keychain → Yandex SpeechKit → valid WAV → provider-neutral Audio QA = PASS
+provider requests = 1
 retry = 0
 actual local cost = 0.21146666 RUB
 joined WAV SHA-256 = 24271d1807cac78e5a1a23b1ff31b02d766db8099482a78fa26e4ba5945b64d6
-automatic Audio QA = PASS
-manual review = UNREVIEWED
+automatic QA = PASS
 secret disclosure = 0
 ```
 
-```text
-APPLICATION_KEYCHAIN_TO_YANDEX_TO_AUDIO_QA = PASS
-```
-
-PR #46–#48 усилили этот путь без дополнительных provider calls при разработке.
+PR #46–#48 усилили этот path без дополнительных provider calls при разработке.
 
 ---
 
-## 12. Current checkpoint
+## 12. Checkpoint
 
 ```text
 BOOK_LIBRARY_V1 = ACCEPTED
@@ -535,8 +417,8 @@ PERSISTENT_PRODUCTION_STEPS = ACCEPTED
 BOOK_TEXT_STRESS_SELECTION = ACCEPTED
 PRONUNCIATION_DICTIONARY_V1 = ACCEPTED
 KNOWN_HOMOGRAPH_ZAMOK_REPAIR = ACCEPTED
-CURRENT_STUDIO_FEATURE_MAIN = fa5e1ed9a3796333246af88b5fddd697720f0055
+LATEST_ACCEPTED_STUDIO_RUNTIME_MERGE = fa5e1ed9a3796333246af88b5fddd697720f0055
 WHOLE_BOOK_RELEASE_READY = FALSE
 ```
 
-Следующие Studio slices обязаны сохранять global pronunciation dictionary, contextual-homograph safety, book-delete preservation boundaries и explicit chapter-cue trimming UX. Уже принятые gates не переоткрывать без нового concrete evidence-backed defect.
+Следующие Studio changes обязаны сохранять contextual-homograph safety, pronunciation dictionary, PR #50 deletion preservation boundaries и explicit chapter-cue trimming UX. Принятые gates не переоткрывать без concrete evidence-backed defect.
