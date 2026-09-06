@@ -1,6 +1,6 @@
 # SERIES QUALITY CONSTITUTION — «Секреты продвижения услуг»
 
-**Статус:** DRAFT binding series-level quality authority  
+**Статус:** CANONICAL / BINDING series-level quality authority  
 **Дата:** 2026-09-06  
 **Родительский authority:** `SERIES-BRAIN.md`  
 **Применение:** ко всем существующим, обновляемым и новым книгам серии.
