@@ -29,7 +29,7 @@
 |---:|---|---|---|---|---|
 | 1 | что именно делает purchase uncertain | hard-to-evaluate service → risk → signals/inaction | Buyer Uncertainty Map | не менять service definition / не handle objections | **USED-DRAFT** |
 | 2 | что именно buyer решается купить | tasks/expertise → mental intangibility → unclear decision object | Service Decision Definition | не proof / не full process | **USED-DRAFT** |
-| 3 | что реально доказывает quality/relevance | unobservable quality → screening by observable signals | Evidence Inventory + Gap Map | не process visibility / не personal-brand system | RESERVED |
+| 3 | что реально доказывает quality/relevance | unobservable quality → screening by observable signals | Evidence Inventory + Gap Map | не process visibility / не personal-brand system | **USED-DRAFT** |
 | 4 | как показать future delivery | opaque process/roles → process uncertainty | Process Visibility Map | не past proof / не PM manual | RESERVED |
 | 5 | что нужно узнать до offer | stated request → premature solution → mismatch | Diagnostic Conversation Map | не qualification / не proposal | RESERVED |
 | 6 | стоит ли работать вместе | provider-client-scope participation fit → delivery risk | Qualification / No-Go Criteria | не generic objections / не Ch5 diagnosis | RESERVED / CONDITIONAL |
@@ -44,7 +44,7 @@
 |---|---:|---|---|---|
 | M01 | 1 | hard-to-evaluate → uncertainty → perceived risk → signals/inaction | book diagnostic spine | **USED-DRAFT** |
 | M02 | 2 | task/expertise wording → mental intangibility + unclear control/participation boundaries → unclear decision object | define service | **USED-DRAFT** |
-| M03 | 3 | unobservable quality → screening/signals → evidence usefulness depends on relevance/verifiability | proof | RESERVED |
+| M03 | 3 | hard-to-observe quality → buyer screens through observable signals → evidence value depends on relevance/verifiability/limits | proof | **USED-DRAFT** |
 | M04 | 4 | opaque delivery/roles → process uncertainty → risk/expectation gap | process visibility | RESERVED |
 | M05 | 5 | stated request → premature solution → mismatch | diagnosis | RESERVED |
 | M06 | 6 | weak provider-client-scope fit → delivery/expectation risk | qualification | RESERVED / CONDITIONAL |
@@ -61,7 +61,7 @@
 |---|---:|---|---|---|
 | T01 | 1 | Buyer Uncertainty Map | diagnose purchase uncertainty | **USED-DRAFT** |
 | T02 | 2 | Service Decision Definition | redefine what is being bought | **USED-DRAFT** |
-| T03 | 3 | Evidence Inventory + Gap Map | match proof to risk | RESERVED |
+| T03 | 3 | Evidence Inventory + Gap Map | map buyer risk to relevant/verifiable proof and expose gaps | **USED-DRAFT** |
 | T04 | 4 | Process Visibility Map | expose stages/roles/checkpoints | RESERVED |
 | T05 | 5 | Diagnostic Conversation Map | identify information gaps | RESERVED |
 | T06 | 6 | Qualification / No-Go Criteria | proceed/clarify/redesign/decline | RESERVED / CONDITIONAL |
@@ -78,8 +78,8 @@
 |---:|---|---|
 | 1 | risk/uncertainty in professional/credence services | **USED-DRAFT / QA PASS-DRAFT** |
 | 2 | mental intangibility + service specification + participation/control boundaries | **USED-DRAFT / QA PASS-DRAFT** |
-| 3 | ex-ante quality signals/screening | NEXT CONTRACT REFINEMENT |
-| 4 | process visibility/participation effects with boundaries | CONTRACT REFINEMENT / CONTEXT-SENSITIVE |
+| 3 | ex-ante quality signals/screening + credibility/reputation boundaries | **USED-DRAFT / QA PASS-DRAFT** |
+| 4 | process visibility/participation effects with boundaries | NEXT CONTRACT REFINEMENT / CONTEXT-SENSITIVE |
 | 5 | diagnosis before solution; no SPIN copy | BLOCKED — RESEARCH |
 | 6 | provider-client-scope fit / bad-fit consequence | BLOCKED — FINAL SYNTHESIS + MERGE TEST |
 | 7 | proposal decision clarity | BLOCKED — RESEARCH |
@@ -95,7 +95,7 @@
 |---:|---|---|
 | 1 | same surface no-decision, different underlying purchase uncertainties | **USED-DRAFT**; Ch9 не повторяет opening/taxonomy scene |
 | 2 | provider/client mean different things by same broad service | **USED-DRAFT**; no later generic scope-confusion scene |
-| 3 | impressive proof vs relevant proof | RESERVED; no repeated credential-comparison function |
+| 3 | impressive proof vs relevant proof | **USED-DRAFT**; no later credential/reputation showcase with same function |
 | 4 | clear promise but opaque delivery vs visible roles/process | RESERVED; no repeated black-box function |
 | 5 | stated requested solution hides underlying problem | RESERVED; no later premature-solution scene |
 | 6 | tempting revenue but bad participation/scope fit | RESERVED / CONDITIONAL; no generic «bad client» morality tale |
@@ -108,7 +108,7 @@ Specific factual cases require their own source. Model/composite situations rema
 
 ## 8. Analogies / metaphors
 
-**NONE RESERVED / NONE USED AS STRUCTURAL ANALOGY in Ch1–2.**
+**NONE RESERVED / NONE USED AS STRUCTURAL ANALOGY in Ch1–3.**
 
 An analogy may be introduced only after contract-level necessity and registry check.
 
@@ -118,7 +118,7 @@ An analogy may be introduced only after contract-level necessity and registry ch
 |---:|---|---|---|---|---|
 | 1 | commercial puzzle / «я подумаю» | buyer-side risk mechanism/taxonomy | trust/price insufficient diagnosis | Buyer Uncertainty Map | **USED-DRAFT** |
 | 2 | ambiguous «ведение маркетинга» | mental representation + decision object | controllable result vs external outcome + client role | Service Decision Definition → proof question | **USED-DRAFT** |
-| 3 | self-claim/proof contrast | screening/evidence | impressive ≠ relevant | evidence audit | RESERVED |
+| 3 | two providers / loud vs relevant proof | signal function + relevance/verifiability/limits | reputation/volume do not solve task-specific gap | Evidence Inventory → future-process question | **USED-DRAFT** |
 | 4 | after-payment black box | process/roles | visibility cannot remove all uncertainty | process map | RESERVED |
 | 5 | premature prescription | information gaps | client may not know problem | diagnostic map | RESERVED |
 | 6 | tempting bad deal | fit dimensions | redesign can save some deals | no-go criteria | RESERVED / CONDITIONAL |
@@ -142,20 +142,23 @@ Actual drafts remain subject to mid-book composition audit.
 | 2026-09-07 | Ch2 actual draft vs Ch1 | both discuss buyer uncertainty | Ch1 diagnoses uncertainty; Ch2 redefines purchase object | PASS |
 | 2026-09-07 | Ch2 actual draft vs Ch3 | Ch2 mentions evidence in transition | no evidence criteria/tool in Ch2; Ch3 retains full proof function | PASS / PROTECTED |
 | 2026-09-07 | Ch2 actual draft vs Ch4 | Ch2 includes client role/boundaries | Ch4 owns detailed stages/roles/checkpoints/change rules | PASS / PROTECTED |
-| 2026-09-07 | Ch1–2 analogy audit | risk of formulaic one-metaphor-per-chapter | no structural analogies allocated | PASS |
+| 2026-09-07 | Ch3 actual draft vs Ch2 | proof chapter could restate service-definition clarity | Ch3 takes approved object as input; does not redefine service | PASS |
+| 2026-09-07 | Ch3 actual draft vs Ch4 | proof/process both reduce uncertainty | Ch3 owns past/observable proof; Ch4 prohibited from reteaching cases/reviews/credentials | PASS / PROTECTED |
+| 2026-09-07 | Ch3 lexicon | normal `это проблема` falsely hit old substring matcher | fixed system core with boundary-safe rule + regression test, PR #59 merged | PASS / SYSTEM IMPROVED |
+| 2026-09-07 | Ch1–3 analogy audit | risk of formulaic one-metaphor-per-chapter | no structural analogies allocated | PASS |
 
 ## 11. Future-book leakage
 
 Protected: Yandex Direct niche books, SEO/GEO, SMM/content/personal brand systems, full online-course funnel, CRM implementation, retention/LTV, scale/team management, full company pricing strategy and productization as separate systems.
 
-Generic marketing examples in Ch1–2 do not teach acquisition-platform tactics and therefore do not consume these territories.
+Generic marketing examples in Ch1–3 do not teach acquisition-platform tactics and therefore do not consume these territories.
 
 ## 12. Current gate
 
 Architecture v1 = **APPROVED**.
 
-Ch1–2 = **USED-DRAFT / not ACCEPTED**.
+Ch1–3 = **USED-DRAFT / QA PASS-DRAFT / not ACCEPTED**.
 
-Next allowed production object: **Chapter 3 contract refinement and independent pre-writing gate**.
+Next allowed production object: **Chapter 4 contract refinement and independent pre-writing gate**.
 
 No chapter may consume another chapter's reserved mechanism, scene function, practical output or composition function.
