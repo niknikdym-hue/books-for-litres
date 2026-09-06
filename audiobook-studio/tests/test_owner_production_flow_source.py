@@ -94,8 +94,11 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
         panel = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
         controller = (NATIVE / "ContentQualityPanel.swift").read_text(encoding="utf-8")
         for token in (
-            "Нужно выбрать произношение",
-            "Studio не угадывает по контексту",
+            "Поиск омонимов",
+            "Найдено мест для проверки",
+            "Проверить найденные места",
+            "Непроверенных омонимов из встроенного списка не найдено",
+            "После сохранения проверенное место исчезнет из списка",
             "variant.meaning",
             "Сохранить для этого места",
             'systemName: (',
@@ -139,6 +142,28 @@ class OwnerProductionFlowSourceTests(unittest.TestCase):
         self.assertIn('window.setContentSize(diagnosticWindowSize)', app)
         self.assertIn('ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_SECTION"] == nil', panel)
         self.assertNotIn('ContentQualitySettingsPanel(selectedBookID: model.selectedBookID)', app)
+
+    def test_pronunciation_changes_keep_full_step_chain_and_chapter_picker(self) -> None:
+        app = (NATIVE / "AudiobookStudioApp.swift").read_text(encoding="utf-8")
+        panel = (NATIVE / "OwnerProductionFlowPanel.swift").read_text(encoding="utf-8")
+        self.assertIn("enum OwnerProductionStep: Int, CaseIterable, Identifiable", panel)
+        self.assertIn("ForEach(OwnerProductionStep.allCases)", app)
+        for step in (
+            'case .text: return "Текст"',
+            'case .pronunciation: return "Ударения"',
+            'case .chapterSound: return "Заставка"',
+            'case .narrator: return "Диктор"',
+            'case .chapter: return "Глава"',
+            'case .review: return "Запись"',
+            'case .release: return "Выпуск"',
+        ):
+            self.assertIn(step, panel)
+        self.assertIn('Section("5. Выберите главу")', app)
+        self.assertIn('Picker("Подготовленная глава", selection: $model.selectedJobID)', app)
+        self.assertIn("ForEach(model.chapterJobs)", app)
+        self.assertIn('Button("Подготовить текст и найти главы")', panel)
+        self.assertIn('Button(review.preparationStatus == "STALE" ? "Обновить список глав" : "Подготовить текст и найти главы")', panel)
+        self.assertIn('navigationButton("Дальше: проверить ударения", destination: .pronunciation)', panel)
 
     def test_chapter_assembly_binds_selected_cue_into_identity_and_output(self) -> None:
         assembly = (ROOT / "chapter_assembly.py").read_text(encoding="utf-8")

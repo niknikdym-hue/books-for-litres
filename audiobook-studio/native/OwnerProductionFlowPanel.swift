@@ -558,6 +558,7 @@ struct OwnerProductionFlowPanel: View {
     @StateObject private var soundController = BookSoundController()
     @State private var showingPronunciationDictionary =
         ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_PRONUNCIATION_DICTIONARY"] == "true"
+    @State private var isHomonymReviewExpanded = true
     @State private var isEditingSoundExcerpt = false
     @Binding var activeStep: OwnerProductionStep
     @Binding var acknowledgedSteps: Set<OwnerProductionStep>
@@ -696,8 +697,7 @@ struct OwnerProductionFlowPanel: View {
 
             if activeStep == .pronunciation {
                 Section("2. Проверьте ударения") {
-                if let review = textController.ttsReview,
-                   !review.contextualReviewItems.isEmpty {
+                if let review = textController.ttsReview {
                     contextualPronunciationReview(review)
                 }
                 GroupBox("Как поставить ударение в слове из книги") {
@@ -1118,6 +1118,7 @@ struct OwnerProductionFlowPanel: View {
         }
         .task(id: selectedBookID) {
             isEditingSoundExcerpt = false
+            isHomonymReviewExpanded = true
             async let textLoad: Void = textController.reload(bookID: selectedBookID)
             async let soundLoad: Void = soundController.reload(bookID: selectedBookSlug)
             _ = await (textLoad, soundLoad)
@@ -1131,62 +1132,81 @@ struct OwnerProductionFlowPanel: View {
 
     @ViewBuilder
     private func contextualPronunciationReview(_ review: TTSTextReviewEnvelope) -> some View {
-        GroupBox {
+        GroupBox("Поиск омонимов") {
             VStack(alignment: .leading, spacing: 12) {
-                Label(
-                    "Нужно выбрать произношение · \(review.contextualReviewItems.count)",
-                    systemImage: "text.magnifyingglass"
-                )
-                .font(.headline)
-                Text("Эти слова имеют разные значения. Studio не угадывает по контексту: выберите вариант, затем сохраните его прямо в карточке нужного предложения.")
+                Text("Studio автоматически ищет в книге слова, которые пишутся одинаково, но произносятся по-разному. Проверка работает офлайн и ничего не записывает.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                ForEach(review.contextualReviewItems) { item in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(item.context)
-                            .font(.body)
-                            .textSelection(.enabled)
-                        FlowLayout(spacing: 8) {
-                            ForEach(item.variants) { variant in
-                                Button {
-                                    textController.previewContextualVariant(variant, for: item)
-                                } label: {
-                                    HStack(alignment: .top, spacing: 7) {
-                                        Image(
-                                            systemName: (
-                                                textController.stressSelectionStart == item.start
-                                                && textController.stressSelectionEnd == item.end
-                                                && textController.stressPreview?.vowelNumber == variant.vowelNumber
-                                            ) ? "checkmark.circle.fill" : "circle"
-                                        )
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(variant.display).fontWeight(.semibold)
-                                            Text(variant.meaning)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                if review.contextualReviewItems.isEmpty {
+                    Label("Непроверенных омонимов из встроенного списка не найдено", systemImage: "checkmark.circle.fill")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.green)
+                    Text("Если вы заметите другое сложное слово, выделите его в тексте ниже и задайте ударение вручную.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label(
+                        "Найдено мест для проверки: \(review.contextualReviewItems.count)",
+                        systemImage: "text.magnifyingglass"
+                    )
+                    .font(.headline)
+                    .foregroundStyle(.orange)
+                    Text("Для каждого предложения выберите значение слова. После сохранения проверенное место исчезнет из списка, а исправление сразу появится в тексте книги.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    DisclosureGroup("Проверить найденные места", isExpanded: $isHomonymReviewExpanded) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(review.contextualReviewItems) { item in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Label(item.word, systemImage: "character.cursor.ibeam")
+                                        .font(.callout.weight(.semibold))
+                                    Text(item.context)
+                                        .font(.body)
+                                        .textSelection(.enabled)
+                                    FlowLayout(spacing: 8) {
+                                        ForEach(item.variants) { variant in
+                                            Button {
+                                                textController.previewContextualVariant(variant, for: item)
+                                            } label: {
+                                                HStack(alignment: .top, spacing: 7) {
+                                                    Image(
+                                                        systemName: (
+                                                            textController.stressSelectionStart == item.start
+                                                            && textController.stressSelectionEnd == item.end
+                                                            && textController.stressPreview?.vowelNumber == variant.vowelNumber
+                                                        ) ? "checkmark.circle.fill" : "circle"
+                                                    )
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(variant.display).fontWeight(.semibold)
+                                                        Text(variant.meaning)
+                                                            .font(.caption)
+                                                            .foregroundStyle(.secondary)
+                                                    }
+                                                }
+                                            }
+                                            .buttonStyle(.bordered)
+                                        }
+                                    }
+                                    if textController.stressSelectionStart == item.start,
+                                       textController.stressSelectionEnd == item.end,
+                                       let preview = textController.stressPreview {
+                                        HStack {
+                                            Label("Выбрано: \(preview.display)", systemImage: "checkmark.circle")
+                                                .font(.callout.weight(.medium))
+                                            Spacer()
+                                            Button("Сохранить для этого места") {
+                                                textController.saveStressForBook()
+                                            }
+                                            .buttonStyle(.borderedProminent)
+                                            .disabled(textController.isLoading)
                                         }
                                     }
                                 }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                        if textController.stressSelectionStart == item.start,
-                           textController.stressSelectionEnd == item.end,
-                           let preview = textController.stressPreview {
-                            HStack {
-                                Label("Выбрано: \(preview.display)", systemImage: "checkmark.circle")
-                                    .font(.callout.weight(.medium))
-                                Spacer()
-                                Button("Сохранить для этого места") {
-                                    textController.saveStressForBook()
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(textController.isLoading)
+                                .padding(10)
+                                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
                             }
                         }
                     }
-                    .padding(10)
-                    .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
                 }
             }
         }
