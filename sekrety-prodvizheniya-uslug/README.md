@@ -13,10 +13,11 @@ GitHub — source of truth. Новый чат/исполнитель снача�
 3. `WORLD-CLASS-PRACTICAL-RUSSIA-STANDARD.md` — top-tier global benchmark + сильная practical value + применение для России.
 4. `SERIES-CANON-REGISTRY.md` — что использовано/зарезервировано/защищено и нельзя случайно поглотить.
 5. `SERIES-PRODUCTION-PROTOCOL.md` — последовательность производства каждой книги.
-6. `LEGACY-SERIES-INVENTORY-2026-09-06.md` — фактические четыре legacy-книги прежней серии и protected territories.
-7. `audiobook-studio/contracts/content-quality-core-ru-v1.json` — системный русский Content Quality Lexicon core.
-8. Book-level authorities текущей книги.
-9. Полные принятые Literary Masters всех предыдущих новых книг серии после их появления.
+6. `CHAPTER-CONTRACT-TEMPLATE.md` — обязательный pre-writing contract каждой главы.
+7. `LEGACY-SERIES-INVENTORY-2026-09-06.md` — фактические четыре legacy-книги прежней серии и protected territories.
+8. `audiobook-studio/contracts/content-quality-core-ru-v1.json` — системный русский Content Quality Lexicon core.
+9. Book-level authorities текущей книги.
+10. Полные принятые Literary Masters всех предыдущих новых книг серии после их появления.
 
 Без этого read set не начинать новое написание.
 
@@ -59,9 +60,10 @@ GitHub — source of truth. Новый чат/исполнитель снача�
 - `CATEGORY-COMPETITOR-MAP-2026.md`;
 - `WORLD-CLASS-BENCHMARK-2026.md`;
 - `RESEARCH-MAP.md`;
+- `PRACTICAL-VALUE-MAP.md`;
 - `UNIQUENESS-LEDGER.md`.
 
-После `DEFINITION-APPROVED` создаются Architecture v1 и chapter contracts. Текст глав разрешён только после прямого пользовательского `ARCHITECTURE-APPROVED`.
+После `DEFINITION-APPROVED` создаются Architecture v1 и chapter contracts **по `CHAPTER-CONTRACT-TEMPLATE.md`**. Текст глав разрешён только после прямого пользовательского `ARCHITECTURE-APPROVED`.
 
 ## Главный закон
 
