@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 1,
-  "updated_at": "2026-09-01T00:00:00+00:00",
+  "revision": 2,
+  "updated_at": "2026-09-07T00:00:00+03:00",
   "entries": [
     {
       "rule_id": "CQ-RU-NEGATIVE-FIRST-001",
@@ -38,14 +38,14 @@
     },
     {
       "rule_id": "CQ-RU-PHRASE-001",
-      "value": "это про",
-      "match_type": "PHRASE",
+      "value": "\\bэто\\s+про\\b",
+      "match_type": "REGEX",
       "action": "BLOCK",
       "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
       "origin": "SYSTEM",
-      "rationale": "Шаблонная метаформула вместо точного утверждения.",
+      "rationale": "Шаблонная метаформула вместо точного утверждения. Границы слова обязательны, чтобы не блокировать нормальные слова вроде «проблема».",
       "created_at": null,
-      "updated_at": null
+      "updated_at": "2026-09-07T00:00:00+03:00"
     },
     {
       "rule_id": "CQ-RU-PHRASE-002",
