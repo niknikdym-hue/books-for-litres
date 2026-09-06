@@ -1,4 +1,4 @@
-# OWNER DECISION — legacy titles are preserved / all three books are WRITE FROM ZERO
+# OWNER DECISION — preserve titles only / everything else WRITE FROM ZERO
 
 **Series:** «Инструменты интернет-маркетинга»  
 **Author:** Елена Дым  
@@ -7,27 +7,49 @@
 
 ## Decision
 
-All three existing LitRes book titles in the series are preserved as titles of the rebooted books:
+For the reboot of the series, preserve **only the titles** of the three existing LitRes books:
 
 1. **«Квиз-маркетинг. Как собирать лиды, вовлекать и продавать через тесты»**;
 2. **«Как оценивать эффективность рекламы»**;
 3. **«SMM продвижение»**.
 
-Each of these books is written **from zero**.
+Everything else is created **from zero**.
 
-The legacy manuscript may be used only as historical/legacy evidence for inventory: to identify old promises, questions, obsolete material, former reader expectations and protected territory. It does **not** determine the new book's architecture, chapter list, argument, mechanisms, examples, research, style, practical tools or wording.
+The old manuscripts are **not source material** for the new books. They must not determine or influence:
+
+- Book Definition;
+- target reader;
+- reader problem;
+- central promise;
+- central thesis or mechanism;
+- intellectual contribution;
+- book boundaries;
+- architecture or chapter list;
+- research questions or evidence base;
+- examples, scenes or cases;
+- frameworks, diagnostics or practical tools;
+- style, voice or composition;
+- wording or prose.
+
+Do not mine old manuscripts for “good parts”, do not preserve old chapter logic, and do not use legacy content as a shortcut for research or architecture.
+
+The reboot treats each preserved title as a **new 2026+ book identity only**. Under that title, BOOK DEFINITION, research, world-class benchmark, practical system, Russia execution layer, architecture and manuscript are built anew from current evidence and current reader needs.
 
 ## Supersession
 
-Any earlier portfolio hypothesis that one of these three legacy titles might be `MERGE`, `RETIRE`, renamed away, or lose its status as a standalone rebooted book is **SUPERSEDED** by this Owner Decision.
+Any earlier rule or research note that allowed the old manuscripts to serve as historical content input, legacy inventory for ideas, old promises, old reader expectations, or protected intellectual material is **SUPERSEDED** for these three rebooted books.
 
-Portfolio research remains required, but its job for the three legacy books is now to determine the strongest modern **Book Definition, contribution, boundaries, research base, practical system and Russia execution layer under the preserved title**.
+Any earlier portfolio hypothesis that one of these three titles might be merged, retired, renamed away, or lose standalone-book status is also **SUPERSEDED**.
 
-Portfolio research may still propose **additional new books** for the series. New-book titles and order remain subject to separate Owner approval.
+Portfolio research remains useful only to:
+
+- define the strongest modern book that deserves each preserved title;
+- avoid overlap among the three new books;
+- identify additional new books for the series.
 
 ## Quality invariant
 
-Preserving a title does not preserve a weak or outdated concept. Each rebooted book must independently satisfy:
+Each rebooted book must independently satisfy:
 
 - HIGHEST WORLD-CLASS QUALITY;
 - ORIGINAL CONTRIBUTION;
@@ -37,4 +59,4 @@ Preserving a title does not preserve a weak or outdated concept. Each rebooted b
 - freshness and evidence gates;
 - series and intra-book uniqueness.
 
-If the old framing is too narrow or outdated, the **content model is rebuilt under the preserved title** rather than solved by copying or lightly editing the old manuscript.
+Preserving a title preserves **nothing else**.
