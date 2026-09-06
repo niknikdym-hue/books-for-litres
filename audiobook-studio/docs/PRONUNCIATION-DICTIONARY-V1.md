@@ -1,223 +1,229 @@
 # Audiobook Studio — Словарь ударений V1
 
-**Статус:** canonical implementation authority  
-**Дата:** 2026-09-05  
+**Статус:** ACCEPTED canonical implementation authority  
+**Дата authority:** 2026-09-05  
+**Acceptance:** 2026-09-05 / PR #51  
 **Contract:** `contracts/pronunciation-dictionary-v1.schema.json`
 
 ## Назначение
 
 Пользователь не должен исправлять одно и то же ударение в каждой книге заново.
 
-Любая осознанная правка ударения, сделанная владельцем в Audiobook Studio, должна сохраняться в постоянный пользовательский **Словарь ударений**. При последующей подготовке текста Studio должна автоматически применять сохранённое решение ко всем подходящим словам, не затрагивая неизменяемый исходник книги.
+Любая осознанная правка ударения в Audiobook Studio сохраняется в постоянный пользовательский **Словарь ударений**. При следующей подготовке Studio автоматически использует сохранённое решение только тогда, когда оно безопасно однозначно.
 
 ## Каноническое хранилище
 
-Пользовательский словарь — private runtime data, не Git-артефакт:
+Private runtime data:
 
 ```text
 <AUDIOBOOK_STUDIO_HOME>/settings/pronunciation/user-dictionary-v1.json
 ```
 
-Файл должен сохраняться при обновлении/переустановке Studio так же, как остальные production settings/data.
+Файл не является Git-артефактом и должен переживать обновления Studio.
 
-Требования к записи:
+Требования:
 
 - schema v1;
 - atomic temp + fsync + replace;
 - cross-process advisory lock;
 - permissions 0600;
 - strict UTF-8;
-- неизвестные/повреждённые higher-schema данные не перезаписывать молча;
-- никаких provider/model/network/billing calls.
+- corrupt/higher schema fail closed и не перезаписывается пустым файлом;
+- provider/model/network/paid/billing operations = 0.
 
-## Каноническое представление ударения
+## Каноническое представление
 
-В словаре хранится provider-neutral Unicode acute:
+Provider-neutral Unicode acute:
 
 ```text
 Дилон → Ди́лон
 замок → за́мок / замо́к
 ```
 
-Provider-specific синтаксис создаётся только adapter-слоем:
+Provider-specific rendering — только adapter layer:
 
 - Yandex SpeechKit: canonical acute → `+` перед ударной гласной;
 - OpenAI TTS: canonical acute → pronunciation instruction;
-- Qwen/другой backend: собственный adapter без изменения словаря.
+- Qwen/другой backend: собственный adapter.
 
-## Правило сохранения
+## Сохранение owner correction
 
-Когда владелец в UI выбирает слово и исправляет ударение:
-
-1. выбранное решение сразу применяется к текущей TTS working copy;
-2. для текущей книги сохраняется точный pronunciation evidence;
-3. то же решение upsert-ится в глобальный Словарь ударений;
-4. при следующем открытии/подготовке любой книги Studio использует словарь автоматически только если запись безопасна для AUTO;
-5. immutable `source/original.txt` не изменяется никогда.
-
-То есть действие пользователя `исправить ударение` означает одновременно:
+Для обычного однозначного слова:
 
 ```text
-исправить текущую книгу
-+
-запомнить правило для следующих книг
+исправить ударение
+→ применить к текущему TTS context/book
+→ сохранить book/occurrence evidence
+→ upsert в global dictionary
+→ AUTO использовать в следующих книгах
 ```
 
-Отдельная галочка «запомнить» для обычного случая не нужна.
+Отдельная галочка «запомнить» не требуется.
 
-## Приоритет решений
+Immutable `source/original.txt` не изменяется.
+
+## Приоритет
 
 ```text
-exact occurrence override
-> book override
-> global dictionary AUTO
+exact OCCURRENCE
+> BOOK
+> GLOBAL AUTO
 > automatic/default pronunciation
 ```
 
-Так сохраняется возможность точечно переопределить глобальное правило в конкретном контексте.
+## Контекстные омографы
 
-## Омонимы и конфликтующие ударения
+Known homograph нельзя сначала записывать как `AUTO`, ожидая второго варианта.
 
-Нельзя слепо применять одно глобальное ударение к словам с разным произношением по смыслу.
-
-**Критически важно:** известный омограф нельзя сначала записывать как `AUTO`, ожидая, пока пользователь когда-нибудь встретит второй вариант. Если слово известно как контекстно-зависимое, оно с первого сохранения должно быть `REVIEW_REQUIRED`.
-
-Канонический тестовый пример:
+V1 canonical contextual case:
 
 ```text
 замок
-→ за́мок = дворец / крепость
+→ за́мок = строение, дворец или крепость
 → замо́к = запирающее устройство
 ```
 
-Следовательно:
-
-- выбор владельцем `замо́к` в одном конкретном месте означает правильное произношение **этого места**, а не глобальное правило `замок → замо́к`;
-- global entry `замок` должна хранить оба допустимых варианта `за́мок` и `замо́к`;
-- `mode = REVIEW_REQUIRED`;
-- `preferred = null`, пока владелец явно не задаст иной безопасный policy;
-- такая запись **никогда не применяется автоматически ко всем вхождениям**;
-- в текущей книге выбранное место получает BOOK/OCCURRENCE override;
-- перед TTS сомнительные вхождения должны попадать в проверку произношения, а не молча получать случайный вариант.
-
-Если для одного `normalized_word` владелец сохраняет второй отличающийся вариант:
-
-- оба варианта сохраняются в `variants`;
-- глобальная запись переводится в `REVIEW_REQUIRED`;
-- Studio перестаёт автоматически применять глобальный вариант этого слова;
-- текущая книга получает корректный BOOK/OCCURRENCE override;
-- UI показывает, что у слова несколько вариантов и предлагает выбрать для текущего контекста.
-
-Пользователь может позже назначить один вариант глобальным default только осознанным действием. Для известных смысловых омографов такой default не должен создаваться автоматически.
-
-### Обязательная коррекция уже существующего `замо́к`
-
-Если до введения этого правила в private dictionary уже была создана запись вида:
+Registry:
 
 ```text
-замок → замо́к
-mode = AUTO
+pronunciation-contextual-v1.json
 ```
 
-она считается **небезопасной legacy-записью** и должна быть автоматически мигрирована при первом запуске исправленной версии Studio:
+Для known contextual word:
+
+```text
+mode = REVIEW_REQUIRED
+preferred = null
+```
+
+Правила:
+
+- выбор `замо́к` в одном предложении — решение этого места, не глобальное `замок → замо́к`;
+- global entry хранит оба curated variants;
+- `REVIEW_REQUIRED` никогда не auto-applies;
+- user chooses exact contextual occurrence;
+- unresolved context блокирует только реально затронутый Yandex chapter/OpenAI segment;
+- V1 не делает silent AI/context guess.
+
+## Обязательная коррекция legacy `замок → замо́к / AUTO`
+
+Реальная owner-test запись существовала до уточнения homograph policy.
+
+Production migration PR #51 доказала:
 
 ```text
 normalized_word = замок
-mode = REVIEW_REQUIRED
+revision 10 → 11
+old mode = AUTO
+new mode = REVIEW_REQUIRED
 preferred = null
 variants = [за́мок, замо́к]
 ```
 
-При этой миграции:
+При migration:
 
-- текущая уже сделанная owner-правка `замо́к` в том месте, где она была выбрана, сохраняется;
-- никакие другие plain `замок` в текущей или новых книгах не получают `замо́к` автоматически;
-- immutable source не меняется;
-- TTS/provider вызовов нет;
-- миграция идемпотентна;
-- UI показывает владельцу, что `замок` требует выбора по контексту.
+- существующий BOOK choice `замо́к` сохранён;
+- immutable source сохранён;
+- working text bytes сохранены;
+- profile bytes сохранены;
+- повторный запуск не меняет revision (`11 → 11`);
+- duplicates не создаются;
+- provider/network/model/paid = 0;
+- billing mutation = false.
 
-Этот repair является обязательным acceptance test V1, потому что реальная тестовая запись `замо́к` уже была создана владельцем до уточнения homograph policy.
+```text
+KNOWN_HOMOGRAPH_ZAMOK_REPAIR = ACCEPTED
+```
 
 ## Автоприменение
 
-При импорте/подготовке/переоткрытии TTS working copy Studio должна:
+При import/preparation/reopen:
 
-1. загрузить словарь;
+1. загрузить global dictionary;
 2. взять только `mode=AUTO`;
 3. никогда не auto-apply `REVIEW_REQUIRED`;
-4. не трогать места, где уже есть occurrence/book override;
-5. применить canonical stress ко всем точным словам с учётом границ слова и регистра;
-6. заменить устаревший acute в том же слове, если владелец ранее сменил ударение;
-7. при изменении working text корректно пометить старую preparation/synthesis identity как STALE;
-8. не инвалидировать и не пересинтезировать сегменты, которых изменение не касается.
+4. не трогать места с более точным BOOK/OCCURRENCE override;
+5. применять canonical stress Unicode-safe и case-insensitive;
+6. корректировать старый acute, если owner изменил решение;
+7. помечать stale только затронутые preparation/synthesis identities;
+8. не пересинтезировать unrelated good WAV.
 
-## Миграция существующих решений
+## Migration existing BOOK rules
 
-На первом запуске V1 Studio должна просмотреть существующие owner-created BOOK pronunciation entries и уже существующий private global dictionary, если он был создан промежуточной версией.
+- один непротиворечивый вариант и слово не contextual → `AUTO`, source `MIGRATED_BOOK_RULE`;
+- разные варианты → `REVIEW_REQUIRED`;
+- existing global AUTO known homograph → downgrade to `REVIEW_REQUIRED`;
+- migration idempotent;
+- immutable source untouched.
 
-- Если для слова во всех книгах существует один и тот же вариант и слово не известно как контекстно-зависимое — создать `AUTO` запись с `source=MIGRATED_BOOK_RULE`.
-- Если встречаются разные варианты — создать `REVIEW_REQUIRED` с несколькими variants и не применять глобально автоматически.
-- Если существующая global `AUTO` запись относится к известному омографу — безопасно downgrade в `REVIEW_REQUIRED`, сохранив все варианты/evidence.
-- Миграция идемпотентна и не меняет immutable source.
+`Дилон → Ди́лон` сохраняется как safe global AUTO при однозначном accepted evidence.
 
-Это должно, в частности:
+## Native UI
 
-- сохранить уже принятое `Дилон → Ди́лон` как безопасное AUTO без необходимости вводить его заново;
-- исправить уже занесённое тестовое `замок → замо́к`, переведя `замок` в `REVIEW_REQUIRED` с вариантами `за́мок / замо́к`.
-
-## UI
-
-В разделе `Произношение` должен быть видимый переход:
+Раздел:
 
 ```text
-Словарь ударений
+Произношение → Словарь ударений
 ```
 
 Пользователь может:
 
 - искать слово;
 - видеть `слово → ударение`;
-- видеть AUTO / требует выбора;
-- изменить preferred-вариант;
-- отключить правило;
-- удалить пользовательское правило;
-- увидеть, что исправление текущего слова уже добавлено в словарь.
+- видеть human status `Зависит от контекста`;
+- отключать/удалять user rules;
+- выбирать вариант омографа в карточке конкретного предложения.
 
-Для `замок` пользователь должен видеть не одно глобальное ударение, а примерно:
+Для `замок` UI показывает:
 
 ```text
 замок → за́мок / замо́к · зависит от контекста
 ```
 
-Основной production flow при этом остаётся простым: двойной клик по слову → выбрать ударение → применить. Сохранение в словарь происходит автоматически.
-
 ## Safety / identity
 
-Изменение словаря само по себе не выполняет TTS.
+Dictionary mutation сама не выполняет TTS.
 
-Если словарное изменение меняет TTS working copy:
+Если correction реально меняет speech identity:
 
 ```text
-working-copy SHA changes
-→ affected preparation/segment identities become stale
-→ fresh PREPARE required only for affected speech
+working/pronunciation identity changes
+→ affected prepared/segment identity becomes stale
+→ fresh PREPARE only for affected speech
 ```
 
-Существующий хороший WAV не пересинтезируется без текстовой/произносительной причины.
+## Acceptance evidence — PR #51
 
-## Definition of Done
+```text
+PR = #51 Protect contextual homographs in pronunciation dictionary
+feature HEAD = 2944a56e4844eecb10c445ac6e28de38d682f0fa
+merge = c3b0b301e6f04714f318a0a6d4ab21252011a947
+GitHub Audiobook Studio Offline run #332 = SUCCESS
+full offline suite = 750/750 PASS
+native 1060×720 = PASS
+native 900×620 = PASS
+independent UX review = PASS
+Mach-O / Info.plist / strict codesign = PASS
+provider requests = 0
+network TTS = 0
+model calls = 0
+paid execution = 0
+billing mutation = false
+```
 
-V1 считается реализованным, когда доказано:
+## Definition of Done — satisfied
 
-1. исправление слова в Studio создаёт/обновляет запись в private global dictionary;
-2. перезапуск Studio сохраняет словарь;
-3. новая книга получает AUTO-ударения из словаря;
-4. book/occurrence overrides имеют больший приоритет;
-5. конфликтующий/известный омограф с первого сохранения находится в REVIEW_REQUIRED и не портит текст автоматически;
-6. уже существующая реальная тестовая запись `замок → замо́к` мигрирована в `замок → за́мок / замо́к · REVIEW_REQUIRED`;
-7. Yandex/OpenAI получают provider-specific rendering из одной canonical записи;
-8. immutable source не меняется;
-9. словарь не вызывает network/provider/model/paid/billing действий;
-10. updater сохраняет словарь;
-11. regression suite покрывает migration, persistence, conflicts, priority, known-homograph repair и provider rendering.
+1. owner correction persists in private global dictionary;
+2. restart preserves dictionary;
+3. safe AUTO is reused in new books;
+4. BOOK/OCCURRENCE overrides win;
+5. known/conflicting homograph never silently auto-applies;
+6. real `замок → замо́к` legacy entry repaired;
+7. Yandex/OpenAI render from one canonical entry;
+8. immutable source remains unchanged;
+9. updater preserves dictionary;
+10. migration/persistence/conflict/priority/provider regressions pass.
+
+```text
+PRONUNCIATION_DICTIONARY_V1 = ACCEPTED
+```
