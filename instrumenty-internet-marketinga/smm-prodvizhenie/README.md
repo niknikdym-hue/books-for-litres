@@ -76,11 +76,15 @@ Writing is CLOSED until:
 5. `../SERIES-PRODUCTION-PROTOCOL.md`;
 6. `../SERIES-CANON-REGISTRY.md`;
 7. `../SERIES-PORTFOLIO-RESEARCH-2026.md`;
-8. `AUTHOR-SYNTHESIS-AND-ATTRIBUTION.md` — binding rule: world-class evidence + explicit Elena Dym synthesis + Russia translation + reader action;
-9. `RESEARCH-MAP-v0.1.md` — current research programme and pre-Definition gates;
-10. `RUSSIA-SMM-PLATFORM-MATRIX-2026.md` — time-sensitive platform/access/paid/legal/audience matrix;
-11. `WORKING-BIBLIOGRAPHY.md` — named world-class source pool and bibliography discipline;
-12. later book-level Definition / Architecture / Chapter Contracts / accepted evidence;
-13. future exact accepted Literary Master.
+8. `AUTHOR-SYNTHESIS-AND-ATTRIBUTION.md` — binding world-evidence + Elena Dym synthesis + Russia translation + action rule;
+9. `WORKING-BIBLIOGRAPHY.md` — named world-class source pool and final bibliography discipline;
+10. `RESEARCH-MAP-v0.1.md` — research programme and pre-Definition gates;
+11. `WORLD-CLASS-BENCHMARK-MAP-v0.1.md` — named world schools, tensions, limitations and synthesis questions;
+12. `AUTHOR-SYNTHESIS-DRAFT-v0.1.md` — current Elena Dym positions to challenge before approval;
+13. `OFFER-ARCHETYPE-MATRIX-DRAFT-v0.1.md` — goods/services playbook taxonomy and decision deltas;
+14. `RUSSIA-SMM-PLATFORM-MATRIX-2026.md` — time-sensitive access/organic/paid/legal/audience/archetype matrix;
+15. `BOOK-DEFINITION-DRAFT-v0.1.md` — current pre-approval book contract;
+16. later accepted Definition / Architecture / Chapter Contracts / evidence;
+17. future exact accepted Literary Master.
 
 Chat is not authority.
