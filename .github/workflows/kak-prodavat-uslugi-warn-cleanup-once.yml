@@ -1,0 +1,48 @@
+name: How to Sell Services WARN Cleanup Once
+
+on:
+  push:
+    branches:
+      - brain/kak-prodavat-uslugi-prewriting-research-20260907
+    paths:
+      - "sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/apply_warn_cleanup_round1.py"
+      - ".github/workflows/kak-prodavat-uslugi-warn-cleanup-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    name: Apply reviewed exact editorial replacements
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout working branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Apply exact replacements and require zero BOOK_PROSE findings
+        run: python sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/apply_warn_cleanup_round1.py
+
+      - name: Remove one-time migration machinery
+        run: |
+          rm -f sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/apply_warn_cleanup_round1.py
+          rm -f .github/workflows/kak-prodavat-uslugi-warn-cleanup-once.yml
+
+      - name: Commit exact manuscript cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && { echo "No cleanup changes produced"; exit 1; }
+          git commit -m "Clean BOOK_PROSE warnings after whole-book edit"
+          git push origin HEAD:${{ github.ref_name }}
