@@ -83,6 +83,7 @@ final class StudioModel: ObservableObject {
     }
     @Published var isLoading = true
     @Published var isRunning = false
+    @Published private(set) var isSavingBookVoice = false
     @Published var errorMessage: String?
     @Published var completedOutput: URL?
     @Published var audioQA: AudioQACurrentEnvelope?
@@ -250,8 +251,13 @@ final class StudioModel: ObservableObject {
         }
     }
 
-    func removeBook(_ book: Book, permanently: Bool) async -> Bool {
-        guard !isRunning, !isPreparingBookText, !isAddingBook, !isRemovingBook else {
+    func removeBook(
+        _ book: Book,
+        permanently: Bool,
+        ownerMutationBusy: Bool = false
+    ) async -> Bool {
+        guard !isRunning, !isPreparingBookText, !isAddingBook, !isRemovingBook,
+              !isSavingBookVoice, !ownerMutationBusy else {
             errorMessage = "Дождитесь завершения текущего действия, затем удалите книгу."
             return false
         }
@@ -317,8 +323,10 @@ final class StudioModel: ObservableObject {
         showBookTextPreparationConfirmation = true
     }
 
-    func prepareBookTextAfterSave() {
+    func prepareBookTextAfterSave(expectedBookID: String) {
+        guard selectedBook?.id == expectedBookID else { return }
         guard let bookID = selectedBookIDForTextPreparation() else { return }
+        guard bookID == expectedBookID else { return }
         performBookTextPreparation(bookID: bookID)
     }
 
@@ -400,7 +408,8 @@ final class StudioModel: ObservableObject {
     }
 
     func selectYandexProfile(_ profileID: String) {
-        guard engine == .yandex,
+        guard !isSavingBookVoice,
+              engine == .yandex,
               let book = selectedBook, book.kind == "production",
               availableProfiles.contains(where: { $0.profileID == profileID }) else {
             errorMessage = "Выбранный голос недоступен для этой книги."
@@ -408,7 +417,9 @@ final class StudioModel: ObservableObject {
         }
         let previous = selectedProfileID
         selectedProfileID = profileID
+        isSavingBookVoice = true
         Task {
+            defer { isSavingBookVoice = false }
             do {
                 let result: BookVoiceSelectionResult = try await runBridgeJSON([
                     "--set-book-voice",
@@ -436,9 +447,11 @@ final class StudioModel: ObservableObject {
 
     func selectDefaultJob() {
         invalidateOpenAIIntent()
-        selectedJobID = engine == .yandex
-            ? (chapterJobs.first?.id ?? "")
-            : (selectedBook?.jobs.first?.id ?? "")
+        if selectedBook?.kind == "production" {
+            selectedJobID = chapterJobs.first?.id ?? ""
+        } else {
+            selectedJobID = selectedBook?.jobs.first?.id ?? ""
+        }
         paidPlan = nil
         yandexChapterPlan = nil
         yandexChapterPlanSelection = nil
@@ -2042,6 +2055,7 @@ private struct BookLibrarySidebarRow: View {
         .contextMenu {
             if book.kind == "production" {
                 Button("Удалить книгу…", role: .destructive, action: onRemove)
+                    .disabled(removalDisabled)
             }
         }
     }
@@ -2049,6 +2063,7 @@ private struct BookLibrarySidebarRow: View {
 
 private struct BookRemovalConfirmationModifier: ViewModifier {
     @Binding var pendingBook: Book?
+    @Binding var ownerMutationBusy: Bool
     @ObservedObject var model: StudioModel
 
     func body(content: Content) -> some View {
@@ -2063,11 +2078,23 @@ private struct BookRemovalConfirmationModifier: ViewModifier {
             if let book = pendingBook {
                 Button("Удалить полностью из библиотеки", role: .destructive) {
                     pendingBook = nil
-                    Task { _ = await model.removeBook(book, permanently: true) }
+                    Task {
+                        _ = await model.removeBook(
+                            book,
+                            permanently: true,
+                            ownerMutationBusy: ownerMutationBusy
+                        )
+                    }
                 }
                 Button("Убрать, сохранив архив") {
                     pendingBook = nil
-                    Task { _ = await model.removeBook(book, permanently: false) }
+                    Task {
+                        _ = await model.removeBook(
+                            book,
+                            permanently: false,
+                            ownerMutationBusy: ownerMutationBusy
+                        )
+                    }
                 }
             }
             Button("Отмена", role: .cancel) { pendingBook = nil }
@@ -2096,6 +2123,7 @@ struct StudioView: View {
     @State private var helpTopic: StudioHelpTopic = .quickStart
     @State private var showOnboarding = false
     @State private var pendingBookRemoval: Book?
+    @State private var ownerBookMutationBusy = false
     @AppStorage("hasSeenAuthorOnboarding") private var hasSeenAuthorOnboarding = false
 
     private var dilonSelectionKey: String {
@@ -2185,7 +2213,7 @@ struct StudioView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
             List(selection: $model.selectedBookID) {
                 Section("ШАГИ РАБОТЫ") {
                     ForEach(OwnerProductionStep.allCases) { step in
@@ -2214,7 +2242,9 @@ struct StudioView: View {
                             removalDisabled: model.isRemovingBook
                                 || model.isRunning
                                 || model.isPreparingBookText
-                                || model.isAddingBook,
+                                || model.isAddingBook
+                                || model.isSavingBookVoice
+                                || ownerBookMutationBusy,
                             onRemove: { pendingBookRemoval = book }
                         )
                         .tag(book.id)
@@ -2237,6 +2267,7 @@ struct StudioView: View {
                     }
                 }
             }
+            .disabled(ownerBookMutationBusy || model.isSavingBookVoice)
             .navigationSplitViewColumnWidth(min: 230, ideal: 280)
         } detail: {
             VStack(spacing: 0) {
@@ -2274,10 +2305,12 @@ struct StudioView: View {
                             model: model,
                             activeStep: $activeOwnerStep,
                             acknowledgedSteps: $acknowledgedOwnerSteps,
+                            bookMutationBusy: $ownerBookMutationBusy,
                             selectedBookID: book.id,
                             selectedBookSlug: book.slug ?? book.id,
                             onOpenHelp: { openHelp(helpTopic(for: $0)) }
                         )
+                        .id(book.id)
 
                     if activeOwnerStep == .narrator {
                         Section("4. Выберите диктора") {
@@ -2305,6 +2338,11 @@ struct StudioView: View {
                                 ForEach(model.availableProfiles) { Text($0.label).tag($0.profileID) }
                             }
                             .pickerStyle(.radioGroup)
+                            .disabled(model.isSavingBookVoice)
+                            if model.isSavingBookVoice {
+                                ProgressView("Сохраняем диктора…")
+                                    .controlSize(.small)
+                            }
                             LabeledContent("Стиль", value: model.selectedProfile?.role ?? model.profile.role)
                             LabeledContent("Скорость", value: model.selectedProfile?.speed ?? model.profile.speed)
                             Text("Выбор сохранится только для этой книги.")
@@ -2339,12 +2377,21 @@ struct StudioView: View {
                                 .font(.headline)
                         }
                         if model.selectedBook?.jobs.isEmpty ?? true {
-                            Text("Подготовленных задач пока нет")
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Список глав ещё не создан", systemImage: "list.bullet.rectangle")
+                                    .font(.headline)
+                                Text("Сначала Studio должна офлайн найти введение и названия глав в тексте. Уже записанные части при этом не удаляются.")
+                                    .foregroundStyle(.secondary)
+                                Button("Перейти к подготовке текста") {
+                                    showingHelp = false
+                                    activeOwnerStep = .text
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
                         } else if model.engine == .openai {
-                            if let book = model.selectedBook, !book.jobs.isEmpty {
-                                Picker("Подготовленная задача", selection: $model.selectedJobID) {
-                                    ForEach(book.jobs) { job in
+                            if !model.chapterJobs.isEmpty {
+                                Picker("Выберите главу", selection: $model.selectedJobID) {
+                                    ForEach(model.chapterJobs) { job in
                                         Text(job.label).tag(job.id)
                                     }
                                 }
@@ -2361,18 +2408,21 @@ struct StudioView: View {
                                 Text("Для книги нет подготовленных глав.")
                                     .foregroundStyle(.secondary)
                             } else {
-                                Picker("Подготовленная глава", selection: $model.selectedJobID) {
+                                Label("Найдено глав: \(model.chapterJobs.count)", systemImage: "checklist")
+                                    .foregroundStyle(.secondary)
+                                Picker("Выберите главу", selection: $model.selectedJobID) {
                                     ForEach(model.chapterJobs) { job in
                                         Text(job.label).tag(job.id)
                                     }
                                 }
+                                .pickerStyle(.menu)
                             }
                             Text("Перед записью Studio покажет стоимость и число возможных запросов. Ничего не отправится без подтверждения.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                        } else if let book = model.selectedBook, !book.jobs.isEmpty {
-                            Picker("Подготовленная задача", selection: $model.selectedJobID) {
-                                ForEach(book.jobs) { job in
+                        } else if !model.chapterJobs.isEmpty {
+                            Picker("Выберите главу", selection: $model.selectedJobID) {
+                                ForEach(model.chapterJobs) { job in
                                     Text(job.label).tag(job.id)
                                 }
                             }
@@ -2640,6 +2690,7 @@ struct StudioView: View {
             }
             .modifier(BookRemovalConfirmationModifier(
                 pendingBook: $pendingBookRemoval,
+                ownerMutationBusy: $ownerBookMutationBusy,
                 model: model
             ))
             .fileImporter(
@@ -2677,6 +2728,7 @@ struct StudioView: View {
                 StudioOnboardingView(isPresented: $showOnboarding)
             }
         }
+        .navigationSplitViewStyle(.balanced)
     }
 }
 

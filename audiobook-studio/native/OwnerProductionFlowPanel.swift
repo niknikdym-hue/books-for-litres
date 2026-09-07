@@ -558,9 +558,11 @@ struct OwnerProductionFlowPanel: View {
     @StateObject private var soundController = BookSoundController()
     @State private var showingPronunciationDictionary =
         ProcessInfo.processInfo.environment["AUDIOBOOK_STUDIO_INITIAL_PRONUNCIATION_DICTIONARY"] == "true"
+    @State private var isHomonymReviewExpanded = false
     @State private var isEditingSoundExcerpt = false
     @Binding var activeStep: OwnerProductionStep
     @Binding var acknowledgedSteps: Set<OwnerProductionStep>
+    @Binding var bookMutationBusy: Bool
     let selectedBookID: String
     let selectedBookSlug: String
     let onOpenHelp: (OwnerProductionStep) -> Void
@@ -579,6 +581,7 @@ struct OwnerProductionFlowPanel: View {
                     Spacer()
                     Button("Подробнее") { onOpenHelp(activeStep) }
                         .buttonStyle(.link)
+                        .disabled(bookMutationBusy || model.isSavingBookVoice)
                 }
                 Text(activeStepHelp)
                     .font(.caption)
@@ -629,8 +632,8 @@ struct OwnerProductionFlowPanel: View {
                             .foregroundStyle(.secondary)
                     }
                     Button("Сохранить текст и обновить главы") {
-                        textController.saveWorkingCopy {
-                            model.prepareBookTextAfterSave()
+                        textController.saveWorkingCopy { savedBookID in
+                            model.prepareBookTextAfterSave(expectedBookID: savedBookID)
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -641,8 +644,8 @@ struct OwnerProductionFlowPanel: View {
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
                     HStack {
                         Button("Сохранить текст и обновить главы") {
-                            textController.saveWorkingCopy {
-                                model.prepareBookTextAfterSave()
+                            textController.saveWorkingCopy { savedBookID in
+                                model.prepareBookTextAfterSave(expectedBookID: savedBookID)
                             }
                         }
                             .buttonStyle(.borderedProminent)
@@ -696,8 +699,7 @@ struct OwnerProductionFlowPanel: View {
 
             if activeStep == .pronunciation {
                 Section("2. Проверьте ударения") {
-                if let review = textController.ttsReview,
-                   !review.contextualReviewItems.isEmpty {
+                if let review = textController.ttsReview {
                     contextualPronunciationReview(review)
                 }
                 GroupBox("Как поставить ударение в слове из книги") {
@@ -744,6 +746,14 @@ struct OwnerProductionFlowPanel: View {
                 .padding(12)
                 .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
                 .help("Открыть общий словарь ударений для всех книг")
+                if textController.workingTextHasUnsavedChanges {
+                    Label(
+                        "Сначала сохраните или отмените правки текста — затем можно ставить ударения.",
+                        systemImage: "exclamationmark.circle"
+                    )
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.orange)
+                }
                 GroupBox("Текст книги — выделите нужное слово") {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Дважды нажмите на слово. Копировать или запоминать его не нужно. Для быстрого поиска нажмите ⌘F.")
@@ -761,6 +771,7 @@ struct OwnerProductionFlowPanel: View {
                         }
                     }
                 }
+                .disabled(textController.workingTextHasUnsavedChanges)
                 HStack {
                     TextField(
                         "Выделите слово выше или введите его здесь",
@@ -775,12 +786,14 @@ struct OwnerProductionFlowPanel: View {
                             || textController.stressWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         )
                 }
+                .disabled(textController.workingTextHasUnsavedChanges)
                 if !textController.stressCandidates.isEmpty {
                     FlowLayout(spacing: 8) {
                         ForEach(textController.stressCandidates) { candidate in
                             Button(candidate.display) { textController.previewStress(candidate) }
                         }
                     }
+                    .disabled(textController.workingTextHasUnsavedChanges)
                 }
                 if let preview = textController.stressPreview,
                    !textController.stressWordIsContextual {
@@ -789,6 +802,7 @@ struct OwnerProductionFlowPanel: View {
                         Spacer()
                         Button("Сохранить и запомнить ударение") { textController.saveStressForBook() }
                             .buttonStyle(.borderedProminent)
+                            .disabled(textController.workingTextHasUnsavedChanges)
                     }
                     Text("Studio применит ударение в этой книге и запомнит его для следующих книг.")
                         .font(.caption)
@@ -809,7 +823,10 @@ struct OwnerProductionFlowPanel: View {
                                     textController.saveStressForBook()
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .disabled(textController.isLoading)
+                                .disabled(
+                                    textController.isLoading
+                                    || textController.workingTextHasUnsavedChanges
+                                )
                             }
                             Text("Так можно исправить ранее поставленное ударение. Изменение сразу отобразится в тексте книги.")
                                 .font(.caption)
@@ -1118,6 +1135,7 @@ struct OwnerProductionFlowPanel: View {
         }
         .task(id: selectedBookID) {
             isEditingSoundExcerpt = false
+            isHomonymReviewExpanded = false
             async let textLoad: Void = textController.reload(bookID: selectedBookID)
             async let soundLoad: Void = soundController.reload(bookID: selectedBookSlug)
             _ = await (textLoad, soundLoad)
@@ -1127,66 +1145,105 @@ struct OwnerProductionFlowPanel: View {
                 activeStep = .pronunciation
             }
         }
+        .onChange(of: textController.isLoading, initial: true) { _, _ in
+            bookMutationBusy = textController.isLoading || soundController.isLoading
+        }
+        .onChange(of: soundController.isLoading, initial: true) { _, _ in
+            bookMutationBusy = textController.isLoading || soundController.isLoading
+        }
+        .onDisappear {
+            if !textController.isLoading && !soundController.isLoading {
+                bookMutationBusy = false
+            }
+        }
     }
 
     @ViewBuilder
     private func contextualPronunciationReview(_ review: TTSTextReviewEnvelope) -> some View {
-        GroupBox {
+        GroupBox("Поиск омонимов") {
             VStack(alignment: .leading, spacing: 12) {
-                Label(
-                    "Нужно выбрать произношение · \(review.contextualReviewItems.count)",
-                    systemImage: "text.magnifyingglass"
-                )
-                .font(.headline)
-                Text("Эти слова имеют разные значения. Studio не угадывает по контексту: выберите вариант, затем сохраните его прямо в карточке нужного предложения.")
+                Text("Studio автоматически ищет в книге слова, которые пишутся одинаково, но произносятся по-разному. Проверка работает офлайн и ничего не записывает.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                ForEach(review.contextualReviewItems) { item in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(item.context)
-                            .font(.body)
-                            .textSelection(.enabled)
-                        FlowLayout(spacing: 8) {
-                            ForEach(item.variants) { variant in
-                                Button {
-                                    textController.previewContextualVariant(variant, for: item)
-                                } label: {
-                                    HStack(alignment: .top, spacing: 7) {
-                                        Image(
-                                            systemName: (
-                                                textController.stressSelectionStart == item.start
-                                                && textController.stressSelectionEnd == item.end
-                                                && textController.stressPreview?.vowelNumber == variant.vowelNumber
-                                            ) ? "checkmark.circle.fill" : "circle"
-                                        )
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(variant.display).fontWeight(.semibold)
-                                            Text(variant.meaning)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                if review.contextualReviewItems.isEmpty {
+                    Label("Непроверенных омонимов из встроенного списка не найдено", systemImage: "checkmark.circle.fill")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.green)
+                    Text("Если вы заметите другое сложное слово, выделите его в тексте ниже и задайте ударение вручную.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label(
+                        "Найдено мест для проверки: \(review.contextualReviewItems.count)",
+                        systemImage: "text.magnifyingglass"
+                    )
+                    .font(.headline)
+                    .foregroundStyle(.orange)
+                    Text("Для каждого предложения выберите значение слова. После сохранения проверенное место исчезнет из списка, а исправление сразу появится в тексте книги.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    if textController.workingTextHasUnsavedChanges {
+                        Label(
+                            "Сначала сохраните или отмените правки текста на шаге «Текст».",
+                            systemImage: "exclamationmark.circle"
+                        )
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.orange)
+                    }
+                    DisclosureGroup("Проверить найденные места", isExpanded: $isHomonymReviewExpanded) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(review.contextualReviewItems) { item in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Label(item.word, systemImage: "character.cursor.ibeam")
+                                        .font(.callout.weight(.semibold))
+                                    Text(item.context)
+                                        .font(.body)
+                                        .textSelection(.enabled)
+                                    FlowLayout(spacing: 8) {
+                                        ForEach(item.variants) { variant in
+                                            Button {
+                                                textController.previewContextualVariant(variant, for: item)
+                                            } label: {
+                                                HStack(alignment: .top, spacing: 7) {
+                                                    Image(
+                                                        systemName: (
+                                                            textController.stressSelectionStart == item.start
+                                                            && textController.stressSelectionEnd == item.end
+                                                            && textController.stressPreview?.vowelNumber == variant.vowelNumber
+                                                        ) ? "checkmark.circle.fill" : "circle"
+                                                    )
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(variant.display).fontWeight(.semibold)
+                                                        Text(variant.meaning)
+                                                            .font(.caption)
+                                                            .foregroundStyle(.secondary)
+                                                    }
+                                                }
+                                            }
+                                            .buttonStyle(.bordered)
+                                        }
+                                    }
+                                    if textController.stressSelectionStart == item.start,
+                                       textController.stressSelectionEnd == item.end,
+                                       let preview = textController.stressPreview {
+                                        HStack {
+                                            Label("Выбрано: \(preview.display)", systemImage: "checkmark.circle")
+                                                .font(.callout.weight(.medium))
+                                            Spacer()
+                                            Button("Сохранить для этого места") {
+                                                textController.saveStressForBook()
+                                            }
+                                            .buttonStyle(.borderedProminent)
+                                            .disabled(textController.isLoading)
                                         }
                                     }
                                 }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                        if textController.stressSelectionStart == item.start,
-                           textController.stressSelectionEnd == item.end,
-                           let preview = textController.stressPreview {
-                            HStack {
-                                Label("Выбрано: \(preview.display)", systemImage: "checkmark.circle")
-                                    .font(.callout.weight(.medium))
-                                Spacer()
-                                Button("Сохранить для этого места") {
-                                    textController.saveStressForBook()
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(textController.isLoading)
+                                .padding(10)
+                                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
                             }
                         }
                     }
-                    .padding(10)
-                    .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                    .disabled(textController.workingTextHasUnsavedChanges)
                 }
             }
         }
