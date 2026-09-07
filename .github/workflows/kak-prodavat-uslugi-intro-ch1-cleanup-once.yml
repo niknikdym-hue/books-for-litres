@@ -1,0 +1,48 @@
+name: How to Sell Services Intro-Ch1 Cleanup Once
+
+on:
+  push:
+    branches:
+      - brain/kak-prodavat-uslugi-prewriting-research-20260907
+    paths:
+      - "sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/apply_intro_ch1_overlap_cleanup.py"
+      - ".github/workflows/kak-prodavat-uslugi-intro-ch1-cleanup-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    name: Remove Introduction-Ch1 premise overlap
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout working branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Apply exact overlap cleanup and require BOOK_PROSE pass
+        run: python sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/apply_intro_ch1_overlap_cleanup.py
+
+      - name: Remove one-time migration machinery
+        run: |
+          rm -f sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/apply_intro_ch1_overlap_cleanup.py
+          rm -f .github/workflows/kak-prodavat-uslugi-intro-ch1-cleanup-once.yml
+
+      - name: Commit literary overlap cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && { echo "No cleanup changes produced"; exit 1; }
+          git commit -m "Remove Introduction-Ch1 premise overlap"
+          git push origin HEAD:${{ github.ref_name }}
