@@ -76,7 +76,11 @@ Writing is CLOSED until:
 5. `../SERIES-PRODUCTION-PROTOCOL.md`;
 6. `../SERIES-CANON-REGISTRY.md`;
 7. `../SERIES-PORTFOLIO-RESEARCH-2026.md`;
-8. book-level research/definition files in this directory;
-9. future exact accepted Literary Master.
+8. `AUTHOR-SYNTHESIS-AND-ATTRIBUTION.md` — binding rule: world-class evidence + explicit Elena Dym synthesis + Russia translation + reader action;
+9. `RESEARCH-MAP-v0.1.md` — current research programme and pre-Definition gates;
+10. `RUSSIA-SMM-PLATFORM-MATRIX-2026.md` — time-sensitive platform/access/paid/legal/audience matrix;
+11. `WORKING-BIBLIOGRAPHY.md` — named world-class source pool and bibliography discipline;
+12. later book-level Definition / Architecture / Chapter Contracts / accepted evidence;
+13. future exact accepted Literary Master.
 
 Chat is not authority.
