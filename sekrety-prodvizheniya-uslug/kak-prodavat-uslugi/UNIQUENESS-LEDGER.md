@@ -32,7 +32,7 @@
 | 3 | что реально доказывает quality/relevance | unobservable quality → screening by observable signals | Evidence Inventory + Gap Map | не process visibility / не personal-brand system | **USED-DRAFT** |
 | 4 | как показать future delivery | opaque process/roles → process uncertainty | Process Visibility Map | не past proof / не PM manual | **USED-DRAFT** |
 | 5 | что нужно узнать до offer | stated request → assumptions → premature solution → mismatch | Diagnostic Conversation Map | не qualification / не proposal | **USED-DRAFT** |
-| 6 | стоит ли работать вместе | provider-client-scope participation fit → delivery risk | Qualification / No-Go Criteria | не generic objections / не Ch5 diagnosis | RESERVED / CONDITIONAL |
+| 6 | стоит ли продавать эту задачу в этой конфигурации | understood task + provider/client/scope/participation incompatibility → delivery/capacity/expectation risk | Критерии совместимости сделки | не Ch5 diagnosis / не Ch8 economics | **USED-DRAFT** |
 | 7 | как собрать decision object | seller-centric proposal → buyer reconstructs logic | Offer Decision Sheet | не pricing theory / не diagnosis | RESERVED |
 | 8 | как связаны price/scope/risk | financial exposure + service uncertainty → risk-reduction behavior | Price–Scope–Risk Map | не all objections / не company pricing strategy | RESERVED |
 | 9 | почему одинаковое objection означает разное | different unresolved risks → same phrase → wrong response | Uncertainty/Objection Diagnostic | не Ch8 economics / не win-loss | RESERVED |
@@ -47,7 +47,7 @@
 | M03 | 3 | hard-to-observe quality → buyer screens through observable signals → evidence value depends on relevance/verifiability/limits | proof | **USED-DRAFT** |
 | M04 | 4 | opaque delivery/roles → process uncertainty → risk/expectation gap | process visibility | **USED-DRAFT** |
 | M05 | 5 | stated request as partial representation → seller fills gaps with assumptions → premature offer → mismatch; explicit fact/assumption/unknown distinction reduces premature prescription | diagnosis / information sufficiency | **USED-DRAFT** |
-| M06 | 6 | weak provider-client-scope fit → delivery/expectation risk | qualification | RESERVED / CONDITIONAL |
+| M06 | 6 | understood opportunity + incompatibility between need, provider capability, controllable commitment, participation or delivery conditions → predictable future loss/failure | service compatibility / commitment decision | **USED-DRAFT** |
 | M07 | 7 | incomplete seller-centric proposal → buyer reconstructs decision → friction | offer integration | RESERVED |
 | M08 | 8 | financial exposure + uncertainty → discount/terms/delay risk response | deal economics | RESERVED |
 | M09 | 9 | different unresolved risk → same surface phrase → generic response mismatch | hesitation diagnosis | RESERVED |
@@ -64,7 +64,7 @@
 | T03 | 3 | Evidence Inventory + Gap Map | map buyer risk to relevant/verifiable proof and expose gaps | **USED-DRAFT** |
 | T04 | 4 | Process Visibility Map | expose stages/roles/checkpoints | **USED-DRAFT** |
 | T05 | 5 | Diagnostic Conversation Map | separate facts/assumptions/unknowns and decide whether enough information exists to design an offer | **USED-DRAFT** |
-| T06 | 6 | Qualification / No-Go Criteria | proceed/clarify/redesign/decline | RESERVED / CONDITIONAL |
+| T06 | 6 | Критерии совместимости сделки | test six compatibility conditions and choose proceed / redesign / decline-refer without numeric scoring | **USED-DRAFT** |
 | T07 | 7 | Offer Decision Sheet | revise proposal as decision document | RESERVED |
 | T08 | 8 | Price–Scope–Risk Map | redesign economics/commitment | RESERVED |
 | T09 | 9 | Uncertainty/Objection Diagnostic | verify cause before response | RESERVED |
@@ -81,7 +81,7 @@
 | 3 | ex-ante quality signals/screening + credibility/reputation boundaries | **USED-DRAFT / QA PASS-DRAFT** |
 | 4 | process visibility/participation effects with boundaries | **USED-DRAFT / QA PASS-DRAFT** |
 | 5 | requirements/problem definition before solution; pre-selling diagnosis; customer-context understanding; problem-formulation bias | **USED-DRAFT / QA PASS-DRAFT** |
-| 6 | provider-client-scope fit / bad-fit consequence | BLOCKED — FINAL SYNTHESIS + MERGE TEST |
+| 6 | customer compatibility/service-operation fit + conditional client involvement in professional-service performance | **USED-DRAFT / QA PASS-DRAFT / HARD MERGE TEST PASSED** |
 | 7 | proposal decision clarity | BLOCKED — RESEARCH |
 | 8 | price-risk interaction; guarantee/commitment limits | BLOCKED — HIGH PRIORITY RESEARCH |
 | 9 | hesitation/risk taxonomy/status quo | BLOCKED — HIGH PRIORITY RESEARCH |
@@ -98,7 +98,7 @@
 | 3 | impressive proof vs relevant proof | **USED-DRAFT**; no later credential/reputation showcase with same function |
 | 4 | clear promise but opaque delivery vs visible roles/process | **USED-DRAFT**; no repeated black-box function |
 | 5 | client requests a solution before problem/context is sufficiently established | **USED-DRAFT**; no later premature-prescription scene |
-| 6 | tempting revenue but bad participation/scope fit | RESERVED / CONDITIONAL; no generic «bad client» morality tale |
+| 6 | attractive revenue opportunity with understood task but incompatible timing/inputs/capacity configuration | **USED-DRAFT**; no generic «bad client» morality tale |
 | 7 | polished seller deck vs decision-oriented proposal | RESERVED; no design-aesthetics repeat |
 | 8 | «дорого» resolved by transaction redesign, not persuasion | RESERVED; Ch9 cannot reuse as main price proof |
 | 9 | same phrase, competing unresolved-risk hypotheses | RESERVED; not Ch1 taxonomy repeat |
@@ -108,9 +108,9 @@ Specific factual cases require their own source. Model/composite situations rema
 
 ## 8. Analogies / metaphors
 
-**NONE RESERVED / NONE USED AS STRUCTURAL ANALOGY in Ch1–5.**
+**NONE RESERVED / NONE USED AS STRUCTURAL ANALOGY in Ch1–6.**
 
-An analogy may be introduced only after contract-level necessity and registry check. Ch5 explicitly avoids a doctor/patient analogy around the word «диагноз».
+An analogy may be introduced only after contract-level necessity and registry check. Ch5 explicitly avoids doctor/patient analogy; Ch6 explicitly avoids dating/marriage/client-chemistry analogy.
 
 ## 9. Composition registry
 
@@ -121,7 +121,7 @@ An analogy may be introduced only after contract-level necessity and registry ch
 | 3 | two providers / loud vs relevant proof | signal function + relevance/verifiability/limits | reputation/volume do not solve task-specific gap | Evidence Inventory → future-process question | **USED-DRAFT** |
 | 4 | after-payment black box | future-delivery observability + roles/checkpoints/change rules | too much detail / false certainty also increase friction | Process Visibility Map → diagnosis question | **USED-DRAFT** |
 | 5 | client arrives with named solution | fact/assumption/unknown + requirements formulation | seller expertise can bias framing / diagnosis can become pressure | Diagnostic Conversation Map → four decision outcomes → fit question | **USED-DRAFT** |
-| 6 | tempting bad deal | fit dimensions | redesign can save some deals | no-go criteria | RESERVED / CONDITIONAL |
+| 6 | attractive high-value project with known incompatible conditions | service compatibility + six condition checks | redesign can save the opportunity; one hard no-go overrides positives | criteria map → proceed/redesign/decline → proposal transition | **USED-DRAFT** |
 | 7 | proposal autopsy | decision integration | more pages ≠ clarity | revise real proposal | RESERVED |
 | 8 | price conflict | scope/risk economics | high price not universal quality cue | price-risk map | RESERVED |
 | 9 | one phrase/multiple causes | diagnostic branching | genuine no must be accepted | objection diagnostic | RESERVED |
@@ -154,19 +154,25 @@ Actual drafts remain subject to mid-book composition audit.
 | 2026-09-07 | Ch5 actual draft vs Ch6 | risk of absorbing qualification | Ch5 has no provider-client fit/no-go criteria; ending only opens the fit question | PASS WITH Ch6 HARD MERGE TEST |
 | 2026-09-07 | Ch5 anti-manipulation | diagnosis could become pain amplification / SPIN clone | source and contract boundaries make information sufficiency the sole method goal | PASS-DRAFT |
 | 2026-09-07 | Ch1–5 analogy audit | possible doctor metaphor in Ch5 | explicitly rejected; no structural analogy used | PASS |
+| 2026-09-07 | Ch6 actual draft vs Ch5 | Ch6 could repeat diagnostic information gathering | Ch6 begins only after task is sufficiently known; no seven-field Ch5 map is repeated | **PASS / HARD MERGE TEST PASSED** |
+| 2026-09-07 | Ch6 actual draft vs Ch8 | scope/time/capacity may leak into economics | Ch6 only decides compatibility/redesign necessity; Ch8 owns price–scope–risk economics and negotiation design | PASS / PROTECTED |
+| 2026-09-07 | Ch6 anti-junk | risk of «bad client/red flags/chemistry» listicle | person-labeling rejected; configuration compatibility is the unit of analysis | PASS-DRAFT |
+| 2026-09-07 | Ch1–6 analogy audit | risk of formulaic metaphor allocation | none used as structural analogy | PASS |
 
 ## 11. Future-book leakage
 
 Protected: Yandex Direct niche books, SEO/GEO, SMM/content/personal brand systems, full online-course funnel, CRM implementation, retention/LTV, scale/team management, full company pricing strategy and productization as separate systems.
 
-Generic marketing/IT/professional-service examples in Ch1–5 do not teach acquisition-platform tactics and therefore do not consume these territories.
+Generic marketing/IT/professional-service examples in Ch1–6 do not teach acquisition-platform tactics and therefore do not consume these territories.
 
 ## 12. Current gate
 
 Architecture v1 = **APPROVED**.
 
-Ch1–5 = **USED-DRAFT / QA PASS-DRAFT / not ACCEPTED**.
+Ch1–6 = **USED-DRAFT / QA PASS-DRAFT / not ACCEPTED**.
 
-Next allowed production object: **Chapter 6 admission + hard merge test against actual Ch5**.
+**Ch6 hard merge-test vs actual Ch5 = PASSED. Ch6 remains independent.**
+
+Next allowed production object: **Chapter 7 proposal-evidence admission gate**.
 
 No chapter may consume another chapter's reserved mechanism, scene function, practical output or composition function.
