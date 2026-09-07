@@ -1,6 +1,7 @@
-"""Build the complete reading manuscript from the canonical chapter files.
+"""Build matching reading and Litres manuscripts from canonical chapter files.
 
-Run with the bundled primary-runtime Python; python-docx is required.
+Run with the bundled primary-runtime Python; python-docx, reportlab and PyMuPDF
+are required. The default command always creates both user-requested DOCX files.
 The DOCX uses narrative_proposal with the named book_reading overrides below.
 """
 from pathlib import Path
@@ -14,7 +15,7 @@ from docx.oxml.ns import qn
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
 BASE=Path(__file__).resolve().parent
-PARTS={1:'Часть I. Выбрать задачу и определить результат',4:'Часть II. Сформировать предложение',8:'Часть III. Согласовать покупку',12:'Часть IV. Начать работу и проверить изменения'}
+PARTS={}  # User decision 2026-09-07: both editions have chapters without parts.
 TOKENS={
  'preset':'narrative_proposal','header_pattern':'editorial_cover',
  'page':{'width_in':8.5,'height_in':11,'margin_in':1,'header_footer_in':.492,'width_dxa':9360},
@@ -216,7 +217,7 @@ def make_md(files,out):
  for ch,p in files:
   if ch in PARTS:chunks.append('## '+PARTS[ch]+'\n\n')
   text=p.read_text()
-  add=2 if 1<=ch<=14 else 1
+  add=1
   text=re.sub(r'^(#+) ',lambda m:'#'*add+m.group(1)+' ',text,flags=re.M)
   chunks.append(text.rstrip()+'\n\n')
  out.write_text(''.join(chunks))
@@ -229,6 +230,8 @@ def main():
  records,counts=make_doc(files,dp);make_md(files,mp)
  audit={'tokens':TOKENS,'counts':counts,'sources':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for n,p in files},'records':records}
  (out/'build-audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2))
+ from build_litres import main as make_litres
+ make_litres(['--reading-docx',str(dp),'--output-dir',str(out)])
  print(json.dumps({'docx':str(dp),'markdown':str(mp),**counts},ensure_ascii=False))
 
 if __name__=='__main__':main()
