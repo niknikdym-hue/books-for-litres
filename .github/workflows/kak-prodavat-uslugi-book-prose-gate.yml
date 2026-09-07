@@ -1,0 +1,46 @@
+name: How to Sell Services BOOK_PROSE Gate
+
+on:
+  pull_request:
+    paths:
+      - "sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/manuscript/**"
+      - "sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/book_prose_gate.py"
+      - "audiobook-studio/content_quality_lexicon.py"
+      - "audiobook-studio/contracts/content-quality-core-ru-v1.json"
+      - "audiobook-studio/contracts/content-quality-lexicon-v1.schema.json"
+      - ".github/workflows/kak-prodavat-uslugi-book-prose-gate.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/manuscript/**"
+      - "sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/book_prose_gate.py"
+      - "audiobook-studio/content_quality_lexicon.py"
+      - "audiobook-studio/contracts/content-quality-core-ru-v1.json"
+      - "audiobook-studio/contracts/content-quality-lexicon-v1.schema.json"
+      - ".github/workflows/kak-prodavat-uslugi-book-prose-gate.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kak-prodavat-uslugi-book-prose-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  book-prose:
+    name: BOOK_PROSE manuscript quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Scan all ten manuscript chapters with canonical lexicon
+        run: python sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/book_prose_gate.py
