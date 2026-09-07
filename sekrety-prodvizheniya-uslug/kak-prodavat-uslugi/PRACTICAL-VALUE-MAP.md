@@ -31,7 +31,7 @@
 | 3 | proof заменён self-claims / нерелевантными регалиями | какое evidence отвечает на конкретный buyer risk | Evidence Inventory + Gap Map | у каждого proof есть relevance/verifiability/support/limits/gap | cases/reviews/credentials/registries only where relevant | **USED-DRAFT** |
 | 4 | delivery — black box | что показать о future process | Process Visibility Map | ясны stages/inputs/outputs/roles/checkpoints/change rules | small agency/IT/consulting/professional-service contexts | **USED-DRAFT** |
 | 5 | предложение делается до достаточного понимания задачи | достаточно ли информации для проектирования offer | Diagnostic Conversation Map | fact/assumption/unknown + materially relevant gaps explicitly separated | individual / owner-led small B2B / multi-stakeholder B2B | **USED-DRAFT** |
-| 6 | принимается плохой fit | proceed/clarify/redesign/decline | Qualification / No-Go Criteria | observable criteria дают repeatable decision | capacity risk solo/ИП/small agency | RESERVED / CONDITIONAL |
+| 6 | понятная задача продаётся в несовместимой конфигурации | proceed / redesign / decline-refer | Критерии совместимости сделки | шесть compatibility conditions проверены; hard no-go не маскируется score | solo/NPD / ИП / small agency / regulated-professional boundary | **USED-DRAFT** |
 | 7 | КП не собирает decision logic | что buyer должен увидеть для решения | Offer Decision Sheet + revised proposal | decision-maker понимает situation/scope/proof/process/investment/next step | B2B КП vs B2C context | RESERVED / RESEARCH BLOCKER |
 | 8 | price отделена от scope/risk | что менять при ценовом напряжении | Price–Scope–Risk Map | price change связан с scope/obligation/risk | payment/staging/B2B-B2C after fresh check | RESERVED / HIGH BLOCKER |
 | 9 | одинаковая фраза скрывает разные причины | clarify/redesign/wait/decline etc. | Uncertainty/Objection Diagnostic | competing hypotheses проверяются до response | no unsupported Russia stereotypes | RESERVED / HIGH BLOCKER |
@@ -79,6 +79,15 @@
 - does not become a question script or pain-amplification tool;
 - Ch6 fit/no-go criteria remain protected.
 
+### Ch6 — Критерии совместимости сделки
+- next-business-day: PASS;
+- hard merge test vs Ch5: PASS on actual draft;
+- six conditions: provider capability, controllable commitment, client inputs/participation, scope/time/capacity, expectation boundaries, professional/ethical/legal limits;
+- no numeric lead score; one hard no-go can outweigh multiple positives;
+- decisions: proceed / redesign configuration / decline-refer;
+- rejects personality/red-flag/chemistry framing;
+- practical value is protection against delivery loss/capacity displacement, not just conversion optimization.
+
 ## 4. Next-business-day test
 
 Каждый artifact должен быть применим к реальной продаже уже на следующий рабочий день. «Повышать ценность / доверие / качество» не считается action.
@@ -87,7 +96,7 @@
 
 Отдельная глава допустима только если её ошибка частая или дорогая и влияет на потерю сделки, unnecessary discount, bad fit, expectation conflict или wasted capacity/time.
 
-Ch6 сохраняет **условный reservation**: если research/draft не докажут самостоятельную economic/intellectual function, она MERGE с Ch5 и книга становится 9-главной.
+Ch6 **прошла hard merge-test на фактическом draft** и остаётся отдельной: её decision/artifact/economic function не дублируют Ch5.
 
 ## 6. Russia applicability
 
@@ -113,6 +122,6 @@ Practical gate FAIL, если reader должен сам придумывать 
 
 ## 10. Current status
 
-Ch1–5 practical outputs = **USED-DRAFT / QA PASS-DRAFT**.
+Ch1–6 practical outputs = **USED-DRAFT / QA PASS-DRAFT**.
 
-Ch6–10 remain `RESERVED` or `RESERVED / CONDITIONAL` until their own contract gates. No later chapter may create renamed versions of Buyer Uncertainty Map, Service Decision Definition, Evidence Inventory + Gap Map, Process Visibility Map or Diagnostic Conversation Map.
+Ch7–10 remain `RESERVED` until their own contract gates. No later chapter may create renamed versions of Ch1–6 tools.
