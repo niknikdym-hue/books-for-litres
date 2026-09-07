@@ -10,12 +10,15 @@ Policy:
 - WARN findings are emitted as GitHub annotations and remain mandatory editorial review;
 - the shared mutable USER store is replaced by an empty temporary store in CI so
   repository results are deterministic and do not depend on a runner's home dir.
+
+Round-1 whole-book warning cleanup was applied with exact replacements. This
+permanent gate remains the independent exact-head regression check for all
+future manuscript and canonical-lexicon changes.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import sys
 import tempfile
 from pathlib import Path
