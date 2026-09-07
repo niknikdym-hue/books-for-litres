@@ -5,7 +5,8 @@ This gate intentionally uses the repository's canonical Content Quality Lexicon.
 It performs no provider/model/network/paid calls.
 
 Policy:
-- every expected manuscript chapter must exist and no unexpected .md chapter may appear;
+- every expected literary manuscript file must exist and no unexpected .md file may appear;
+- the Introduction is front matter and does not count as an 11th chapter;
 - SYSTEM/USER BLOCK findings fail the gate;
 - WARN findings are emitted as GitHub annotations and remain mandatory editorial review;
 - the shared mutable USER store is replaced by an empty temporary store in CI so
@@ -37,7 +38,8 @@ from content_quality_lexicon import (  # noqa: E402
 )
 
 
-EXPECTED_CHAPTERS = (
+EXPECTED_MANUSCRIPT_FILES = (
+    "00-vvedenie.md",
     "01-pochemu-horoshuyu-uslugu-trudno-kupit.md",
     "02-chto-klient-dolzhen-reshitsya-kupit.md",
     "03-dokazatelstva-vmesto-uvereniy.md",
@@ -64,9 +66,9 @@ def github_annotation(kind: str, path: Path, finding: dict[str, object]) -> None
     print(f"::{kind} file={relative},line={line},col={column},title={rule_id}::{message}")
 
 
-def validate_chapter_inventory() -> list[Path]:
+def validate_manuscript_inventory() -> list[Path]:
     actual = tuple(sorted(path.name for path in MANUSCRIPT_ROOT.glob("*.md")))
-    expected = tuple(sorted(EXPECTED_CHAPTERS))
+    expected = tuple(sorted(EXPECTED_MANUSCRIPT_FILES))
     if actual != expected:
         missing = sorted(set(expected) - set(actual))
         unexpected = sorted(set(actual) - set(expected))
@@ -76,11 +78,11 @@ def validate_chapter_inventory() -> list[Path]:
         if unexpected:
             print(f"unexpected={unexpected}", file=sys.stderr)
         raise SystemExit(2)
-    return [MANUSCRIPT_ROOT / name for name in EXPECTED_CHAPTERS]
+    return [MANUSCRIPT_ROOT / name for name in EXPECTED_MANUSCRIPT_FILES]
 
 
 def main() -> int:
-    chapters = validate_chapter_inventory()
+    manuscript_files = validate_manuscript_inventory()
 
     aggregate: list[dict[str, object]] = []
     blocking_count = 0
@@ -97,7 +99,7 @@ def main() -> int:
             f"fingerprint={status['lexicon_fingerprint']}"
         )
 
-        for path in chapters:
+        for path in manuscript_files:
             text = path.read_text(encoding="utf-8")
             scan = lexicon.scan(text, profile=PROFILE_BOOK_PROSE)
             blocks = list(scan["blocking_findings"])
@@ -112,7 +114,7 @@ def main() -> int:
 
             aggregate.append(
                 {
-                    "chapter": path.name,
+                    "file": path.name,
                     "state": scan["state"],
                     "text_sha256": scan["text_sha256"],
                     "blocks": len(blocks),
@@ -122,7 +124,7 @@ def main() -> int:
 
     print(json.dumps(aggregate, ensure_ascii=False, indent=2))
     print(
-        f"BOOK_PROSE summary chapters={len(chapters)} "
+        f"BOOK_PROSE summary files={len(manuscript_files)} chapters=10 front_matter=1 "
         f"blocks={blocking_count} warnings={warning_count}"
     )
 
