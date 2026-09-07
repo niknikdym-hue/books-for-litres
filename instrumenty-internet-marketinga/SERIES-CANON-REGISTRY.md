@@ -25,6 +25,8 @@ The old manuscripts are not an evidence corpus, not a content source, and not an
 
 ## 3. Locked reboot portfolio
 
+Inventory numbering is not production order.
+
 | № | Preserved title | Reboot status | Content inheritance |
 |---:|---|---|---|
 | 1 | «Квиз-маркетинг. Как собирать лиды, вовлекать и продавать через тесты» | `TITLE-LOCKED / WRITE-FROM-ZERO` | NONE |
@@ -43,6 +45,19 @@ For each of these books the following are rebuilt from current evidence and curr
 - Russia execution layer;
 - architecture and chapter contracts;
 - style and manuscript.
+
+## 3.1 Current production selection
+
+Canonical Owner decision: `OWNER-DECISION-2026-09-07-PRODUCTION-PILOT-SMM-FIRST.md`.
+
+**«SMM продвижение» is the first production book of the rebooted series and the first real production-pilot book for BOOK OS.**
+
+Current state:
+- active workspace: `smm-prodvizhenie/`;
+- Definition/research active;
+- Writing BLOCKED;
+- no book assets become `RESERVED` until the new Book Definition/Architecture is human-approved;
+- the two other locked titles remain protected neighboring territories and are not opened by this production selection.
 
 ## 4. Protected neighboring author territories
 
@@ -78,6 +93,8 @@ Portfolio research больше не решает судьбу трёх суще
 2. как провести границы между ними, чтобы они не повторяли друг друга;
 3. какие дополнительные новые книги действительно нужны серии.
 
+Current execution priority is SMM Definition/research; portfolio research for other books may continue only when it does not dilute SMM production quality.
+
 ## 7. Exclusion / uniqueness registry
 
 Пока новых accepted masters нет, новый exclusion corpus пуст.
@@ -99,6 +116,6 @@ Full accepted Literary Master новой системы остаётся фин�
 
 ## 8. Current next gate
 
-**NEW BOOK DEFINITION RESEARCH for the three TITLE-LOCKED books + research of additional book candidates.**
+**Complete clean-room research and Owner-approved Book Definition Pack for «SMM продвижение».**
 
-Writing закрыт до утверждения Book Definition и Architecture конкретной новой книги.
+Writing закрыт до утверждения Book Definition и Architecture; после Architecture Writing остаётся chapter-specific and admission-gated.
