@@ -55,3 +55,7 @@
 27. JURA. *Стоимость ремонта и обслуживания*. Российская страница производителя. Использовано опубликованное условие оплаты диагностики при отказе от ремонта. [Описание условий](https://ru.jura.com/ru/support/official-service/Repair-and-maintenance-cost). Дата обращения: 7 сентября 2026.
 
 28. Enns, B.; Baker, D. C. *The Four Conversations: A New Model for Selling Expertise*. 2Bobs. Авторское интервью; использована расшифровка обсуждения границ применимости подхода к разным видам продаж. [Текст интервью](https://2bobs.com/podcast/the-four-conversations-a-new-model-for-selling-expertise). Дата обращения: 7 сентября 2026.
+
+29. GOV.UK, User research community. *Using moderated usability testing*. Service Manual. 21 February 2017; updated 3 October 2017. Использованы разделы о задачах и наблюдении за их выполнением. [Руководство](https://www.gov.uk/service-manual/user-research/using-moderated-usability-testing). Дата обращения: 7 сентября 2026.
+
+30. Zhao, T. *Advice for better moderated usability testing*. User research in government. 5 August 2019. [Авторская публикация](https://userresearch.blog.gov.uk/2019/08/05/advice-for-better-moderated-usability-testing/). Дата обращения: 7 сентября 2026.
