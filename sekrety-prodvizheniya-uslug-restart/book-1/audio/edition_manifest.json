@@ -18,31 +18,31 @@
       "file": "02-dlya-kogo-vy-budete-rabotat.md",
       "characters_with_spaces": 20897,
       "words": 2643,
-      "sha256": "6b838cdae273ab0bad6cc1f050f6ae215694692f7214c9afb3a0df393a5a0672"
+      "sha256": "7e372086c99e20805c737625746ad01f59e8e43885222391fffd4ab52cd5cfab"
     },
     {
       "file": "03-za-kakoy-rezultat-vy-otvechaete.md",
       "characters_with_spaces": 23862,
       "words": 3032,
-      "sha256": "4f82112211c88e4cc7b8c5019c23a16198bacec89a13cebbc3306fe8bd6eef35"
+      "sha256": "8110f83dd16d2a6c8ebd267c53d9226496f43e961f362ec007d9cbb7d735dc3b"
     },
     {
       "file": "04-kakuyu-uslugu-klient-mozhet-zakazat.md",
       "characters_with_spaces": 26549,
       "words": 3365,
-      "sha256": "63e4e236b666a141cbb5299d1c20451ae476751bc49b6333577004684b764809"
+      "sha256": "a763ebf4a9f19336ed7012ef50530a497e0ba4d75833c15c4e4a9495c2837145"
     },
     {
       "file": "05-tsena-i-usloviya-na-kotorykh-rabota-imeet-smysl.md",
       "characters_with_spaces": 29914,
       "words": 3939,
-      "sha256": "e47aaa45bdc2b42a5cdc3d7b32c7a9c696113c8d6e5e5c7cb556477a2dbfe45a"
+      "sha256": "9fc2776fae075413184021b61bc76bd5eaec69366f5a5721683e6a5e6df4f43c"
     },
     {
       "file": "06-rabota-kotoruyu-predstoit-sdelat-klientu.md",
       "characters_with_spaces": 20135,
       "words": 2615,
-      "sha256": "832dc54c9e3a180796282e671bcb1755a374980437850a1123ab09838b3d5185"
+      "sha256": "6fc38103a0789694280b73d95905a24a8bf216f60cf4aa596702f07ce6c8e62b"
     },
     {
       "file": "07-dokazatelstva-kotorye-vyderzhivayut-proverku.md",
@@ -78,19 +78,19 @@
       "file": "12-kak-dovesti-zakaz-do-nachala-raboty.md",
       "characters_with_spaces": 25055,
       "words": 3351,
-      "sha256": "755fb792467442893964c23894f41a931ecb61d90029a410746dbffbc94bb3da"
+      "sha256": "31da7ba1bf4a587d19b8857fd9fe5af0c468ee0a9f2e091a5012b837b4d9fa12"
     },
     {
       "file": "13-skolko-zakazov-vy-mozhete-obeshchat.md",
       "characters_with_spaces": 24148,
       "words": 3292,
-      "sha256": "9de8dc1eb6ed4e6d57ae3034a82d871495883071db8bbc16d88e384e202c7164"
+      "sha256": "56ed62cf099879fab5b62d862049d37633ec115fc7f2e1cea0a0b0e89b6ca0bf"
     },
     {
       "file": "14-kak-ponyat-chto-vy-izmenili-prodazhi.md",
       "characters_with_spaces": 22258,
       "words": 2935,
-      "sha256": "03b79ce4305995de8bdbc8f960ab9b2522d991a5e90892f73f222d1608f22aae"
+      "sha256": "74dac50f2c0d6f003f1f4f468de124ad9f197d5778cb6bb143c691b0a08dde39"
     },
     {
       "file": "15-zaklyuchenie.md",
@@ -209,7 +209,7 @@
     {
       "file": "02-dlya-kogo-vy-budete-rabotat.md",
       "source_sha256": "836c147ded3ec0ddb015d461ffdb96856c6bd6033155633773eb33ab7c71f178",
-      "audio_sha256": "6b838cdae273ab0bad6cc1f050f6ae215694692f7214c9afb3a0df393a5a0672",
+      "audio_sha256": "7e372086c99e20805c737625746ad01f59e8e43885222391fffd4ab52cd5cfab",
       "blocks": 69,
       "source_chars": 21450,
       "audio_chars": 21066
@@ -217,7 +217,7 @@
     {
       "file": "03-za-kakoy-rezultat-vy-otvechaete.md",
       "source_sha256": "396b3721f0480273d9646bd23b92ebb06cdbcbbb28a643c5139481c60f7f27ad",
-      "audio_sha256": "4f82112211c88e4cc7b8c5019c23a16198bacec89a13cebbc3306fe8bd6eef35",
+      "audio_sha256": "8110f83dd16d2a6c8ebd267c53d9226496f43e961f362ec007d9cbb7d735dc3b",
       "blocks": 77,
       "source_chars": 24540,
       "audio_chars": 24041
@@ -225,7 +225,7 @@
     {
       "file": "04-kakuyu-uslugu-klient-mozhet-zakazat.md",
       "source_sha256": "af483be9f094ba8ea4de0f35ff62b36ebf67066ed6dda46e43ffc042ee760cea",
-      "audio_sha256": "63e4e236b666a141cbb5299d1c20451ae476751bc49b6333577004684b764809",
+      "audio_sha256": "a763ebf4a9f19336ed7012ef50530a497e0ba4d75833c15c4e4a9495c2837145",
       "blocks": 83,
       "source_chars": 26901,
       "audio_chars": 26755
@@ -233,7 +233,7 @@
     {
       "file": "05-tsena-i-usloviya-na-kotorykh-rabota-imeet-smysl.md",
       "source_sha256": "a4e1f112654f0aa5c39fb701f735d4ccddc1c035776874a3b6924d1060db0c3d",
-      "audio_sha256": "e47aaa45bdc2b42a5cdc3d7b32c7a9c696113c8d6e5e5c7cb556477a2dbfe45a",
+      "audio_sha256": "9fc2776fae075413184021b61bc76bd5eaec69366f5a5721683e6a5e6df4f43c",
       "blocks": 108,
       "source_chars": 27853,
       "audio_chars": 30175
@@ -241,7 +241,7 @@
     {
       "file": "06-rabota-kotoruyu-predstoit-sdelat-klientu.md",
       "source_sha256": "955074c870f2fce86665d9ce3bcd7be218ecac776d7f070074146b7e30c001d0",
-      "audio_sha256": "832dc54c9e3a180796282e671bcb1755a374980437850a1123ab09838b3d5185",
+      "audio_sha256": "6fc38103a0789694280b73d95905a24a8bf216f60cf4aa596702f07ce6c8e62b",
       "blocks": 70,
       "source_chars": 20584,
       "audio_chars": 20306
@@ -289,7 +289,7 @@
     {
       "file": "12-kak-dovesti-zakaz-do-nachala-raboty.md",
       "source_sha256": "849680ff41de952e2685fff64059b14dc17a5fa2019f865521712b02df0f199d",
-      "audio_sha256": "755fb792467442893964c23894f41a931ecb61d90029a410746dbffbc94bb3da",
+      "audio_sha256": "31da7ba1bf4a587d19b8857fd9fe5af0c468ee0a9f2e091a5012b837b4d9fa12",
       "blocks": 82,
       "source_chars": 24977,
       "audio_chars": 25254
@@ -297,7 +297,7 @@
     {
       "file": "13-skolko-zakazov-vy-mozhete-obeshchat.md",
       "source_sha256": "ac26900da101858fa25eb42e7ff43a4ee93d5849cdb5709a6056ead3c896a8ef",
-      "audio_sha256": "9de8dc1eb6ed4e6d57ae3034a82d871495883071db8bbc16d88e384e202c7164",
+      "audio_sha256": "56ed62cf099879fab5b62d862049d37633ec115fc7f2e1cea0a0b0e89b6ca0bf",
       "blocks": 79,
       "source_chars": 22032,
       "audio_chars": 24353
@@ -305,7 +305,7 @@
     {
       "file": "14-kak-ponyat-chto-vy-izmenili-prodazhi.md",
       "source_sha256": "2d09c69142c1bcdc2238644f462e62de90db1751a6b8d542ad7a17b115fca401",
-      "audio_sha256": "03b79ce4305995de8bdbc8f960ab9b2522d991a5e90892f73f222d1608f22aae",
+      "audio_sha256": "74dac50f2c0d6f003f1f4f468de124ad9f197d5778cb6bb143c691b0a08dde39",
       "blocks": 79,
       "source_chars": 22171,
       "audio_chars": 22460

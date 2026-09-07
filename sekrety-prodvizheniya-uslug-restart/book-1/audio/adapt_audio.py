@@ -60,7 +60,7 @@ def mechanics(s, block_id):
     s=s.replace('Qlean','Клин').replace('JURA','Юра')
     s=clocks(s)
     s=re.sub(r'^(# Глава )([1-9]|1[0-4])\.',lambda m:m[1]+ORD[int(m[2])]+'.',s)
-    s=s.replace('## Практика:', '## Практика.')
+    s=re.sub(r'^(## Практика):\s*([а-яё])', lambda m:m[1]+'. '+m[2].upper(), s, flags=re.M)
     s=re.sub(r' +([,.!?;:])',r'\1',s)
     s=re.sub(r'(?<=[.!?]) +\.', '',s)
     s=re.sub(r' {2,}',' ',s)

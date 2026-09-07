@@ -1,0 +1,92 @@
+{
+  "edition": "audio-1.0",
+  "date": "2026-09-07",
+  "source_commit": "e94c055514acc7f2643265c03494cd5677e056d6",
+  "files": {
+    "Как-продавать-услуги_Аудиоредакция_Для-чтения.docx": {
+      "size_bytes": 204607,
+      "sha256": "0bd18e2c744b1231647f8d0e5b4b1cdf0ee8eaafcbffba6dd2df7379995fae81"
+    },
+    "Как-продавать-услуги_Аудиоредакция_Для-Литрес.docx": {
+      "size_bytes": 198626,
+      "sha256": "1ae08073296d677dbd72916a54b44767befd93b147cc32a8b339d2e308af1ed3"
+    },
+    "Как-продавать-услуги_Аудиоредакция_Для-озвучки.txt": {
+      "size_bytes": 652471,
+      "sha256": "0b39b40f0d75da657bd5a022bc0dda9759389edbe818434c77ae5fd11fb0d6d3"
+    }
+  },
+  "visual_review": {
+    "edition": "audio-1.0",
+    "date": "2026-09-07",
+    "reading": {
+      "pages": 145,
+      "visually_reviewed_pages": 145,
+      "review_complete": true,
+      "method": "All 145 pages reviewed; after capitalization correction all 20 changed raster pages reviewed again; other pages identical to reviewed renders."
+    },
+    "litres": {
+      "pages": 137,
+      "visually_reviewed_pages": 137,
+      "review_complete": true,
+      "method": "Every final rendered page reviewed at full image resolution."
+    },
+    "resolved_issues": [
+      "Almost-empty reader chapter tails corrected by paragraph spacing.",
+      "Practice heading capitalization corrected and affected pages rendered and reviewed again."
+    ],
+    "unresolved_layout_issues": [],
+    "source_text_english_example": {
+      "edition": "1.1",
+      "file": "Как-продавать-услуги_Для-Литрес.docx",
+      "page_in_local_render": 60,
+      "chapter": 7,
+      "section": "Образец, который можно разобрать",
+      "verified_by": [
+        "PDF text extraction",
+        "visual page inspection"
+      ],
+      "scope": "Page in prepared DOCX layout; device reflow may differ."
+    }
+  },
+  "text_checks": {
+    "source_blocks": 1194,
+    "mapped_source_blocks": 1194,
+    "changed_blocks": 203,
+    "authored_replacements": 66,
+    "spoken_chapters": 16,
+    "main_characters_with_spaces": 351113,
+    "main_words": 45973,
+    "matching_docx_semantic_blocks": 1305,
+    "source_tables_adapted": 16,
+    "source_math_images_adapted": 10,
+    "bibliography_entries_preserved": 38,
+    "source_citations_traced": 56,
+    "lexicon_revision": 3,
+    "lexicon_profiles": [
+      "BOOK_PROSE",
+      "AUDIOBOOK_PRE_SYNTHESIS"
+    ],
+    "lexicon_block_findings": 0,
+    "lexicon_warn_findings": 0,
+    "additional_banned_word_findings": 0,
+    "long_exact_duplicate_findings": 0,
+    "chapter_5_and_13_arithmetic_checked": true
+  },
+  "litres_document_checks": {
+    "headings": 17,
+    "tables": 0,
+    "images": 0,
+    "page_breaks": 0,
+    "page_break_before": 0,
+    "furniture": 0,
+    "semantic_blocks": 1305,
+    "text_preserved": true,
+    "size_bytes": 198626,
+    "commercial_links_plain": 32,
+    "platform_conversion_tested": false
+  },
+  "audio_recorded": false,
+  "audition_review_done": false,
+  "platform_conversion_tested": false
+}
