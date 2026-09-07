@@ -1,16 +1,19 @@
 # BOOK BRAIN — «Как продавать услуги»
 
 **Серия:** «Секреты продвижения услуг», книга №1  
-**Статус:** DEFINITION-APPROVED / ARCHITECTURE-APPROVED / PRE-WRITING-RESEARCH  
+**Статус:** `DEFINITION-APPROVED / ARCHITECTURE-APPROVED / FINAL-REVIEW-PASS / OWNER-GATE`  
 **Режим:** WRITE FROM ZERO  
 **Дата старта:** 2026-09-06  
 **Definition approved:** 2026-09-07  
 **Architecture v1 approved:** 2026-09-07  
-**WRITING:** CLOSED GLOBALLY / OPEN ONLY PER-CHAPTER AFTER CONTRACT PASS
+**MANUSCRIPT:** COMPLETE DRAFT / NOT ACCEPTED / NOT LOCKED / NOT LITERARY MASTER  
+**WRITING:** CLOSED; only owner-requested REWORK or final-production corrections may change literary text before acceptance.
 
-## 1. Обязательный authority read set
+## 1. Source of truth / authority read set
 
-Перед любой содержательной работой по книге прочитать:
+GitHub `niknikdym-hue/books-for-litres` is source of truth. Chat memory does not override repository authority.
+
+Before material work on this book read, in order:
 
 1. `../SERIES-BRAIN.md`;
 2. `../SERIES-QUALITY-CONSTITUTION.md`;
@@ -19,166 +22,214 @@
 5. `../SERIES-PRODUCTION-PROTOCOL.md`;
 6. `../CHAPTER-CONTRACT-TEMPLATE.md`;
 7. `../LEGACY-SERIES-INVENTORY-2026-09-06.md`;
-8. этот `BOOK-BRAIN.md`;
+8. this `BOOK-BRAIN.md`;
 9. `BOOK-DEFINITION.md`;
 10. `DEFINITION-APPROVAL-2026-09-07.md`;
 11. `ARCHITECTURE-V1.md`;
 12. `ARCHITECTURE-APPROVAL-2026-09-07.md`;
 13. `ARCHITECTURE-AUDIT-V1.md`;
-14. `ARCHITECTURE-RESEARCH-ADDENDUM-2026-09-07.md`;
-15. `CATEGORY-COMPETITOR-MAP-2026.md`;
-16. `WORLD-CLASS-BENCHMARK-2026.md`;
-17. `RESEARCH-MAP.md`;
-18. `PRACTICAL-VALUE-MAP.md`;
-19. `RUSSIA-APPLICATION-MAP-2026.md`;
-20. `UNIQUENESS-LEDGER.md`;
-21. relevant file in `chapter-contracts-v1/`;
-22. Content Quality Lexicon `BOOK_PROSE`.
+14. `CATEGORY-COMPETITOR-MAP-2026.md`;
+15. `WORLD-CLASS-BENCHMARK-2026.md`;
+16. `RESEARCH-MAP.md`;
+17. `PRACTICAL-VALUE-MAP.md`;
+18. `RUSSIA-APPLICATION-MAP-2026.md`;
+19. `UNIQUENESS-LEDGER.md`;
+20. `WHOLE-BOOK-AUDIT-ROUND-1-2026-09-07.md`;
+21. `WHOLE-BOOK-AUDIT-ROUND-2-2026-09-07.md`;
+22. `FINAL-LITERARY-RHYTHM-REVIEW-2026-09-07.md`;
+23. `WORLD-CLASS-ADVERSARIAL-REVIEW-ROUND-3-2026-09-07.md`;
+24. `FINAL-REVIEW-2026-09-07.md`;
+25. `reader-notes/NOTES-AND-SOURCES.md`;
+26. relevant `source-notes/` and `chapter-contracts-v1/` file when touching a specific claim/chapter;
+27. canonical Content Quality Lexicon profile `BOOK_PROSE`.
 
-GitHub — source of truth. Память чата не заменяет этот read set.
+Earlier audit/review files remain historical evidence and must not supersede a later review unless explicitly marked current.
 
-## 2. Подтверждено пользователем
+## 2. Owner-approved decisions
 
-- Название: **«Как продавать услуги»**.
-- Серия: **«Секреты продвижения услуг»**, книга №1 перезапуска.
-- Новая версия пишется с нуля; старое издание — только legacy source.
-- Все существующие книги серии планируется обновить, затем писать новые.
-- Каждая книга и каждая глава должны быть уникальны по смысловой функции.
-- Запрещены повторные механизмы, сцены, аналогии, research functions, frameworks и practical tools под новыми названиями.
-- Обязателен Content Quality Lexicon `BOOK_PROSE`.
-- Книга должна иметь **очень сильное практическое значение и актуальность**.
-- Планка — **уровень очень сильных мировых деловых книг**, с original contribution.
-- Применение — **конкретно для России**, без превращения книги в локальный платформенный справочник.
-- `BOOK-DEFINITION.md` утверждён 2026-09-07.
-- `ARCHITECTURE-V1.md` утверждена 2026-09-07.
+User has explicitly approved:
 
-## 3. Четыре обязательных качества
+- title: **«Как продавать услуги»**;
+- series: **«Секреты продвижения услуг»**, Book 1 of the relaunch;
+- write from zero; old edition is legacy material only;
+- Definition on 2026-09-07;
+- Architecture v1 on 2026-09-07;
+- series-level rule that every book must be unique;
+- top-tier world-class quality target;
+- very strong practical value and current relevance;
+- global intellectual standard with concrete Russian application;
+- strict protection from repeated mechanisms, scenes, analogies, research functions, frameworks and tools;
+- canonical Content Quality Lexicon / `BOOK_PROSE` gate.
 
-Любой крупный объект книги должен пройти одновременно:
+User has **not yet approved the completed manuscript as final**.
 
-1. **TOP-TIER GLOBAL**;
-2. **ORIGINAL CONTRIBUTION**;
-3. **PRACTICAL VALUE**;
-4. **RUSSIA APPLICATION**.
+## 3. Signature contribution
 
-Провал любого блока = `REWORK`.
+### Author synthesis: «разрыв проверяемости»
 
-## 4. Утверждённый стратегический центр
+A buyer of a professional service must decide before they can properly verify much of the future quality.
 
-Продажа профессиональной услуги рассматривается как работа с неопределённостью покупки: результат, поставщик, доказательства, процесс, цена, границы и следующий шаг должны стать достаточно ясными, чтобы подходящий клиент мог принять решение.
+Reader-facing Russian formulation is fixed in the Introduction as an **author-created working term**, not a published scientific construct.
 
-Книга должна провести российского читателя от этой модели к собственной работающей системе продажи услуги.
+### Book thesis
 
-Изменение центрального обещания/механизма требует нового прямого пользовательского решения.
+**Продажа профессиональной услуги — проектирование достаточно ясного, проверяемого и выполнимого решения о будущем обмене обязательствами.**
 
-## 5. Утверждённая Architecture v1
+This thesis is the book-level causal spine. It may not be silently replaced by a generic persuasion / funnel / objection-handling thesis.
 
-10 глав / 5 частей:
+## 4. Scope contract
 
-1. Почему хорошую услугу трудно купить.
-2. Что именно клиент должен решиться купить.
-3. Доказательства вместо уверений.
-4. Показать работу до начала работы.
-5. Диагноз до предложения.
-6. Когда хорошая продажа заканчивается отказом.
-7. Коммерческое предложение как документ решения.
-8. Цена, объём и риск.
-9. «Я подумаю» — это не одно возражение.
-10. Почему вы проиграли сделку — и что менять на самом деле.
+This volume owns the **purchase-decision / service-sales design** layer after a potential buyer has encountered the service/provider.
 
-Точные functions, outputs, boundaries и research constraints находятся в `ARCHITECTURE-V1.md` и chapter contracts.
+It deliberately does not become the full marketing/acquisition book.
 
-Число 10 не является целью. Глава 6 сохраняет обязательный merge-test с главой 5; любая другая глава также может быть объединена/удалена, если при production перестаёт проходить deletion/uniqueness gate.
+Protected future-series territories include:
 
-## 6. Reservation state
+- lead generation;
+- SEO/GEO;
+- Yandex Direct niche systems;
+- SMM/content/personal-brand systems;
+- full online-course funnel;
+- CRM implementation;
+- retention/LTV;
+- full company pricing strategy/productization;
+- scaling/team management.
 
-По `ARCHITECTURE-APPROVAL-2026-09-07.md` все принятые chapter territories, causal mechanisms и practical outputs Architecture v1 имеют статус **`RESERVED`**.
+## 5. Approved Architecture v1 — 10 chapters
 
-Это reservation, а не permission to write.
+1. **Почему хорошую услугу трудно купить** — Buyer Uncertainty Map.
+2. **Что именно клиент должен решиться купить** — Service Decision Definition.
+3. **Доказательства вместо уверений** — Evidence Inventory + Gap Map.
+4. **Показать работу до начала работы** — Process Visibility Map.
+5. **Диагноз до предложения** — Diagnostic Conversation Map.
+6. **Когда хорошая продажа заканчивается отказом** — Критерии совместимости сделки.
+7. **Коммерческое предложение как документ решения** — proposal portability / Offer Decision Sheet.
+8. **Цена, объём и риск** — Price–Scope–Risk Map.
+9. **«Я подумаю» — это не одно возражение** — competing-hypothesis post-offer diagnostic + stop condition.
+10. **Почему вы проиграли сделку — и что менять на самом деле** — Lost-Deal Learning Loop + system assembly.
 
-Аналогии по-прежнему не зарезервированы: `NONE RESERVED`.
+Front matter:
 
-## 7. Практический результат всей книги
+- `manuscript/00-vvedenie.md` — Introduction / reader contract / signature idea. It is **not Chapter 11** and owns no chapter artifact.
 
-После книги читатель должен иметь улучшенную систему продажи собственной услуги, а не набор заметок.
+Ch6 hard merge-test against Ch5 was performed on actual prose and PASSED.
 
-Утверждённые architecture-level outputs:
+## 6. Current manuscript inventory
 
-- Buyer Uncertainty Map;
-- Service Decision Definition;
-- Evidence Inventory + Gap Map;
-- Process Visibility Map;
-- Diagnostic Conversation Map;
-- Qualification / No-Go Criteria;
-- Offer Decision Sheet;
-- Price–Scope–Risk Map;
-- Uncertainty/Objection Diagnostic;
-- Lost-Deal Learning Loop.
+Literary text:
 
-`Personal Service Sales System` — финальная сборка этих результатов, а не отдельный повторный framework.
+- 1 Introduction;
+- 10 chapters.
 
-## 8. Research blockers / pre-writing queue
+Reader evidence layer:
 
-Architecture approval не снимает chapter-level evidence blockers.
+- `reader-notes/NOTES-AND-SOURCES.md`.
 
-Приоритетные открытые блоки:
+Production evidence:
 
-- Ch5 — sales-specific diagnosis evidence;
-- Ch6 — final fit/qualification synthesis + merge-test;
-- Ch7 — proposal-specific evidence;
-- Ch8 — guarantees/fee/risk + Russia transaction specifics;
-- Ch9 — uncertainty/objection taxonomy + status-quo evidence.
+- chapter-specific `source-notes/`;
+- chapter contracts;
+- research/architecture audits.
 
-Ch1–4 и Ch10 имеют более сильную research foundation, но всё равно проходят финальный contract refinement до Writing.
+All book-specific tools/maps are author synthesis unless explicitly stated otherwise; published evidence supports underlying mechanisms and boundaries, not the exact author-created form as a validated scientific scale.
 
-## 9. Writing governance
+## 7. Completed quality gates
 
-Нельзя открыть `WRITING` для всей книги одним решением.
+### Chapter admission / QA
+All Chapters 1–10 = `USED-DRAFT / QA PASS-DRAFT`.
 
-Каждая глава получает `WRITING_ALLOWED=YES` только после:
+### Whole-book overlap
+PASS-DRAFT after correction of:
 
-- research/evidence PASS;
-- world-class benchmark PASS;
-- practical-value PASS;
-- Russia application/freshness PASS;
-- intra-book zero-overlap PASS;
-- проверенных boundaries `NOT THIS CHAPTER`;
-- readiness к Content Quality / anti-junk режиму.
+- Ch1 ↔ Ch9;
+- Ch5 ↔ Ch6;
+- Ch7 ↔ Ch2–6;
+- Ch8 ↔ Ch9;
+- Ch9 ↔ Ch10;
+- Introduction ↔ Ch1.
 
-После draft главы обязательны chapter QA и обновление `UNIQUENESS-LEDGER.md` до перехода к следующей.
+### Practical value
+STRONG PASS-DRAFT. Each chapter has a distinct next-business-day action/artifact. Tools are selective/diagnostic, not ten mandatory forms.
 
-## 10. Legacy / future-book protection
+### Russia freshness
+PASS-DRAFT. Time-sensitive legal/NPD claims were checked and narrowed. No universal stereotype about Russian buyers is allowed.
 
-Legacy-книги под именем Елена Дым:
+### World-class adversarial
+`WORLD-CLASS-ADVERSARIAL-REVIEW-ROUND-3-2026-09-07.md` = **PASS-DRAFT / OWNER GATE**.
 
-1. «Как продавать услуги»;
-2. «Секреты продвижения услуг психолога в Яндекс Директ»;
-3. «Как продвигать юридические услуги в Яндекс Директ: Практическое руководство»;
-4. «Как продать онлайн-курсы».
+### Literary rhythm / evidence cadence
+PASS-DRAFT. Evidence is subordinate to argument; Ch8 is intentionally evidence-dense because it owns several contested pricing/contract claims.
 
-Книга №1 не поглощает территории №2–4 и не превращается в книгу про acquisition channels, SEO/GEO, SMM, личный бренд, CRM, retention/LTV, полноценную pricing strategy, productization или масштабирование сервисной компании.
+### Content Quality Lexicon
+Permanent automated gate covers exactly:
 
-## 11. World-class / Russia rule
+`11 literary files = 1 Introduction + 10 chapters`.
 
-Рабочий маршрут применимой главы:
+Final independent exact-head revalidation:
 
-`сильный мировой mechanism → international evidence → границы применимости → российская реальная ситуация → конкретное действие российского читателя`.
+- marker commit `75f77f787f5622e3368d737155ffb03ce4d3b40b`;
+- GitHub Actions run `34108003911`;
+- job `101697391809`;
+- 11/11 PASS;
+- BLOCK = 0;
+- WARN = 0.
 
-Benchmark задают сильные стороны `Selling the Invisible`, `The Trusted Advisor`, `SPIN Selling`, `Book Yourself Solid`, `The Challenger Sale`; их frameworks, архитектура и фирменные различения не копируются.
+No lexicon exemption or weakening was used.
 
-## 12. Quality target
+## 8. Uniqueness / series canon state
 
-`top-tier global quality + original contribution + доказательная честность + очень сильная practical value + российская применимость + уникальность → скорость`.
+All Architecture assets are now **USED-DRAFT**, not merely RESERVED.
 
-Слабая глава удаляется/объединяется, а не спасается стилем. Потраченное время не является аргументом за сохранение текста.
+They must remain protected from reuse in later Book 1 edits and future books.
 
-## 13. Current next stage
+They do **not** become `USED-ACCEPTED` / canonical exclusion corpus until user explicitly accepts this manuscript.
 
-Текущий этап: **ARCHITECTURE-APPROVED / PRE-WRITING-RESEARCH**.
+No structural analogy has been allocated/reused as a series device.
 
-Следующая работа:
+## 9. Final Review status
 
-1. закрыть chapter research blockers;
-2. финализировать chapter contracts по очереди;
-3. открыть первую главу, которая получает полный `PASS`, на `WRITING_ALLOWED=YES`;
-4. писать строго по contract с последующим chapter QA.
+`FINAL-REVIEW-2026-09-07.md` = **PASS / OWNER ACCEPTANCE REQUIRED**.
+
+Final Review found one additional meaningful defect after the earlier world-class pass — Introduction ↔ Ch1 premise duplication — and corrected it before issuing the current gate.
+
+No manuscript P0/P1 structural defect remains open at the current review level.
+
+## 10. Owner-only gate
+
+Only the user can move the manuscript to accepted/final status.
+
+Until explicit owner acceptance:
+
+- do not mark `ACCEPTED`;
+- do not mark `LOCKED`;
+- do not mark `LITERARY MASTER`;
+- do not merge PR #58 as final-book acceptance;
+- do not move USED-DRAFT assets to USED-ACCEPTED in the series canon.
+
+If user requests REWORK, reopen only the affected gate/territory; do not restart Definition/Architecture unless the requested change actually breaks them.
+
+## 11. Separate publication / market decisions
+
+These are not unresolved manuscript-quality defects and require separate owner decisions:
+
+- author / pseudonym for the relaunched series;
+- subtitle;
+- annotation / metadata;
+- cover concept;
+- final Notes & Sources publication formatting;
+- DOCX/EPUB/PDF and other final production outputs.
+
+Packaging must not silently reopen the intellectual architecture.
+
+## 12. Current next action
+
+**OWNER FINAL REVIEW / ACCEPTANCE GATE.**
+
+If owner accepts the literary manuscript:
+
+1. create owner-acceptance authority;
+2. update `UNIQUENESS-LEDGER` and `SERIES-CANON-REGISTRY` from `USED-DRAFT` to accepted canonical assets;
+3. safely merge PR #58;
+4. create Literary Master / final production authority according to repository protocol;
+5. resolve author/subtitle/annotation/metadata as a separate packaging stage;
+6. generate final publication files only from the accepted Literary Master.
