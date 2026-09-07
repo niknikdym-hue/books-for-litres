@@ -51,6 +51,50 @@
 
 Каждая глава должна менять минимум одно решение/действие читателя и, где уместно, выдавать наблюдаемый результат или business artifact. Если глава лишь «расширяет кругозор», но не выполняет уникальную интеллектуальную функцию и не усиливает практический ответ на центральный вопрос, она `REWORK | MERGE | DELETE`.
 
+## OFFER / SALES ARCHETYPE MATRIX — NON-NEGOTIABLE
+
+Книга не имеет права выдавать один универсальный SMM-рецепт для всех бизнесов. **Тип продукта/услуги и модель продажи materially меняют SMM-стратегию.**
+
+Поэтому Book Definition, Architecture, practical maps и examples обязаны различать минимум следующие decision archetypes и при необходимости уточнять их после research:
+
+1. **FMCG / mass low-involvement product** — например, шоколадный батончик уровня Snickers: массовый охват, mental availability, distinctive brand assets, frequency, creator/entertainment mechanics, retail availability и ограниченная роль прямого lead-gen;
+2. **considered consumer product / durable goods** — более длинный выбор, сравнение, social proof, демонстрация, objections, price/value evidence, ретаргетинг/повторные контакты;
+3. **high-ticket / complex B2B product** — например, промышленный станок: узкая buying committee, длинный цикл сделки, expertise/proof, specification/application content, case evidence, lead qualification, sales handoff и account-level economics;
+4. **local recurring service** — например, мастер маникюра: география, визуальное доказательство результата, доверие к исполнителю, запись, повторный визит, локальные рекомендации и capacity constraints;
+5. **expert / professional service** — например, репетитор: expertise, trust, diagnostic content, proof of method/outcomes, parent/student decision dynamics, consultation/trial path, reputation и longer consideration;
+6. **other materially distinct archetypes** discovered by research — допускаются только когда они меняют customer journey, SMM mechanism, content/proof, conversion path или measurement enough to justify separate treatment.
+
+Для каждого admitted archetype книга должна показывать не просто «примеры постов», а полный differences map как минимум по:
+
+- business objective and economics;
+- buyer / buying unit;
+- customer journey and consideration length;
+- role of SMM in that journey;
+- channel/platform selection logic;
+- trust/proof requirement;
+- content jobs and format mix;
+- organic vs paid vs creator/community role;
+- offer / CTA / conversion path;
+- lead qualification / sales handoff where applicable;
+- retention/repeat/advocacy where applicable;
+- leading and lagging metrics;
+- experiment cadence and stop/fix/scale rules;
+- Russia-specific constraints and available platforms.
+
+**Snickers и промышленный станок не могут получать один и тот же SMM playbook. Репетитор и мастер маникюра также не могут получать один и тот же service playbook.** Если практическая рекомендация игнорирует эти различия, она `REWORK`.
+
+World-class theory должна объяснять, **почему** стратегии различаются. World-class practice должна показывать, **что именно делать** для каждого relevant archetype в российской действительности.
+
+## Practical completeness gate
+
+Книга не считается практически полной, если она оставляет читателя с общими фразами вроде «делайте качественный контент», «изучите аудиторию», «выберите подходящую площадку» или «тестируйте гипотезы» без decision rules, процедуры выбора и применимого output.
+
+Минимум для ключевых решений книги:
+
+`reader/business situation → diagnosis → decision rule → action → artifact/output → observable check → next action if result is weak/strong`.
+
+Читатель должен иметь возможность пройти по этой цепочке для **своего типа товара или услуги**.
+
 ## Russia-available SMM rule — NON-NEGOTIABLE
 
 Практическая часть книги строится только на SMM-площадках и инструментах, которые **фактически доступны и пригодны для использования российским читателем/бизнесом на дату подготовки книги**.
@@ -107,7 +151,8 @@ Length is a planning and density constraint, not a quota that may be filled mech
 - `AI-SUBSTITUTION`;
 - `SERIES UNIQUENESS`;
 - `NO PADDING`;
-- `COURSE-IN-A-BOOK COMPLETENESS` — центральный читательский вопрос получает полный профессиональный практический ответ.
+- `COURSE-IN-A-BOOK COMPLETENESS` — центральный читательский вопрос получает полный профессиональный практический ответ;
+- `ARCHETYPE APPLICABILITY` — рекомендации materially adapt to different product/service/sales archetypes instead of assuming one universal SMM recipe.
 
 Провал любого обязательного gate = `REWORK`.
 
