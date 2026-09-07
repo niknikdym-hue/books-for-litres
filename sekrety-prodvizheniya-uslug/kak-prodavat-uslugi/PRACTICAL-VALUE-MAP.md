@@ -29,8 +29,8 @@
 | 1 | непонятна реальная причина no-decision | какую uncertainty диагностировать | Buyer Uncertainty Map | 3–5 сделок разложены по конкретным hypotheses/evidence | B2C / owner-led B2B / multi-stakeholder B2B | **USED-DRAFT** |
 | 2 | услуга описана задачами/компетенциями | что именно buyer решается купить | Service Decision Definition | ясны situation/work result/boundaries/client role/non-guaranteed outcome | B2C clarity + B2B scope/assumptions | **USED-DRAFT** |
 | 3 | proof заменён self-claims / нерелевантными регалиями | какое evidence отвечает на конкретный buyer risk | Evidence Inventory + Gap Map | у каждого proof есть relevance/verifiability/support/limits/gap | cases/reviews/credentials/registries only where relevant | **USED-DRAFT** |
-| 4 | delivery — black box | что показать о future process | Process Visibility Map | ясны stages/roles/checkpoints/change rules | российский small agency/IT/consulting context | RESERVED |
-| 5 | предложение делается до понимания задачи | достаточно ли information для offer | Diagnostic Conversation Map | known/missing info явно отделены | B2C/self-employed + small B2B + buying group | RESERVED / RESEARCH BLOCKER |
+| 4 | delivery — black box | что показать о future process | Process Visibility Map | ясны stages/inputs/outputs/roles/checkpoints/change rules | small agency/IT/consulting/professional-service contexts | **USED-DRAFT** |
+| 5 | предложение делается до достаточного понимания задачи | достаточно ли информации для проектирования offer | Diagnostic Conversation Map | fact/assumption/unknown + materially relevant gaps explicitly separated | individual / owner-led small B2B / multi-stakeholder B2B | **USED-DRAFT** |
 | 6 | принимается плохой fit | proceed/clarify/redesign/decline | Qualification / No-Go Criteria | observable criteria дают repeatable decision | capacity risk solo/ИП/small agency | RESERVED / CONDITIONAL |
 | 7 | КП не собирает decision logic | что buyer должен увидеть для решения | Offer Decision Sheet + revised proposal | decision-maker понимает situation/scope/proof/process/investment/next step | B2B КП vs B2C context | RESERVED / RESEARCH BLOCKER |
 | 8 | price отделена от scope/risk | что менять при ценовом напряжении | Price–Scope–Risk Map | price change связан с scope/obligation/risk | payment/staging/B2B-B2C after fresh check | RESERVED / HIGH BLOCKER |
@@ -62,6 +62,22 @@
 - does not duplicate Ch2 service definition;
 - Ch4 protected: future stages/roles/checkpoints are not part of this artifact;
 - Russia layer avoids invented universal hierarchy of reviews/registries.
+
+### Ch4 — Process Visibility Map
+- next-business-day: PASS;
+- reader turns a hidden delivery process into 4–7 decision-relevant stages;
+- observable fields: input, output, provider/client role, checkpoint/decision, change rule;
+- does not become a PM/Gantt manual;
+- Ch2 role/boundary definition is not repeated: Ch4 owns timing, intermediate outputs and change logic;
+- future-process observability remains distinct from Ch3 proof.
+
+### Ch5 — Diagnostic Conversation Map
+- next-business-day: PASS;
+- reader can apply the map to the next enquiry before opening a proposal template;
+- core action: separate fact / assumption / unknown and identify only gaps that can materially change solution design;
+- four legitimate outcomes: design offer / verify / reframe together / do not prescribe yet;
+- does not become a question script or pain-amplification tool;
+- Ch6 fit/no-go criteria remain protected.
 
 ## 4. Next-business-day test
 
@@ -97,6 +113,6 @@ Practical gate FAIL, если reader должен сам придумывать 
 
 ## 10. Current status
 
-Ch1–3 practical outputs = **USED-DRAFT / QA PASS-DRAFT**.
+Ch1–5 practical outputs = **USED-DRAFT / QA PASS-DRAFT**.
 
-Ch4–10 remain `RESERVED` until their own contract gates. No later chapter may create renamed versions of Buyer Uncertainty Map, Service Decision Definition or Evidence Inventory + Gap Map.
+Ch6–10 remain `RESERVED` or `RESERVED / CONDITIONAL` until their own contract gates. No later chapter may create renamed versions of Buyer Uncertainty Map, Service Decision Definition, Evidence Inventory + Gap Map, Process Visibility Map or Diagnostic Conversation Map.
