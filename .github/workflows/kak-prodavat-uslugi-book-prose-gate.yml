@@ -42,5 +42,5 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Scan all ten manuscript chapters with canonical lexicon
+      - name: Scan Introduction and all ten chapters with canonical lexicon
         run: python sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/book_prose_gate.py
