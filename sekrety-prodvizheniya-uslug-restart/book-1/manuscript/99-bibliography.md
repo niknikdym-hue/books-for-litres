@@ -37,3 +37,9 @@
 18. УФНС России по Республике Хакасия. *Может ли самозанятый вычесть расходы из доходов при определении налоговой базы по НПД*. 16 июля 2025. [Официальная публикация](https://www.nalog.gov.ru/rn19/news/activities_fts/16421137/). Дата обращения: 7 сентября 2026.
 
 19. Закон РФ от 7 февраля 1992 года № 2300-1 *«О защите прав потребителей»*. Статья 33 «Смета на выполнение работы (оказание услуги)». Редакция от 28 декабря 2025 года, с изменениями от 17 февраля 2026 года и положениями, вступившими в силу 1 сентября 2026 года. [Текст статьи в КонсультантПлюс](https://www.consultant.ru/document/cons_doc_LAW_305/1536a01e6c5fdae25dce77f54eabf02f32e0c382/). Дата обращения: 7 сентября 2026.
+
+20. Bitner, M. J.; Faranda, W. T.; Hubbert, A. R.; Zeithaml, V. A. *Customer contributions and roles in service delivery*. International Journal of Service Industry Management. 1997. Vol. 8, no. 3. P. 193–205. [DOI: 10.1108/09564239710185398](https://doi.org/10.1108/09564239710185398). Использованы фрагменты [открыто размещённого текста статьи](https://www.academia.edu/105554924/Customer_contributions_and_roles_in_service_delivery). Дата обращения: 7 сентября 2026.
+
+21. Scott, J. *Six Tips for Preserving Family Archives*. Smithsonian Institution Archives. 26 November 2020. [Публикация архивиста](https://siarchives.si.edu/blog/six-tips-preserving-family-archives). Дата обращения: 7 сентября 2026.
+
+22. Федеральный закон от 27 июля 2006 года № 152-ФЗ *«О персональных данных»*. Редакция от 26 июля 2026 года. [Статья 5 «Принципы обработки персональных данных»](https://www.consultant.ru/document/cons_doc_LAW_61801/96fbc469f91f57235cc842a85e0516a99f23dc85/), [статья 6 «Условия обработки персональных данных»](https://www.consultant.ru/document/cons_doc_LAW_61801/315f051396c88f1e4f827ba3f2ae313d999a1873/). Тексты в КонсультантПлюс. Дата обращения: 7 сентября 2026.

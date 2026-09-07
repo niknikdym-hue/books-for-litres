@@ -3,7 +3,7 @@
 Дата: 2026-09-07.
 Автор книг: Елена Дым.
 Статус: решение пользователя о перезапуске принято; названия новых книг рабочие.
-Текущий этап: написаны и отредактированы первые черновики глав 1–5; дальнейшая работа — в разделе 10.
+Текущий этап: написаны и отредактированы первые черновики глав 1–6; дальнейшая работа — в разделе 10.
 Репозиторий: niknikdym-hue/books-for-litres.
 База новой ветки: main, 7d9c2f8c99d8ab010a8311dbf4cf87ade8662430.
 
@@ -216,4 +216,4 @@
 
 После просьбы пользователя снизить расход квоты рабочая рекомендация — Astra High для следующих глав; xhigh и Max использовать адресно при конкретной необходимости. Порядок зафиксирован в [документе о продолжении работы](04-WRITING-WORKFLOW.md). Пользователь меняет настройку чата; ассистент заранее сообщает о предлагаемом переходе.
 
-Написаны и отредактированы первые черновики [главы 1](book-1/manuscript/01-kogda-poyavlyaetsya-prichina-platit.md), [главы 2](book-1/manuscript/02-dlya-kogo-vy-budete-rabotat.md), [главы 3](book-1/manuscript/03-za-kakoy-rezultat-vy-otvechaete.md), [главы 4](book-1/manuscript/04-kakuyu-uslugu-klient-mozhet-zakazat.md) и [главы 5](book-1/manuscript/05-tsena-i-usloviya-na-kotorykh-rabota-imeet-smysl.md). Общий объём — 119 329 знаков видимого текста с пробелами. Источники и редакционные решения сохранены отдельно для [главы 1](03-CHAPTER-1-RESEARCH.md), [главы 2](05-CHAPTER-2-RESEARCH.md), [главы 3](06-CHAPTER-3-RESEARCH.md), [главы 4](07-CHAPTER-4-RESEARCH.md) и [главы 5](08-CHAPTER-5-RESEARCH.md). Пользователь ранее сообщил о включении Astra High; режим этого чата автоматически не менялся. Далее — глава 6. Остальная рукопись, исследование спроса на расширение и итоговая проверка всей книги впереди.
+Написаны и отредактированы первые черновики [главы 1](book-1/manuscript/01-kogda-poyavlyaetsya-prichina-platit.md), [главы 2](book-1/manuscript/02-dlya-kogo-vy-budete-rabotat.md), [главы 3](book-1/manuscript/03-za-kakoy-rezultat-vy-otvechaete.md), [главы 4](book-1/manuscript/04-kakuyu-uslugu-klient-mozhet-zakazat.md), [главы 5](book-1/manuscript/05-tsena-i-usloviya-na-kotorykh-rabota-imeet-smysl.md) и [главы 6](book-1/manuscript/06-rabota-kotoruyu-predstoit-sdelat-klientu.md). Общий объём — 139 349 знаков видимого текста с пробелами. Источники и редакционные решения сохранены отдельно для [главы 1](03-CHAPTER-1-RESEARCH.md), [главы 2](05-CHAPTER-2-RESEARCH.md), [главы 3](06-CHAPTER-3-RESEARCH.md), [главы 4](07-CHAPTER-4-RESEARCH.md), [главы 5](08-CHAPTER-5-RESEARCH.md) и [главы 6](09-CHAPTER-6-RESEARCH.md). Пользователь ранее сообщил о включении Astra High; режим этого чата автоматически не менялся. Далее — глава 7. Остальная рукопись, исследование спроса на расширение и итоговая проверка всей книги впереди.
