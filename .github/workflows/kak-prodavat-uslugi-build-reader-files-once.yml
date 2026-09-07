@@ -1,0 +1,67 @@
+name: How to Sell Services Reader Files Once
+
+on:
+  push:
+    branches:
+      - brain/kak-prodavat-uslugi-prewriting-research-20260907
+    paths:
+      - "sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/build_reader_deliverables.py"
+      - ".github/workflows/kak-prodavat-uslugi-build-reader-files-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build current DOCX and TXT manuscript
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout working branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install DOCX builder
+        run: python -m pip install --disable-pip-version-check python-docx==1.2.0
+
+      - name: Build reader deliverables
+        run: python sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/build_reader_deliverables.py
+
+      - name: Validate files
+        run: |
+          test -s sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/deliverables/kak-prodavat-uslugi-current-manuscript.docx
+          test -s sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/deliverables/kak-prodavat-uslugi-current-manuscript.txt
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          p=Path('sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/deliverables/kak-prodavat-uslugi-current-manuscript.docx')
+          with ZipFile(p) as z:
+              assert 'word/document.xml' in z.namelist()
+          txt=Path('sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/deliverables/kak-prodavat-uslugi-current-manuscript.txt').read_text(encoding='utf-8')
+          for marker in ['Введение. Продажа начинается раньше убеждения','Глава 1. Почему хорошую услугу трудно купить','Глава 10. Почему вы проиграли сделку','Примечания и источники']:
+              assert marker in txt, marker
+          print('reader files validated')
+          PY
+
+      - name: Remove one-time builder machinery
+        run: |
+          rm -f sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/build_reader_deliverables.py
+          rm -f .github/workflows/kak-prodavat-uslugi-build-reader-files-once.yml
+
+      - name: Commit reader deliverables
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && { echo "No deliverables produced"; exit 1; }
+          git commit -m "Add current reader files for How to Sell Services"
+          git push origin HEAD:${{ github.ref_name }}
