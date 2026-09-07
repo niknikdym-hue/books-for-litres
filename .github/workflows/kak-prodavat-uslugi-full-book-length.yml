@@ -1,0 +1,21 @@
+name: How to Sell Services Full Book Length
+
+on:
+  pull_request:
+    paths:
+      - "sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/manuscript/**"
+      - "sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/full_book_length_gate.py"
+      - ".github/workflows/kak-prodavat-uslugi-full-book-length.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  length:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python sekrety-prodvizheniya-uslug/kak-prodavat-uslugi/quality/full_book_length_gate.py
