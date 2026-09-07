@@ -59,3 +59,9 @@
 29. GOV.UK, User research community. *Using moderated usability testing*. Service Manual. 21 February 2017; updated 3 October 2017. Использованы разделы о задачах и наблюдении за их выполнением. [Руководство](https://www.gov.uk/service-manual/user-research/using-moderated-usability-testing). Дата обращения: 7 сентября 2026.
 
 30. Zhao, T. *Advice for better moderated usability testing*. User research in government. 5 August 2019. [Авторская публикация](https://userresearch.blog.gov.uk/2019/08/05/advice-for-better-moderated-usability-testing/). Дата обращения: 7 сентября 2026.
+
+31. Malhotra, D. *Four Strategies for Making Concessions*. Harvard Business School, Working Knowledge. 6 March 2006. Использованы положения о явных встречных условиях и ограничениях условных уступок. [Авторская статья](https://www.library.hbs.edu/working-knowledge/four-strategies-for-making-concessions). Дата обращения: 7 сентября 2026.
+
+32. Shonk, K. *Principled Negotiation: Focus on Interests to Create Value*. Program on Negotiation at Harvard Law School. Дата отображённой редакции: 30 June 2026. Использовано изложение различия позиции и интереса. [Материал PON](https://www.pon.harvard.edu/daily/negotiation-skills-daily/principled-negotiation-focus-interests-create-value/). Дата обращения: 7 сентября 2026.
+
+33. Гражданский кодекс Российской Федерации, часть первая, от 30 ноября 1994 года № 51-ФЗ. Редакция от 10 июня 2026 года. [Статья 432 о заключении договора](https://www.consultant.ru/document/cons_doc_LAW_5142/adbefccc8d538d42038164bb81d886c76e719d63/), [статья 450 об основаниях его изменения и расторжения](https://www.consultant.ru/document/cons_doc_LAW_5142/c231822b9f355b8c760b3389e80269f0d987870e/), [статья 452 о порядке изменения и расторжения](https://www.consultant.ru/document/cons_doc_LAW_5142/ca10f0c19da23330c9d92dacb11df0c92444bca3/). Тексты в КонсультантПлюс. Дата обращения: 7 сентября 2026.
