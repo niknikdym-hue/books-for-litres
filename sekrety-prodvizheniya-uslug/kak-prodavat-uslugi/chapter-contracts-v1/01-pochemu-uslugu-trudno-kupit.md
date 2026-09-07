@@ -2,56 +2,105 @@
 
 **Book:** «Как продавать услуги»  
 **Working title:** «Почему хорошую услугу трудно купить»  
-**Status:** PLANNED / ARCHITECTURE-DRAFT  
-**WRITING_ALLOWED:** NO
+**Status:** RESERVED / ARCHITECTURE-APPROVED / WRITING-READY  
+**WRITING_ALLOWED:** YES
 
 ## BUSINESS PROBLEM
-Сильный специалист объясняет слабые продажи недостатком доверия/денег/лидов и чинит не ту причину. Для сложной услуги клиент может не понимать, что именно оценивает и где для него риск.
+Сильный специалист объясняет слабые продажи недостатком доверия, денег или лидов и чинит не ту причину. Для сложной услуги клиент может не понимать, что именно оценивает и где для него риск.
 
 ## UNIQUE QUESTION
-Что именно делает покупку сложной услуги неопределённой и как диагностировать разные объекты uncertainty?
+Что именно делает покупку сложной услуги неопределённой и как диагностировать разные объекты uncertainty до изменения sales action?
 
 ## MECHANISM
-`hard-to-evaluate service + information asymmetry/outcome uncertainty → perceived risk → simplifying signals/inaction/price focus`.
+`hard-to-evaluate professional/credence service + information asymmetry/outcome uncertainty → perceived risk → buyer uses simplifying signals, delays/avoids decision or collapses comparison toward price`.
 
 ## DECISION
-Определить, **какую uncertainty нужно снижать**, прежде чем менять sales action.
+Определить, **какую uncertainty нужно исследовать/снижать**, прежде чем менять предложение, proof, процесс, цену или objection response.
 
 ## ACTION / ARTIFACT
 Заполнить **Buyer Uncertainty Map** на 3–5 недавних сделках.
 
 ## OBSERVABLE CHECK
-Каждый case имеет конкретную hypothesis + evidence; «дорого/не доверяет» без разложения не проходит.
+Каждый case имеет конкретную hypothesis и доступное/недостающее evidence. Формулировки «дорого», «не доверяет», «не готов» без разложения не проходят.
 
 ## EVIDENCE FUNCTION
-Professional/credence services; perceived risk; intangibility; information asymmetry; ex-ante evaluation.
+Основная опора:
+
+- professional services трудно специфицировать, сравнивать и оценивать ex ante; риск/transaction uncertainty влияет на покупку;
+- services могут восприниматься как более рискованные из-за intangibility/uncertainty;
+- credence qualities усиливают information asymmetry;
+- клиенты professional services используют observable signals для ex-ante screening.
+
+Primary anchors уже зарегистрированы в `RESEARCH-MAP.md`, включая professional-services purchasing, perceived-risk/credence literature и Pemer & Skjølsvik по ex-ante quality signals.
+
+### Taxonomy honesty
+Конкретная рабочая `Buyer Uncertainty Map` — **author synthesis grounded in the evidence**, а не универсальная научно валидированная taxonomy. В тексте это должно быть ясно.
 
 ## WORLD-CLASS BENCHMARK
-Beckwith — benchmark category clarity. Не повторять «услуга невидима». Contribution: integrated diagnostic map that organizes the whole book.
+`Selling the Invisible` задаёт category clarity, но глава не пересказывает тезис «услуга невидима». Contribution: причинная диагностическая карта, которая организует остальные решения книги.
+
+`SPIN Selling` не используется как questioning framework: эта глава существует **до** sales conversation и диагностирует structure of purchase uncertainty.
+
+**Gate: PASS.**
+
+## PRACTICAL VALUE
+Читатель применяет карту к собственным реальным сделкам и получает decision rule: не лечить одинаковым действием разные причины no-decision.
+
+Next-business-day test: PASS.
 
 ## RUSSIA APPLICATION
-Сравнить solo B2C, owner-led small-business B2B и multi-stakeholder B2B без культурных обобщений.
+Показать различия без культурных стереотипов:
+
+- solo B2C / эксперт–физлицо;
+- owner-led small-business B2B;
+- multi-stakeholder B2B, где «клиент» не один человек.
+
+Российский слой здесь не требует platform/legal overload; конкретные локальные claims проверять перед master.
+
+**Gate: PASS.**
 
 ## FRESHNESS
-Core evergreen. Российские примеры/локальные claims проверить перед master.
+Core evergreen. Любая статистика рынка/AI/платформ — только как contextual note с fresh source, не как опора mechanism.
 
 ## SCENE / CASE
-Model/composite: три одинаково компетентных поставщика, но три разные причины остановки решения. Функция — показать, почему одинаковая фраза клиента не означает одинаковый риск.
+Model/composite: похожий surface outcome (`подумаю` / no-decision) у нескольких покупателей, но разные underlying uncertainties.
+
+Функция — показать опасность единственного объяснения. Ch9 позже использует post-offer diagnostic branching и не должен повторять эту opening function.
 
 ## ANALOGY
-NONE RESERVED.
+**NONE RESERVED.**
+
+Не придумывать метафору ради «запоминаемости», если mechanism ясен напрямую.
 
 ## NOT THIS CHAPTER
-Не переписывает услугу, не выбирает evidence, не учит questions/objection handling.
+Не переписывает услугу (Ch2), не выбирает proof (Ch3), не показывает process (Ch4), не учит discovery questions (Ch5), не занимается objection handling (Ch9).
 
 ## COMPOSITION
-Observed commercial puzzle → buyer-side mechanism → differentiated uncertainties → counterexample to «всё про доверие» → practical map.
+Commercial puzzle → buyer-side mechanism → evidence-backed distinctions → counterexample to generic `trust/price` explanations → practical Buyer Uncertainty Map.
+
+Не использовать шаблон `история → список ошибок → пять шагов → вдохновляющий итог`.
 
 ## UNIQUENESS
-Только эта глава создаёт diagnostic language всего book. Ch2 уже изменяет service definition; ch9 диагностирует hesitation после offer.
+Только Ch1 создаёт diagnostic language всей книги до вмешательства. Ch2 меняет decision object; Ch9 работает с оставшейся uncertainty уже после offer.
 
-## RESEARCH BLOCKER
-Финальная taxonomy — author synthesis unless evidence supports exact categories. Нельзя подавать как universal scientific taxonomy.
+## CONTENT QUALITY READINESS
+До draft:
+
+- избегать «эта книга не про...», «дело не в..., а...», «это про...»;
+- не превращать uncertainty/risk в повторяемые модные слова без конкретного объекта;
+- не писать «строить доверие» как самодостаточное объяснение;
+- не создавать искусственные симметричные списки ради ритма.
+
+После draft обязателен `BOOK_PROSE` lexicon gate + manual anti-junk review.
 
 ## PRE-WRITING DECISION
-World-class PASS-DRAFT; practical PASS-DRAFT; Russia PASS-DRAFT; research PASS FOUNDATION; uniqueness PASS-DRAFT; **WRITING_ALLOWED=NO** до Architecture approval.
+- World-class: PASS
+- Original contribution: PASS
+- Practical value: PASS
+- Russia application: PASS
+- Research/evidence: PASS WITH TAXONOMY-AS-SYNTHESIS BOUNDARY
+- Intra-book uniqueness: PASS
+- Series/future protection: PASS
+- Architecture fit: PASS
+
+**WRITING_ALLOWED=YES.**

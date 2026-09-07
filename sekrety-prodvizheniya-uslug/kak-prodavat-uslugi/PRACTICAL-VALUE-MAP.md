@@ -1,80 +1,132 @@
 # PRACTICAL VALUE MAP — «Как продавать услуги»
 
-**Статус:** ARCHITECTURE-APPROVED / RESERVED OUTPUTS  
+**Статус:** 10 CHAPTER DRAFTS COMPLETE / WHOLE-BOOK EDIT ROUND 1 APPLIED  
 **Дата:** 2026-09-07  
 **Definition:** APPROVED  
 **Architecture v1:** APPROVED  
-**WRITING:** PER-CHAPTER ONLY AFTER CONTRACT PASS
+**ACCEPTED / LOCKED:** NO
 
-## 1. Главный gate
+## 1. Главный practical gate
 
-Каждая глава должна отвечать:
+Каждая глава проходит только если создаёт отдельное практическое изменение поведения читателя:
 
-1. какую реальную коммерческую проблему решает;
-2. какое новое решение читатель сможет принять;
-3. что конкретно он сделает;
-4. какой business artifact создаст/изменит;
-5. как проверит качество результата;
-6. как output применяется в России;
-7. чем он уникален относительно соседних глав и серии.
+1. решает реальную коммерческую проблему;
+2. позволяет принять новое решение;
+3. приводит к конкретному действию;
+4. создаёт или изменяет рабочий business artifact;
+5. имеет наблюдаемый способ проверки;
+6. применима в российских условиях без самостоятельного «перевода» читателем;
+7. не дублирует соседнюю главу или будущую книгу серии.
 
-Слабая practical value = `REWORK / MERGE / DELETE` даже после Architecture approval.
+Слабая practical value = `REWORK / MERGE / DELETE` даже при красивом тексте.
 
 ## 2. Book-level practical promise
 
-После книги у читателя должна остаться **рабочая система продажи собственной профессиональной услуги**, а не конспект советов.
+После книги у читателя должна остаться **рабочая система продажи собственной профессиональной услуги**, а не набор советов, скриптов или десять обязательных форм.
 
-Architecture v1 резервирует outputs так:
+Ключевой принцип после whole-book edit: **инструмент используется только тогда, когда его проблема реально присутствует**.
 
-| Ch | Business problem | Decision | Artifact | Observable check | Russia application | Status |
-|---:|---|---|---|---|---|---|
-| 1 | непонятна реальная причина no-decision | какую uncertainty диагностировать | Buyer Uncertainty Map | 3–5 сделок разложены по конкретным hypotheses/evidence | B2C / owner-led B2B / multi-stakeholder B2B | RESERVED |
-| 2 | услуга описана задачами/компетенциями | что именно buyer решается купить | Service Decision Definition | ясны situation/result/boundaries/client role | B2C clarity + B2B scope | RESERVED |
-| 3 | proof заменён self-claims | какое evidence закрывает конкретный risk | Evidence Inventory + Gap Map | у каждого proof указаны relevance/limits | cases/reviews/credentials/registries where relevant | RESERVED |
-| 4 | delivery — black box | что показать о future process | Process Visibility Map | ясны stages/roles/checkpoints/change rules | российский small agency/IT/consulting context | RESERVED |
-| 5 | предложение делается до понимания задачи | достаточно ли information для offer | Diagnostic Conversation Map | known/missing info явно отделены | B2C/self-employed + small B2B + buying group | RESERVED / RESEARCH BLOCKER |
-| 6 | принимается плохой fit | proceed/clarify/redesign/decline | Qualification / No-Go Criteria | observable criteria дают repeatable decision | capacity risk solo/ИП/small agency | RESERVED / CONDITIONAL |
-| 7 | КП не собирает decision logic | что buyer должен увидеть для решения | Offer Decision Sheet + revised proposal | decision-maker понимает situation/scope/proof/process/investment/next step | B2B КП vs B2C context | RESERVED / RESEARCH BLOCKER |
-| 8 | price отделена от scope/risk | что менять при ценовом напряжении | Price–Scope–Risk Map | price change связан с scope/obligation/risk | payment/staging/B2B-B2C after fresh check | RESERVED / HIGH BLOCKER |
-| 9 | одинаковая фраза скрывает разные причины | clarify/redesign/wait/decline etc. | Uncertainty/Objection Diagnostic | competing hypotheses проверяются до response | no unsupported Russia stereotypes | RESERVED / HIGH BLOCKER |
-| 10 | seller неверно объясняет wins/losses | какое system change тестировать | Lost-Deal Learning Loop + system assembly | facts/assumptions/pattern/test separated | usable without BI stack | RESERVED |
+## 3. Actual practical map
 
-`Personal Service Sales System` — не одиннадцатый tool. Это финальная интеграция Ch1–10.
+| Ch | Commercial problem | New decision | Artifact | Observable check | Status |
+|---:|---|---|---|---|---|
+| 1 | продавец меняет сайт/цену/убеждение, не понимая, что покупателю трудно оценить | какую зону покупательской неопределённости исследовать | Buyer Uncertainty Map | 3–5 реальных решений разделены на fact / hypothesis / unknown; неизвестное стало видимым | **USED-DRAFT** |
+| 2 | услуга описана действиями исполнителя, а предмет покупки покупатель достраивает сам | что именно является профессиональным обязательством | Service Decision Definition | незнакомый человек может пересказать ситуацию, рабочий результат, границы, роль клиента и неподконтрольный эффект | **USED-DRAFT** |
+| 3 | доказательства заменены регалиями/объёмом отзывов | какое доказательство отвечает на конкретный риск покупателя | Evidence Inventory + Gap Map | у каждого proof видны relevance, verifiability, supported claim, limits и gap | **USED-DRAFT** |
+| 4 | после оплаты начинается плохо наблюдаемый процесс | что именно показать до покупки о будущей работе | Process Visibility Map | видны 4–7 значимых stages, inputs/outputs, roles, checkpoints и change rules | **USED-DRAFT** |
+| 5 | продавец принимает названное клиентом решение за установленную задачу | достаточно ли информации для проектирования предложения | Diagnostic Conversation Map | facts / assumptions / unknowns разделены; остаются только пробелы, способные изменить решение | **USED-DRAFT** |
+| 6 | понятная задача продаётся в невыполнимой конфигурации | proceed / redesign / decline-refer | Критерии совместимости сделки | шесть условий проверены без personality scoring; hard obstacle не маскируется суммарным баллом | **USED-DRAFT** |
+| 7 | коммерческое предложение не живёт без устных объяснений продавца | какую информацию оставить/убрать, чтобы решение можно было восстановить после пересылки | Карта решения по предложению | absent decision-maker пересказывает задачу, обязательство, proof, process, critical conditions, price visibility, limits и next decision | **USED-DRAFT / WHOLE-BOOK COMPRESSED** |
+| 8 | скидка/модель оплаты обсуждается отдельно от объёма и риска | что действительно менять при подтверждённом economic tension | Price–Scope–Risk Map | любое изменение цены/графика/модели связано с конкретным изменением obligation/scope/risk allocation | **USED-DRAFT** |
+| 9 | продавец автоматически отвечает на `дорого / позже / подумаю` первой удобной версией | какая причина достаточно подтверждена для следующего действия | Диагностика незавершённого решения | signal → 2–3 deal-specific hypotheses → discriminating fact → one action → stop condition | **USED-DRAFT / Ch1 OVERLAP REMOVED** |
+| 10 | итог сделки превращается в удобную CRM-причину и запускает неверную системную правку | достаточно ли данных для изменения sales system | Lost-Deal Learning Loop | outcome/facts/seller version/buyer data/signal strength separated; выбирается одно testable change | **USED-DRAFT** |
 
-## 3. Next-business-day test
+## 4. Next-business-day test
 
-Каждый artifact должен быть применим к реальной продаже уже на следующий рабочий день. «Повышать ценность / доверие / качество» не считается action.
+Каждый artifact должен быть применим уже на следующей реальной продаже.
 
-## 4. Economic significance test
+Формулировки `повышать ценность`, `строить доверие`, `улучшать сервис`, `лучше работать с возражениями` не считаются action без конкретного решения и observable check.
 
-Отдельная глава допустима только если её ошибка частая или дорогая и влияет на потерю сделки, unnecessary discount, bad fit, expectation conflict или wasted capacity/time.
+## 5. Tool necessity / no-workbook rule
 
-Ch6 сохраняет **условный reservation**: если research/draft не докажут самостоятельную economic/intellectual function, она MERGE с Ch5 и книга становится 9-главной.
+Книга не требует проходить T01–T10 на каждой сделке.
 
-## 5. Russia applicability
+### Phase A — сделать покупку оцениваемой
+Используются Ch1–4 только там, где проблема находится в неопределённости, предмете услуги, доказательствах или будущей работе.
 
-В каждой главе global mechanism сохраняется, а локальный слой меняет конкретное действие только там, где российская практика materially relevant. Legal/tax/payment/platform specifics получают freshness check перед master.
+### Phase B — понять задачу и проверить выполнимость
+Ch5 используется, когда задача ещё не установлена достаточно хорошо. Ch6 — только после этого, когда нужно решить, стоит ли принимать конкретное обязательство.
 
-## 6. No duplicate tools
+### Phase C — собрать сделку
+Ch7 нужен для переносимости решения в документе. Ch8 включается только при подтверждённой экономической проблеме.
+
+### Phase D — работать с исходом
+Ch9 нужен при незавершённом решении с неизвестной причиной. Ch10 — после исходов, когда нужно понять, что действительно менять в системе.
+
+Если проблема отсутствует, соответствующий инструмент не создаёт ценности и не должен применяться ради ритуала.
+
+## 6. Economic significance test
+
+Отдельная глава оправдана только если ошибка влияет хотя бы на один значимый результат:
+
+- потерю подходящей сделки;
+- ненужную скидку;
+- плохую конфигурацию проекта;
+- конфликт ожиданий;
+- перегрузку/потерю capacity;
+- неверную системную правку после сделки.
+
+Ch6 прошла hard merge-test с фактической Ch5 и остаётся отдельной: диагностика информации и проверка выполнимости — разные решения.
+
+## 7. Russia applicability
+
+Российский слой включается только там, где меняется практическое действие:
+
+- информация для потребителя до договора;
+- цена/существенные условия;
+- чек НПД для самозанятого;
+- регулируемые статусы/лицензии/реестры там, где они действительно применимы;
+- реальные роли малого и корпоративного бизнеса.
+
+Не создавать отдельный `Russia box` в каждой главе ради симметрии. Time-sensitive legal/tax/payment/platform claims получают fresh-check перед Literary Master.
+
+## 8. No duplicate tools
 
 Запрещено:
 
 - делать отдельный checklist для уже существующего artifact;
-- повторять diagnostic questions внутри proposal/objection tools;
-- выдавать chapter summary за самостоятельный tool;
+- повторять Ch5 diagnostic questions внутри Ch7/Ch9;
+- повторять Ch8 economic redesign в Ch9;
+- выдавать summary главы за новый tool;
 - создавать workbook-пункты ради объёма;
-- переименовывать один и тот же reader action.
+- переименовывать один reader action и считать его новым framework.
 
-## 7. Tool evidence rule
+`Personal Service Sales System` = synthesis T01–T10, не T11.
 
-Каждый artifact маркируется по происхождению: research-derived / synthesis / author-created framework / checklist from chapter logic. Авторский synthesis не называется scientifically validated без evidence.
+## 9. Tool evidence rule
 
-## 8. Whole-book completion test
+Каждый artifact маркируется по происхождению: research-derived / author-created synthesis / checklist from chapter logic.
 
-Practical gate FAIL, если reader должен сам придумывать применение, outputs дублируются, российская реальность требует самостоятельного «перевода», либо tools устаревают вместе с одной platform.
+Авторский synthesis не называется scientifically validated, если такой validation нет.
 
-## 9. Current status
+## 10. Whole-book completion test
 
-Все принятые architecture allocations = **`RESERVED`**.
+Practical gate FAIL, если после whole-book edit:
 
-Reservation не означает Writing permission. Следующий этап — закрыть research blockers и по одной главе переводить contract в `WRITING_ALLOWED=YES` только после полного PASS.
+- читателю всё ещё нужно самому придумывать применение;
+- два инструмента решают один и тот же вопрос;
+- российская реальность требует самостоятельного перевода;
+- инструмент зависит от одной быстро устаревающей платформы;
+- book system ощущается как десять обязательных форм, а не набор инструментов для разных проблем.
+
+## 11. Current status
+
+Ch1–10 practical outputs = **USED-DRAFT**.
+
+Whole-book structural edit Round 1 removed the largest practical overlaps:
+
+- Ch1 ↔ Ch9 taxonomy duplication;
+- Ch7 ↔ Ch2–6 reteaching;
+- Ch10 ten-tool recap overload.
+
+Next gate: whole-book re-audit of the rewritten manuscript + fresh lexicon/manual literary review. No output is `USED-ACCEPTED` yet.

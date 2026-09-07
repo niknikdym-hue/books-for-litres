@@ -14,10 +14,11 @@ GitHub — source of truth. Новый чат/исполнитель снача�
 4. `SERIES-CANON-REGISTRY.md` — что использовано/зарезервировано/защищено и нельзя случайно поглотить.
 5. `SERIES-PRODUCTION-PROTOCOL.md` — последовательность производства каждой книги.
 6. `CHAPTER-CONTRACT-TEMPLATE.md` — обязательный pre-writing contract каждой главы.
-7. `LEGACY-SERIES-INVENTORY-2026-09-06.md` — фактические четыре legacy-книги прежней серии и protected territories.
-8. `audiobook-studio/contracts/content-quality-core-ru-v1.json` — системный русский Content Quality Lexicon core.
-9. Book-level authorities текущей книги.
-10. Полные принятые Literary Masters всех предыдущих новых книг серии после их появления.
+7. `CONTENT-QUALITY-LEXICON-CONTRIBUTION-POLICY.md` — обязательное использование и накопительное расширение словаря мусорных слов/паттернов.
+8. `LEGACY-SERIES-INVENTORY-2026-09-06.md` — фактические четыре legacy-книги прежней серии и protected territories.
+9. `audiobook-studio/contracts/content-quality-core-ru-v1.json` — системный русский Content Quality Lexicon core.
+10. Book-level authorities текущей книги.
+11. Полные принятые Literary Masters всех предыдущих новых книг серии после их появления.
 
 Без этого read set не начинать новое написание.
 
@@ -36,6 +37,20 @@ GitHub — source of truth. Новый чат/исполнитель снача�
 
 Провал любого из этих измерений = `REWORK`.
 
+## Content Quality Lexicon — живой gate
+
+Каждая глава проверяется по актуальному `BOOK_PROSE` и вручную.
+
+При обнаружении нового повторяемого AI-/инфобизнес-/канцелярского паттерна chapter QA обязан:
+
+- зафиксировать candidate;
+- определить `WARN` или `BLOCK`;
+- указать причину и риск ложных срабатываний;
+- решить, это universal system-core candidate или shared USER rule;
+- после повторного подтверждения либо добавить правило, либо явно отклонить его с причиной.
+
+Не добавлять в словарь нормальные слова и разовые неудачные фразы.
+
 ## Фактический legacy-состав
 
 Прежняя серия опубликована под именем **Елена Дым** и содержит четыре содержательные книги:
@@ -51,21 +66,31 @@ GitHub — source of truth. Новый чат/исполнитель снача�
 
 `kak-prodavat-uslugi/` — **«Как продавать услуги»**, книга №1, режим WRITE FROM ZERO.
 
-Текущий статус: `DEFINITION-APPROVED / ARCHITECTURE-DRAFT`, `WRITING=CLOSED`.
+Текущий authority state:
 
-Definition утверждён пользователем 2026-09-07. Обязательные authority:
+- `DEFINITION-APPROVED`;
+- `ARCHITECTURE-APPROVED`;
+- Writing разрешается **только по одной главе после индивидуального contract gate**;
+- Ch1–2 = `USED-DRAFT / QA PASS-DRAFT`;
+- Ch3 = contract `WRITING_ALLOWED=YES`, manuscript в работе;
+- Ch4 и Ch10 ждут contract refinement;
+- Ch5–9 имеют research blockers; Ch6 сохраняет merge-test с Ch5.
+
+Обязательные book-level authorities:
 
 - `BOOK-BRAIN.md`;
 - `BOOK-DEFINITION.md`;
 - `DEFINITION-APPROVAL-2026-09-07.md`;
+- `ARCHITECTURE-V1.md`;
+- `ARCHITECTURE-APPROVAL-2026-09-07.md`;
 - `CATEGORY-COMPETITOR-MAP-2026.md`;
 - `WORLD-CLASS-BENCHMARK-2026.md`;
 - `RESEARCH-MAP.md`;
 - `PRACTICAL-VALUE-MAP.md`;
 - `RUSSIA-APPLICATION-MAP-2026.md`;
-- `UNIQUENESS-LEDGER.md`.
-
-Следующий объект — Architecture v1 и chapter contracts по `CHAPTER-CONTRACT-TEMPLATE.md`. Текст глав разрешён только после прямого пользовательского `ARCHITECTURE-APPROVED`.
+- `UNIQUENESS-LEDGER.md`;
+- `chapter-contracts-v1/`;
+- `source-notes/` и `qa/` фактических drafts.
 
 ## Главный закон
 
@@ -97,8 +122,8 @@ Legacy-книги защищают обещанные территории и п
 
 ## Status discipline
 
-`DEFINITION-APPROVED` не открывает WRITING.  
-`ARCHITECTURE-DRAFT` ≠ `ARCHITECTURE-APPROVED`.  
+`DEFINITION-APPROVED` и `ARCHITECTURE-APPROVED` не означают автоматический допуск всех глав в Writing.  
+`USED-DRAFT` ≠ `ACCEPTED`.  
 `LITERARY MASTER` ≠ `ACCEPTED/LOCKED` без прямого принятия пользователем.
 
-AI не присваивает `ARCHITECTURE-APPROVED`, `ACCEPTED` или `LOCKED` самостоятельно.
+AI не присваивает `ACCEPTED` или `LOCKED` самостоятельно.

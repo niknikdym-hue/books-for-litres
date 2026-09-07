@@ -2,153 +2,188 @@
 
 **Серия:** «Секреты продвижения услуг»  
 **Книга:** №1  
-**Статус:** ARCHITECTURE-APPROVED / RESERVED  
+**Статус:** ARCHITECTURE-APPROVED / 10 CHAPTER DRAFTS COMPLETE / WHOLE-BOOK EDIT ROUND 1 APPLIED  
 **Definition:** APPROVED 2026-09-07  
 **Architecture v1:** APPROVED 2026-09-07  
-**WRITING:** CLOSED GLOBALLY / PER-CHAPTER GATE REQUIRED
+**ACCEPTED / LOCKED:** NO
 
 ## 1. Rule
 
-По прямому пользовательскому `ARCHITECTURE-APPROVED` все принятые chapter territories, causal mechanisms и practical outputs Architecture v1 переведены в `RESERVED`.
+Все десять chapter territories, causal mechanisms и practical outputs закреплены утверждённой Architecture v1 и уже присутствуют в рабочей рукописи.
 
-`RESERVED` защищает интеллектуальную территорию от дублей, но **не разрешает Writing**. Перед Writing каждый chapter contract должен получить полный research/world-class/practical/Russia/uniqueness PASS.
+`USED-DRAFT` означает фактическое использование в тексте, но не пользовательское принятие. Только принятый Literary Master переводит активы в `USED-ACCEPTED` и делает их exclusion corpus серии.
 
-После accepted master фактически использованные assets переходят в `USED-ACCEPTED` и входят в `SERIES-CANON-REGISTRY.md`.
+Whole-book edit имеет право менять композицию, язык, сцены и объём главы, но не может незаметно перенести в неё функцию другой главы.
 
-## 2. Statuses
+## 2. Chapter territory matrix
 
-- `RESERVED` — закреплено принятой Architecture;
-- `RESERVED / CONDITIONAL` — закреплено, но сохраняет явный merge/rework test;
-- `USED-DRAFT` — присутствует в рабочем тексте;
-- `REMOVED` — исключено из книги;
-- `USED-ACCEPTED` — вошло в принятый master и становится exclusion corpus.
-
-## 3. Chapter territory matrix
-
-| Ch | Unique question | Unique mechanism | Reader result | Main forbidden overlap | Status |
+| Ch | Unique question | Unique mechanism | Reader result | Protected boundary | Status |
 |---:|---|---|---|---|---|
-| 1 | что именно делает purchase uncertain | hard-to-evaluate service → risk → signals/inaction | Buyer Uncertainty Map | не менять service definition / не handle objections | RESERVED |
-| 2 | что именно buyer решается купить | tasks/expertise → mental intangibility → unclear decision object | Service Decision Definition | не proof / не full process | RESERVED |
-| 3 | что реально доказывает quality/relevance | unobservable quality → screening by observable signals | Evidence Inventory + Gap Map | не process visibility / не personal-brand system | RESERVED |
-| 4 | как показать future delivery | opaque process/roles → process uncertainty | Process Visibility Map | не past proof / не PM manual | RESERVED |
-| 5 | что нужно узнать до offer | stated request → premature solution → mismatch | Diagnostic Conversation Map | не qualification / не proposal | RESERVED |
-| 6 | стоит ли работать вместе | provider-client-scope participation fit → delivery risk | Qualification / No-Go Criteria | не generic objections / не Ch5 diagnosis | RESERVED / CONDITIONAL |
-| 7 | как собрать decision object | seller-centric proposal → buyer reconstructs logic | Offer Decision Sheet | не pricing theory / не diagnosis | RESERVED |
-| 8 | как связаны price/scope/risk | financial exposure + service uncertainty → risk-reduction behavior | Price–Scope–Risk Map | не all objections / не company pricing strategy | RESERVED |
-| 9 | почему одинаковое objection означает разное | different unresolved risks → same phrase → wrong response | Uncertainty/Objection Diagnostic | не Ch8 economics / не win-loss | RESERVED |
-| 10 | почему seller неверно объясняет outcome | partial visibility → attribution bias → wrong fix | Lost-Deal Learning Loop + system assembly | не CRM/analytics system | RESERVED |
+| 1 | какая часть покупки услуги остаётся трудно оцениваемой до оплаты | hard-to-evaluate future service → uncertainty/risk → buyer relies on observable signals | Buyer Uncertainty Map | не post-offer objection procedure / не service redesign | **USED-DRAFT** |
+| 2 | что именно покупатель должен решиться купить | production-language service → weak mental representation/control boundaries → unclear purchase object | Service Decision Definition | не proof / не sequential process | **USED-DRAFT** |
+| 3 | что действительно даёт основание выбрать исполнителя | hard-to-observe quality → buyer uses signals → evidence value depends on relevance/verifiability/limits | Evidence Inventory + Gap Map | не future-process visibility / не personal-brand system | **USED-DRAFT** |
+| 4 | как сделать будущую работу достаточно наблюдаемой до оплаты | invisible future delivery/roles/change rules → process risk → selective observability | Process Visibility Map | не reteach Ch2 role definition / не past proof | **USED-DRAFT** |
+| 5 | достаточно ли информации для проектирования предложения | stated request + seller assumptions → premature prescription → mismatch | Diagnostic Conversation Map | не decide provider-client fit / не proposal | **USED-DRAFT** |
+| 6 | можно ли профессионально выполнить именно эту задачу в этой конфигурации | understood task + capability/participation/scope/conditions mismatch → delivery/capacity/expectation risk | Критерии совместимости сделки | не Ch5 diagnosis / не Ch8 economics | **USED-DRAFT** |
+| 7 | может ли коммерческий документ удержать логику решения без продавца | seller-centric/incomplete information → buyer reconstructs purchase logic → decision effort/gaps | Карта решения по предложению | не переучивать Ch2–6 / не Ch8 economic redesign | **USED-DRAFT** |
+| 8 | как связаны цена, объём обязательства и распределение риска | financial exposure + service uncertainty → price pressure/terms negotiation → transaction redesign | Price–Scope–Risk Map | только подтверждённая economic cause / не generic objections | **USED-DRAFT** |
+| 9 | как действовать после surface hesitation, не угадывая причину | post-offer signal → 2–3 competing deal-specific hypotheses → discriminating fact → one action/stop | Uncertainty/Objection Diagnostic | не повторять Ch1 taxonomy / не postmortem | **USED-DRAFT** |
+| 10 | как не превратить исход сделки в ложный системный урок | outcome visible + cause partially hidden → attribution error → wrong system change | Lost-Deal Learning Loop + system assembly | не live objection handling / не CRM implementation | **USED-DRAFT** |
 
-## 4. Causal mechanism registry
+## 3. Causal mechanism registry
 
-| ID | Ch | Causal scheme | Function | Status |
+| ID | Ch | Function | Status |
+|---|---:|---|---|
+| M01 | 1 | book-wide language for purchase uncertainty before intervention | **USED-DRAFT** |
+| M02 | 2 | turn production description into a buyer-readable professional obligation | **USED-DRAFT** |
+| M03 | 3 | match buyer doubt to relevant/verifiable proof and explicit evidence limits | **USED-DRAFT** |
+| M04 | 4 | make future delivery observable through stages/outputs/roles/checkpoints/change rules | **USED-DRAFT** |
+| M05 | 5 | separate facts/assumptions/unknowns and decide information sufficiency before offer | **USED-DRAFT** |
+| M06 | 6 | evaluate transaction compatibility after task is understood; redesign or decline when necessary | **USED-DRAFT / HARD MERGE TEST WITH Ch5 PASSED** |
+| M07 | 7 | preserve decision logic when proposal travels without seller | **USED-DRAFT / WHOLE-BOOK COMPRESSED** |
+| M08 | 8 | treat price/payment model as allocation of obligation and uncertainty, not confidence theatre | **USED-DRAFT** |
+| M09 | 9 | verify a post-offer cause before choosing response; explicit stop condition | **USED-DRAFT / Ch1 OVERLAP REMOVED** |
+| M10 | 10 | separate outcome/facts/seller version/buyer data/repetition before changing system | **USED-DRAFT** |
+
+No new example creates a new mechanism if it performs an already-used causal function.
+
+## 4. Practical tool registry
+
+| ID | Ch | Artifact | Unique reader action | Status |
 |---|---:|---|---|---|
-| M01 | 1 | hard-to-evaluate → uncertainty → perceived risk → signals/inaction | book diagnostic spine | RESERVED |
-| M02 | 2 | tasks wording → mental intangibility → unclear decision object → price-only comparison | define service | RESERVED |
-| M03 | 3 | unobservable quality → screening/signals → evidence usefulness depends on relevance/verifiability | proof | RESERVED |
-| M04 | 4 | opaque delivery/roles → process uncertainty → risk/expectation gap | process visibility | RESERVED |
-| M05 | 5 | stated request → premature solution → mismatch | diagnosis | RESERVED |
-| M06 | 6 | weak provider-client-scope fit → delivery/expectation risk | qualification | RESERVED / CONDITIONAL |
-| M07 | 7 | incomplete seller-centric proposal → buyer reconstructs decision → friction | offer integration | RESERVED |
-| M08 | 8 | financial exposure + uncertainty → discount/terms/delay risk response | deal economics | RESERVED |
-| M09 | 9 | different unresolved risk → same surface phrase → generic response mismatch | hesitation diagnosis | RESERVED |
-| M10 | 10 | partial buyer visibility → attribution bias → wrong fix → repeat loss | learning loop | RESERVED |
+| T01 | 1 | Buyer Uncertainty Map | locate what is difficult to evaluate before changing sales activity | **USED-DRAFT** |
+| T02 | 2 | Service Decision Definition | define situation, work result, boundaries, assumptions, client role, non-guaranteed outcome | **USED-DRAFT** |
+| T03 | 3 | Evidence Inventory + Gap Map | connect specific buyer risk to relevant/verifiable proof and expose gaps | **USED-DRAFT** |
+| T04 | 4 | Process Visibility Map | expose decision-relevant stages, inputs/outputs, roles, checkpoints and change rules | **USED-DRAFT** |
+| T05 | 5 | Diagnostic Conversation Map | decide whether enough task information exists to design offer | **USED-DRAFT** |
+| T06 | 6 | Критерии совместимости сделки | choose proceed / redesign / decline-refer without personality scoring | **USED-DRAFT** |
+| T07 | 7 | Карта решения по предложению | stress-test whether an absent decision-maker can reconstruct purchase logic | **USED-DRAFT** |
+| T08 | 8 | Price–Scope–Risk Map | see who carries uncertainty and change one relevant transaction lever | **USED-DRAFT** |
+| T09 | 9 | Диагностика незавершённого решения | signal → 2–3 hypotheses → discriminating fact → one action → stop condition | **USED-DRAFT** |
+| T10 | 10 | Lost-Deal Learning Loop | facts → seller version → buyer data → signal strength → one testable system change | **USED-DRAFT** |
 
-Новый пример не создаёт новый mechanism, если causal function совпадает с уже зарезервированной.
+`Personal Service Sales System` remains synthesis of T01–T10, not T11. Ch10 now groups usage into four phases so the book does not imply ten mandatory forms per deal.
 
-## 5. Practical tool registry
+## 5. Research-function allocation
 
-| ID | Ch | Artifact | New action | Status |
-|---|---:|---|---|---|
-| T01 | 1 | Buyer Uncertainty Map | diagnose purchase uncertainty | RESERVED |
-| T02 | 2 | Service Decision Definition | redefine what is being bought | RESERVED |
-| T03 | 3 | Evidence Inventory + Gap Map | match proof to risk | RESERVED |
-| T04 | 4 | Process Visibility Map | expose stages/roles/checkpoints | RESERVED |
-| T05 | 5 | Diagnostic Conversation Map | identify information gaps | RESERVED |
-| T06 | 6 | Qualification / No-Go Criteria | proceed/clarify/redesign/decline | RESERVED / CONDITIONAL |
-| T07 | 7 | Offer Decision Sheet | revise proposal as decision document | RESERVED |
-| T08 | 8 | Price–Scope–Risk Map | redesign economics/commitment | RESERVED |
-| T09 | 9 | Uncertainty/Objection Diagnostic | verify cause before response | RESERVED |
-| T10 | 10 | Lost-Deal Learning Loop | learn from outcomes | RESERVED |
-
-`Personal Service Sales System` = assembly of T01–T10, not T11.
-
-## 6. Research-function allocation
-
-| Ch | Evidence function | Writing readiness |
+| Ch | Evidence function | State |
 |---:|---|---|
-| 1 | establish risk/uncertainty in professional/credence services | CONTRACT REFINEMENT |
-| 2 | mental intangibility + participation/control boundaries | CONTRACT REFINEMENT / STRENGTHEN |
-| 3 | ex-ante quality signals/screening | CONTRACT REFINEMENT |
-| 4 | process visibility/participation effects with boundaries | CONTRACT REFINEMENT / CONTEXT-SENSITIVE |
-| 5 | diagnosis before solution; no SPIN copy | BLOCKED — RESEARCH |
-| 6 | provider-client-scope fit / bad-fit consequence | BLOCKED — FINAL SYNTHESIS + MERGE TEST |
-| 7 | proposal decision clarity | BLOCKED — RESEARCH |
-| 8 | price-risk interaction; guarantee/commitment limits | BLOCKED — HIGH PRIORITY RESEARCH |
-| 9 | hesitation/risk taxonomy/status quo | BLOCKED — HIGH PRIORITY RESEARCH |
-| 10 | buyer-side failure attribution / learning | CONTRACT REFINEMENT |
+| 1 | risk/uncertainty in professional/credence services | **USED-DRAFT / QA PASS-DRAFT** |
+| 2 | mental representation of services + specification + participation/control boundaries | **USED-DRAFT / QA PASS-DRAFT** |
+| 3 | ex-ante quality signals/screening + credibility/reputation limits | **USED-DRAFT / QA PASS-DRAFT** |
+| 4 | selective future-process visibility + participation/role clarity boundaries | **USED-DRAFT / QA PASS-DRAFT** |
+| 5 | requirements/problem definition before solution + pre-selling diagnosis + formulation bias | **USED-DRAFT / QA PASS-DRAFT** |
+| 6 | service-operation fit + conditional client participation in performance | **USED-DRAFT / QA PASS-DRAFT** |
+| 7 | multi-criteria professional-service selection + information quantity/organization | **USED-DRAFT / QA PASS-DRAFT** |
+| 8 | price negotiation under service uncertainty + contract/risk-allocation heterogeneity + guarantee boundaries | **USED-DRAFT / QA PASS-DRAFT** |
+| 9 | decision delay/status-quo literature + replication caution + internal buying complexity | **USED-DRAFT / QA PASS-DRAFT** |
+| 10 | buyer-side lost-sale research + seller attribution bias + small-sample caution | **USED-DRAFT / QA PASS-DRAFT** |
 
-Новый source в другой главе не разрешает повторно доказывать ту же research function.
+Exact author-created tools are not presented as validated scientific scales.
 
-## 7. Scene/case function reservations
+## 6. Scene / example function registry after whole-book edit Round 1
 
-Функции сцен резервируются, конкретные документальные кейсы пока нет: это защищает от manufactured case-writing.
-
-| Ch | Reserved scene function | Forbidden duplicate |
+| Ch | Actual opening / dominant example function | Protection |
 |---:|---|---|
-| 1 | same surface outcome, different underlying purchase uncertainties | Ch9 не повторяет вводную taxonomy-scene |
-| 2 | provider/client mean different things by same broad service | no generic scope-confusion reuse |
-| 3 | impressive proof vs relevant proof | no repeated credential-comparison function |
-| 4 | clear promise but opaque delivery vs visible roles/process | no repeated black-box function |
-| 5 | stated requested solution hides underlying problem | no later premature-solution scene |
-| 6 | tempting revenue but bad participation/scope fit | no generic «bad client» morality tale |
-| 7 | polished seller deck vs decision-oriented proposal | no design-aesthetics repeat |
-| 8 | «дорого» resolved by transaction redesign, not persuasion | Ch9 cannot reuse as main price proof |
-| 9 | same phrase, competing unresolved-risk hypotheses | not Ch1 taxonomy repeat |
-| 10 | seller loss reason contradicted by buyer-side evidence | post-outcome attribution only |
+| 1 | direct thesis: quality of future service is not fully observable at purchase; three different purchase uncertainties | **Ch9 owns `я подумаю` / post-offer branching exclusively** |
+| 2 | direct thesis: production version of service vs buyer version of obligation; marketing example follows | no later generic same-name/different-scope opening |
+| 3 | two providers: impressive proof vs relevant proof | no later proof-volume/status comparison with same function |
+| 4 | direct thesis: invisible post-payment part of service is transaction risk | no later `black box after payment` opening |
+| 5 | client arrives with named solution before problem is established | no later premature-prescription scene |
+| 6 | direct thesis: payment does not prove deal quality; attractive but structurally weak project illustrates | no `bad client` morality tale |
+| 7 | stress-test: send proposal to person absent from meeting | no later short-vs-long/design-aesthetics scene |
+| 8 | explicit price-cut negotiation | **Ch9 may mention price only as one hypothesis, not reteach economic redesign** |
+| 9 | post-offer pause; deal-specific competing hypotheses | **must not recreate Ch1 seven-zone taxonomy** |
+| 10 | direct thesis: CRM loss reason often stores seller's first version | post-outcome attribution only |
 
-## 8. Analogies / metaphors
+All composite situations remain model/composite unless separately sourced.
 
-**NONE RESERVED.**
+## 7. Structural analogies / metaphors
 
-Это намеренно. Аналогия допускается только если будущий chapter contract докажет её необходимость и проверка book/series registry подтверждает отсутствие повторной intellectual function.
+**NONE USED AS STRUCTURAL ANALOGY IN Ch1–10.**
 
-## 9. Composition reservations
+Explicitly rejected recurring/cliché allocations include doctor/patient for diagnosis, dating/marriage/chemistry for fit, proposal-as-bridge/route/showcase, and a forced metaphor-per-chapter pattern.
 
-| Ch | Opening | Main movement | Complication | Ending | Status |
-|---:|---|---|---|---|---|
-| 1 | commercial puzzle | mechanism/taxonomy | «trust/price» insufficient | diagnostic map | RESERVED |
-| 2 | ambiguous service wording | decision object decomposition | controllable vs uncontrollable | rewrite artifact | RESERVED |
-| 3 | self-claim/proof contrast | screening/evidence | impressive ≠ relevant | evidence audit | RESERVED |
-| 4 | after-payment black box | process/roles | visibility cannot remove all uncertainty | process map | RESERVED |
-| 5 | premature prescription | information gaps | client may not know problem | diagnostic map | RESERVED |
-| 6 | tempting bad deal | fit dimensions | redesign can save some deals | no-go criteria | RESERVED / CONDITIONAL |
-| 7 | proposal autopsy | decision integration | more pages ≠ clarity | revise real proposal | RESERVED |
-| 8 | price conflict | scope/risk economics | high price not universal quality cue | price-risk map | RESERVED |
-| 9 | one phrase/multiple causes | diagnostic branching | genuine no must be accepted | objection diagnostic | RESERVED |
-| 10 | comfortable loss story | fact/inference/pattern | anecdote ≠ pattern | learning loop/system | RESERVED |
+Any future analogy must pass a whole-series registry check and have a unique explanatory function.
 
-Фактическая композиция после Writing снова проверяется; reservation не разрешает серийный шаблон.
+## 8. Composition registry after whole-book edit Round 1
 
-## 10. Repetition audit log
+| Ch | Opening form | Main movement | Ending form |
+|---:|---|---|---|
+| 1 | direct commercial thesis + three microcases | seven-zone buyer uncertainty language | diagnostic question, no Ch9 scene |
+| 2 | conceptual distinction (`production version ↔ buyer obligation`) | purchase object / control / client role | stranger-retell test → proof question |
+| 3 | contrast scene | evidence relevance/verifiability/limits | evidence gap → future work question |
+| 4 | direct future-delivery thesis | observability / checkpoints / change rules | process defect test → diagnosis need |
+| 5 | dialogue / named-solution scene | fact-assumption-unknown / information sufficiency | four outcomes → fit question |
+| 6 | direct economic thesis | six compatibility checks / redesign vs decline | transaction eligibility → proposal |
+| 7 | practical stress-test | portability / information selection / 8 decision questions | absent-reader test → economics |
+| 8 | negotiation dialogue | payment models as risk allocation | Price–Scope–Risk Map → verify economic cause |
+| 9 | post-offer message scene | 2–3 hypotheses / discriminating fact / stop | causal discipline → post-outcome learning |
+| 10 | direct CRM attribution thesis | evidence ladder / pattern strength / one test | four-phase system synthesis + one change |
 
-| Date | Comparison | Risk | Decision | Result |
-|---|---|---|---|---|
-| 2026-09-07 | Architecture Ch1–10 | Ch1 vs Ch9 both classify uncertainty | Ch1 = book-wide prediagnosis; Ch9 = post-offer hesitation verification | PASS / RESERVED |
-| 2026-09-07 | Ch3 vs Ch4 | both reduce risk | Ch3 = provider/relevance evidence; Ch4 = future delivery observability | PASS / RESERVED |
-| 2026-09-07 | Ch5 vs Ch6 | diagnosis/qualification can collapse | keep Ch6 conditional; MERGE if independence fails | CONDITIONAL RESERVED |
-| 2026-09-07 | Ch7 vs Ch8 | proposal contains price | Ch7 integrates decision document; Ch8 owns economics/risk | PASS / RESERVED |
-| 2026-09-07 | Ch9 vs Ch10 | both analyze failed movement | Ch9 before outcome; Ch10 after outcome/system learning | PASS / RESERVED |
-| 2026-09-07 | all chapters | manufactured analogy pattern | reserve none | PASS |
-| 2026-09-07 | user Architecture gate | Architecture v1 directly approved | convert accepted territories/mechanisms/tools to RESERVED | COMPLETE |
+**Composition diversity Round 1: PASS-DRAFT.** The previous `scene → mechanism → research → tool → next chapter` uniformity has been materially broken.
+
+## 9. Whole-book overlap log
+
+| Comparison | Round-1 risk | Applied decision | Current result |
+|---|---|---|---|
+| Ch1 ↔ Ch9 | both used `same surface phrase → different causes` | Ch1 opening and narrative rebuilt around ex-ante evaluability; Ch9 alone owns post-offer signal branching | **PASS-DRAFT / P0 FIXED** |
+| Ch2 ↔ Ch4 | client role appears in both | Ch2 owns role as part of obligation; Ch4 owns timing, stage inputs/outputs and checkpoints | **PASS / PROTECTED** |
+| Ch3 ↔ Ch4 | both reduce risk | Ch3 = evidence of capability; Ch4 = future delivery observability | **PASS / PROTECTED** |
+| Ch5 ↔ Ch6 | diagnosis/qualification can collapse | Ch5 ends at information sufficiency; Ch6 starts only after task understood; hard merge-test passed on actual drafts | **PASS** |
+| Ch6 ↔ Ch8 | scope/time/capacity may leak into economics | Ch6 decides feasibility; Ch8 owns money/payment/risk allocation | **PASS / PROTECTED** |
+| Ch7 ↔ Ch2–6 | integration chapter repeated prior teaching | Ch7 compressed; prior tools used only as inputs to document portability | **PASS-DRAFT / P0 FIXED** |
+| Ch7 ↔ Ch8 | proposal contains price | Ch7 checks visibility only; Ch8 owns economic redesign | **PASS / PROTECTED** |
+| Ch8 ↔ Ch9 | `дорого` appears in both | Ch8 acts only after economic cause confirmed; Ch9 verifies which cause exists | **PASS / PROTECTED** |
+| Ch9 ↔ Ch10 | both inspect stalled/lost deals | Ch9 = live post-offer decision; Ch10 = after-outcome system learning | **PASS / PROTECTED** |
+| Ch10 ↔ all tools | final recap could become ten repeated chapter summaries | compressed into four usage phases; no T11 created | **PASS-DRAFT / P1 FIXED** |
+
+## 10. Literary / language cleanup status
+
+Whole-book Round 1 removed major production anglicisms from literary prose:
+
+- Ch2 `mental intangibility` → Russian explanation;
+- Ch4 `backstage cues` → Russian description;
+- Ch6 `customer compatibility` → Russian compatibility language;
+- Ch8 `fixed/performance-based` → Russian payment-model language;
+- Ch9 `decision avoidance / hidden buyers / status quo / follow-up / stop-condition` → Russian prose;
+- Ch10 `seller-side / buyer feedback / win-loss interviews` → Russian prose.
+
+Common domain abbreviations (e.g. CRM, ИТ, НПД) remain only where they are normal reader vocabulary or materially useful.
+
+Known lexicon/manual cleanup must still be rerun against the **new** manuscript; old per-chapter QA is evidence of the previous drafts, not proof that Round-1 rewrites are lexicon-clean.
 
 ## 11. Future-book leakage
 
-Protected: Yandex Direct niche books, SEO/GEO, SMM/content/personal brand systems, full online-course funnel, CRM implementation, retention/LTV, scale/team management, full company pricing strategy and productization as separate systems.
+Still protected:
+
+- niche Yandex Direct books;
+- SEO/GEO systems;
+- SMM/content/personal-brand systems;
+- full online-course funnel;
+- CRM implementation;
+- retention/LTV;
+- scale/team management;
+- full-company pricing/productization system.
+
+Examples in this book may mention marketing/CRM/AI only to explain service-sales mechanisms; they do not teach those future-book systems.
 
 ## 12. Current gate
 
-Architecture v1 = **APPROVED**.
+- Definition = **APPROVED**.
+- Architecture v1 = **APPROVED**.
+- Ch1–10 = **USED-DRAFT**.
+- Original chapter-level QA = **PASS-DRAFT**, but Round-1 rewritten chapters require fresh whole-book/lexicon review.
+- Whole-book edit Round 1 structural P0 = **APPLIED**.
+- `ACCEPTED` = **NO**.
+- `LOCKED` = **NO**.
+- Literary Master = **NO**.
 
-All accepted entries above = **RESERVED**.
+### Next required gates
 
-Next stage: close chapter research blockers and grant `WRITING_ALLOWED=YES` only to individual contracts that obtain full PASS. No chapter is allowed to consume another chapter's reserved mechanism, scene function, practical output or composition function.
+1. Whole-book re-audit against the rewritten texts.
+2. Automated Content Quality Lexicon `BOOK_PROSE` runner on the actual rewritten manuscript — **required, not yet PASS**.
+3. Manual anti-junk / rhythm / repeated wording pass.
+4. Russia freshness audit.
+5. World-class adversarial review.
+6. Final Review only after all above pass.
