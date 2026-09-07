@@ -43,3 +43,11 @@
 21. Scott, J. *Six Tips for Preserving Family Archives*. Smithsonian Institution Archives. 26 November 2020. [Публикация архивиста](https://siarchives.si.edu/blog/six-tips-preserving-family-archives). Дата обращения: 7 сентября 2026.
 
 22. Федеральный закон от 27 июля 2006 года № 152-ФЗ *«О персональных данных»*. Редакция от 26 июля 2026 года. [Статья 5 «Принципы обработки персональных данных»](https://www.consultant.ru/document/cons_doc_LAW_61801/96fbc469f91f57235cc842a85e0516a99f23dc85/), [статья 6 «Условия обработки персональных данных»](https://www.consultant.ru/document/cons_doc_LAW_61801/315f051396c88f1e4f827ba3f2ae313d999a1873/). Тексты в КонсультантПлюс. Дата обращения: 7 сентября 2026.
+
+23. Green, C. H. *Selling Professional Services*. Trusted Advisor Associates. 2001. Использованы разделы авторской статьи о квалификации, доверии и взаимодействии. [Текст автора](https://trustedadvisor.com/public/files/pdf/selling.pdf). Дата обращения: 7 сентября 2026.
+
+24. American Translators Association. *Explanation of Error Categories*. Описание категорий ошибок при оценке сертификационного экзамена ATA. [Материал ассоциации](https://www.atanet.org/certification/how-the-exam-is-graded/error-categories/). Дата обращения: 7 сентября 2026.
+
+25. Buell, R. W.; Kim, T.; Tsay, C.-J. *Creating Reciprocal Value Through Operational Transparency*. Management Science. 2017. Vol. 63, no. 6. P. 1673–1695. Онлайн-публикация: 23 May 2016. Использована аннотация. [DOI: 10.1287/mnsc.2015.2411](https://doi.org/10.1287/mnsc.2015.2411). Дата обращения: 7 сентября 2026.
+
+26. Гражданский кодекс Российской Федерации, часть четвёртая, от 18 декабря 2006 года № 230-ФЗ. Редакция от 23 июля 2025 года, с изменениями, вступившими в силу 4 января 2026 года. [Статья 1229 «Исключительное право»](https://www.consultant.ru/document/cons_doc_LAW_64629/98ad2641f95945c4b7956150260564c8b44028d9/), [статья 1260 о переводах и других производных произведениях](https://www.consultant.ru/document/cons_doc_LAW_64629/26eaf5de7ca59025f4388fe2980d3dd03dd5e775/), [статья 1270 «Исключительное право на произведение»](https://www.consultant.ru/document/cons_doc_LAW_64629/dffcf0b87b80ff38f430dc822a0074e76ccd41a0/). Тексты в КонсультантПлюс. Дата обращения: 7 сентября 2026.
