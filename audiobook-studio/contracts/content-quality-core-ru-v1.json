@@ -1,14 +1,17 @@
 {
   "schema_version": 1,
-  "revision": 2,
-  "updated_at": "2026-09-07T00:00:00+03:00",
+  "revision": 3,
+  "updated_at": "2026-09-07T00:00:00+00:00",
   "entries": [
     {
       "rule_id": "CQ-RU-NEGATIVE-FIRST-001",
       "value": "\\bэта\\s+книга\\s+не\\s+(?:о|про)\\b",
       "match_type": "REGEX",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Запрещённый нейросетевой приём: сначала искусственно объявлять, чем текст, книга, идея или явление не является, вместо того чтобы сразу сформулировать точную мысль.",
       "created_at": null,
@@ -19,7 +22,10 @@
       "value": "\\b(?:это|речь|дело)\\s+не\\b[^.!?\\n]{1,120}\\b(?:а|но)\\b",
       "match_type": "REGEX",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Искусственный отрицательный заход и декоративный контраст вместо прямой формулировки мысли.",
       "created_at": null,
@@ -30,7 +36,10 @@
       "value": "\\bне\\b[^.!?\\n]{1,90}\\bа\\b",
       "match_type": "REGEX",
       "action": "WARN",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Проверить, является ли конструкция «не X, а Y» содержательно необходимой или декоративной нейросетевой антитезой.",
       "created_at": null,
@@ -41,7 +50,10 @@
       "value": "\\bэто\\s+про\\b",
       "match_type": "REGEX",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Шаблонная метаформула вместо точного утверждения. Границы слова обязательны, чтобы не блокировать нормальные слова вроде «проблема».",
       "created_at": null,
@@ -52,7 +64,10 @@
       "value": "без ручного управления",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Рекламно-нейросетевая формула.",
       "created_at": null,
@@ -63,7 +78,10 @@
       "value": "без хаоса",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Рекламно-нейросетевая формула.",
       "created_at": null,
@@ -74,7 +92,10 @@
       "value": "без давления",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Рекламно-нейросетевая формула.",
       "created_at": null,
@@ -85,7 +106,10 @@
       "value": "без суеты",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Шаблонная абстрактная формула.",
       "created_at": null,
@@ -96,7 +120,10 @@
       "value": "без лишней суеты",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Шаблонная абстрактная формула.",
       "created_at": null,
@@ -107,7 +134,10 @@
       "value": "без перегруза",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Шаблонная рекламная формула.",
       "created_at": null,
@@ -118,7 +148,10 @@
       "value": "без лишней теории",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Шаблонное обещание вместо конкретного описания метода.",
       "created_at": null,
@@ -129,7 +162,10 @@
       "value": "информационный шум",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Затёртая абстрактная метафора.",
       "created_at": null,
@@ -140,7 +176,10 @@
       "value": "иллюзии контроля",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Шаблонная психологизирующая формула без конкретизации.",
       "created_at": null,
@@ -151,7 +190,10 @@
       "value": "тихие смыслы",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Декоративная абстракция.",
       "created_at": null,
@@ -162,7 +204,10 @@
       "value": "мир меняется",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Пустой вводный тезис без фактической конкретики.",
       "created_at": null,
@@ -173,7 +218,10 @@
       "value": "скорость изменений",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Шаблонный абстрактный контекст.",
       "created_at": null,
@@ -184,7 +232,10 @@
       "value": "погрузимся",
       "match_type": "TERM",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Служебная нейросетевая риторика.",
       "created_at": null,
@@ -195,7 +246,10 @@
       "value": "давайте разберёмся",
       "match_type": "PHRASE",
       "action": "BLOCK",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Служебная нейросетевая риторика.",
       "created_at": null,
@@ -206,7 +260,10 @@
       "value": "не обязан",
       "match_type": "PHRASE",
       "action": "WARN",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Допустимо буквально, но требует проверки на шаблонную терапевтическую риторику.",
       "created_at": null,
@@ -217,7 +274,10 @@
       "value": "шум",
       "match_type": "TERM",
       "action": "WARN",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Допустимо буквально; абстрактное употребление требует проверки.",
       "created_at": null,
@@ -228,7 +288,10 @@
       "value": "иллюзия",
       "match_type": "TERM",
       "action": "WARN",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Допустимо в точном контексте; абстрактное психологизирование требует проверки.",
       "created_at": null,
@@ -239,7 +302,10 @@
       "value": "магия",
       "match_type": "TERM",
       "action": "WARN",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Допустимо буквально; декоративная метафора требует проверки.",
       "created_at": null,
@@ -250,7 +316,10 @@
       "value": "волшебство",
       "match_type": "TERM",
       "action": "WARN",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Допустимо буквально; декоративная метафора требует проверки.",
       "created_at": null,
@@ -261,7 +330,10 @@
       "value": "звучать",
       "match_type": "TERM",
       "action": "WARN",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
       "rationale": "Нормальное слово, но часто используется как мета-комментарий «это может звучать…»; проверять контекст.",
       "created_at": null,
@@ -271,12 +343,15 @@
       "rule_id": "CQ-RU-TERM-007",
       "value": "опора",
       "match_type": "TERM",
-      "action": "WARN",
-      "profiles": ["BOOK_PROSE", "AUDIOBOOK_PRE_SYNTHESIS"],
+      "action": "BLOCK",
+      "profiles": [
+        "BOOK_PROSE",
+        "AUDIOBOOK_PRE_SYNTHESIS"
+      ],
       "origin": "SYSTEM",
-      "rationale": "Нормальное слово, но в абстрактной self-help риторике часто становится пустой метафорой.",
+      "rationale": "Прямой запрет пользователя: слово «опора» не использовать в книжном тексте.",
       "created_at": null,
-      "updated_at": null
+      "updated_at": "2026-09-07T00:00:00+00:00"
     }
   ]
 }
