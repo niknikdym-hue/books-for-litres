@@ -33,7 +33,7 @@
 | 4 | как показать future delivery | opaque process/roles → process uncertainty | Process Visibility Map | не past proof / не PM manual | **USED-DRAFT** |
 | 5 | что нужно узнать до offer | stated request → assumptions → premature solution → mismatch | Diagnostic Conversation Map | не qualification / не proposal | **USED-DRAFT** |
 | 6 | стоит ли продавать эту задачу в этой конфигурации | understood task + provider/client/scope/participation incompatibility → delivery/capacity/expectation risk | Критерии совместимости сделки | не Ch5 diagnosis / не Ch8 economics | **USED-DRAFT** |
-| 7 | как собрать decision object | seller-centric proposal → buyer reconstructs logic | Offer Decision Sheet | не pricing theory / не diagnosis | RESERVED |
+| 7 | как собрать уже выясненные элементы в decision document | seller-centric/incomplete proposal → buyer reconstructs purchase logic → decision effort/gaps | Offer Decision Sheet / Карта решения по предложению | не переучивать Ch2–6 / не Ch8 economics | **USED-DRAFT** |
 | 8 | как связаны price/scope/risk | financial exposure + service uncertainty → risk-reduction behavior | Price–Scope–Risk Map | не all objections / не company pricing strategy | RESERVED |
 | 9 | почему одинаковое objection означает разное | different unresolved risks → same phrase → wrong response | Uncertainty/Objection Diagnostic | не Ch8 economics / не win-loss | RESERVED |
 | 10 | почему seller неверно объясняет outcome | partial visibility → attribution bias → wrong fix | Lost-Deal Learning Loop + system assembly | не CRM/analytics system | RESERVED |
@@ -48,7 +48,7 @@
 | M04 | 4 | opaque delivery/roles → process uncertainty → risk/expectation gap | process visibility | **USED-DRAFT** |
 | M05 | 5 | stated request as partial representation → seller fills gaps with assumptions → premature offer → mismatch; explicit fact/assumption/unknown distinction reduces premature prescription | diagnosis / information sufficiency | **USED-DRAFT** |
 | M06 | 6 | understood opportunity + incompatibility between need, provider capability, controllable commitment, participation or delivery conditions → predictable future loss/failure | service compatibility / commitment decision | **USED-DRAFT** |
-| M07 | 7 | incomplete seller-centric proposal → buyer reconstructs decision → friction | offer integration | RESERVED |
+| M07 | 7 | seller-centric/incomplete proposal → buyer reconstructs situation–service–provider–delivery–terms logic from fragments → decision effort/gaps | proposal integration / decision aid | **USED-DRAFT** |
 | M08 | 8 | financial exposure + uncertainty → discount/terms/delay risk response | deal economics | RESERVED |
 | M09 | 9 | different unresolved risk → same surface phrase → generic response mismatch | hesitation diagnosis | RESERVED |
 | M10 | 10 | partial buyer visibility → attribution bias → wrong fix → repeat loss | learning loop | RESERVED |
@@ -65,7 +65,7 @@
 | T04 | 4 | Process Visibility Map | expose stages/roles/checkpoints | **USED-DRAFT** |
 | T05 | 5 | Diagnostic Conversation Map | separate facts/assumptions/unknowns and decide whether enough information exists to design an offer | **USED-DRAFT** |
 | T06 | 6 | Критерии совместимости сделки | test six compatibility conditions and choose proceed / redesign / decline-refer without numeric scoring | **USED-DRAFT** |
-| T07 | 7 | Offer Decision Sheet | revise proposal as decision document | RESERVED |
+| T07 | 7 | Offer Decision Sheet / Карта решения по предложению | audit and revise one real proposal so buyer can reconstruct the decision without seller explanation | **USED-DRAFT** |
 | T08 | 8 | Price–Scope–Risk Map | redesign economics/commitment | RESERVED |
 | T09 | 9 | Uncertainty/Objection Diagnostic | verify cause before response | RESERVED |
 | T10 | 10 | Lost-Deal Learning Loop | learn from outcomes | RESERVED |
@@ -82,7 +82,7 @@
 | 4 | process visibility/participation effects with boundaries | **USED-DRAFT / QA PASS-DRAFT** |
 | 5 | requirements/problem definition before solution; pre-selling diagnosis; customer-context understanding; problem-formulation bias | **USED-DRAFT / QA PASS-DRAFT** |
 | 6 | customer compatibility/service-operation fit + conditional client involvement in professional-service performance | **USED-DRAFT / QA PASS-DRAFT / HARD MERGE TEST PASSED** |
-| 7 | proposal decision clarity | BLOCKED — RESEARCH |
+| 7 | multi-criteria ex-ante professional-service selection + information quantity/organization effects on decision process | **USED-DRAFT / QA PASS-DRAFT** |
 | 8 | price-risk interaction; guarantee/commitment limits | BLOCKED — HIGH PRIORITY RESEARCH |
 | 9 | hesitation/risk taxonomy/status quo | BLOCKED — HIGH PRIORITY RESEARCH |
 | 10 | buyer-side failure attribution / learning | CONTRACT REFINEMENT |
@@ -99,7 +99,7 @@
 | 4 | clear promise but opaque delivery vs visible roles/process | **USED-DRAFT**; no repeated black-box function |
 | 5 | client requests a solution before problem/context is sufficiently established | **USED-DRAFT**; no later premature-prescription scene |
 | 6 | attractive revenue opportunity with understood task but incompatible timing/inputs/capacity configuration | **USED-DRAFT**; no generic «bad client» morality tale |
-| 7 | polished seller deck vs decision-oriented proposal | RESERVED; no design-aesthetics repeat |
+| 7 | polished seller-rich deck forces absent decision-maker to reconstruct purchase logic | **USED-DRAFT**; no later aesthetics/short-vs-long proposal scene |
 | 8 | «дорого» resolved by transaction redesign, not persuasion | RESERVED; Ch9 cannot reuse as main price proof |
 | 9 | same phrase, competing unresolved-risk hypotheses | RESERVED; not Ch1 taxonomy repeat |
 | 10 | seller loss reason contradicted by buyer-side evidence | RESERVED; post-outcome attribution only |
@@ -108,9 +108,9 @@ Specific factual cases require their own source. Model/composite situations rema
 
 ## 8. Analogies / metaphors
 
-**NONE RESERVED / NONE USED AS STRUCTURAL ANALOGY in Ch1–6.**
+**NONE RESERVED / NONE USED AS STRUCTURAL ANALOGY in Ch1–7.**
 
-An analogy may be introduced only after contract-level necessity and registry check. Ch5 explicitly avoids doctor/patient analogy; Ch6 explicitly avoids dating/marriage/client-chemistry analogy.
+An analogy may be introduced only after contract-level necessity and registry check. Ch5 rejects doctor/patient analogy; Ch6 rejects dating/marriage/client-chemistry analogy; Ch7 rejects proposal-as-bridge/route/showcase metaphors.
 
 ## 9. Composition registry
 
@@ -122,7 +122,7 @@ An analogy may be introduced only after contract-level necessity and registry ch
 | 4 | after-payment black box | future-delivery observability + roles/checkpoints/change rules | too much detail / false certainty also increase friction | Process Visibility Map → diagnosis question | **USED-DRAFT** |
 | 5 | client arrives with named solution | fact/assumption/unknown + requirements formulation | seller expertise can bias framing / diagnosis can become pressure | Diagnostic Conversation Map → four decision outcomes → fit question | **USED-DRAFT** |
 | 6 | attractive high-value project with known incompatible conditions | service compatibility + six condition checks | redesign can save the opportunity; one hard no-go overrides positives | criteria map → proceed/redesign/decline → proposal transition | **USED-DRAFT** |
-| 7 | proposal autopsy | decision integration | more pages ≠ clarity | revise real proposal | RESERVED |
+| 7 | absent decision-maker receives seller-rich 28-slide deck | decision reconstruction + multi-criteria/information-organization logic | more information and shorter document are both non-universal answers | Offer Decision Sheet + buyer-retell test → economics transition | **USED-DRAFT** |
 | 8 | price conflict | scope/risk economics | high price not universal quality cue | price-risk map | RESERVED |
 | 9 | one phrase/multiple causes | diagnostic branching | genuine no must be accepted | objection diagnostic | RESERVED |
 | 10 | comfortable loss story | fact/inference/pattern | anecdote ≠ pattern | learning loop/system | RESERVED |
@@ -154,25 +154,29 @@ Actual drafts remain subject to mid-book composition audit.
 | 2026-09-07 | Ch5 actual draft vs Ch6 | risk of absorbing qualification | Ch5 has no provider-client fit/no-go criteria; ending only opens the fit question | PASS WITH Ch6 HARD MERGE TEST |
 | 2026-09-07 | Ch5 anti-manipulation | diagnosis could become pain amplification / SPIN clone | source and contract boundaries make information sufficiency the sole method goal | PASS-DRAFT |
 | 2026-09-07 | Ch1–5 analogy audit | possible doctor metaphor in Ch5 | explicitly rejected; no structural analogy used | PASS |
-| 2026-09-07 | Ch6 actual draft vs Ch5 | Ch6 could repeat diagnostic information gathering | Ch6 begins only after task is sufficiently known; no seven-field Ch5 map is repeated | **PASS / HARD MERGE TEST PASSED** |
+| 2026-09-07 | Ch6 actual draft vs Ch5 | Ch6 could repeat diagnostic information gathering | Ch6 begins only after task is sufficiently known; no seven-field Ch5 map is repeated | PASS / HARD MERGE TEST PASSED |
 | 2026-09-07 | Ch6 actual draft vs Ch8 | scope/time/capacity may leak into economics | Ch6 only decides compatibility/redesign necessity; Ch8 owns price–scope–risk economics and negotiation design | PASS / PROTECTED |
 | 2026-09-07 | Ch6 anti-junk | risk of «bad client/red flags/chemistry» listicle | person-labeling rejected; configuration compatibility is the unit of analysis | PASS-DRAFT |
 | 2026-09-07 | Ch1–6 analogy audit | risk of formulaic metaphor allocation | none used as structural analogy | PASS |
+| 2026-09-07 | Ch7 actual draft vs Ch2–6 | integration could become six chapter summaries pasted together | Ch7 transports minimum decision-relevant outputs only; does not reteach prior tools | PASS / PROTECTED |
+| 2026-09-07 | Ch7 actual draft vs Ch8 | proposal contains price/terms | Ch7 only requires visibility; economic redesign is explicitly deferred to Ch8 | PASS / PROTECTED |
+| 2026-09-07 | Ch7 anti-junk | risk of generic template / ideal length / design chapter | no universal order/page count; buyer-retell function is the core test | PASS-DRAFT |
+| 2026-09-07 | Ch1–7 analogy audit | risk of proposal metaphor cliché | none used as structural analogy | PASS |
 
 ## 11. Future-book leakage
 
 Protected: Yandex Direct niche books, SEO/GEO, SMM/content/personal brand systems, full online-course funnel, CRM implementation, retention/LTV, scale/team management, full company pricing strategy and productization as separate systems.
 
-Generic marketing/IT/professional-service examples in Ch1–6 do not teach acquisition-platform tactics and therefore do not consume these territories.
+Generic marketing/IT/professional-service examples in Ch1–7 do not teach acquisition-platform tactics and therefore do not consume these territories.
 
 ## 12. Current gate
 
 Architecture v1 = **APPROVED**.
 
-Ch1–6 = **USED-DRAFT / QA PASS-DRAFT / not ACCEPTED**.
+Ch1–7 = **USED-DRAFT / QA PASS-DRAFT / not ACCEPTED**.
 
 **Ch6 hard merge-test vs actual Ch5 = PASSED. Ch6 remains independent.**
 
-Next allowed production object: **Chapter 7 proposal-evidence admission gate**.
+Next allowed production object: **Chapter 8 high-priority price–scope–risk research/admission gate**.
 
 No chapter may consume another chapter's reserved mechanism, scene function, practical output or composition function.
