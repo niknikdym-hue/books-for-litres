@@ -1,0 +1,606 @@
+{
+  "audio_edition": "1.0",
+  "source_commit": "e94c055514acc7f2643265c03494cd5677e056d6",
+  "chapters": [
+    {
+      "file": "00-vvedenie.md",
+      "characters_with_spaces": 5446,
+      "words": 768,
+      "sha256": "eea52616f08a8a484045f4e3456a7bd91c4760f725900100a8dfd93fc071ba9e"
+    },
+    {
+      "file": "01-kogda-poyavlyaetsya-prichina-platit.md",
+      "characters_with_spaces": 20443,
+      "words": 2695,
+      "sha256": "37a9309c742ebe3a6e85312e107392327a1c5aafbe83c41f1eb22aad3798f30f"
+    },
+    {
+      "file": "02-dlya-kogo-vy-budete-rabotat.md",
+      "characters_with_spaces": 20897,
+      "words": 2643,
+      "sha256": "6b838cdae273ab0bad6cc1f050f6ae215694692f7214c9afb3a0df393a5a0672"
+    },
+    {
+      "file": "03-za-kakoy-rezultat-vy-otvechaete.md",
+      "characters_with_spaces": 23862,
+      "words": 3032,
+      "sha256": "4f82112211c88e4cc7b8c5019c23a16198bacec89a13cebbc3306fe8bd6eef35"
+    },
+    {
+      "file": "04-kakuyu-uslugu-klient-mozhet-zakazat.md",
+      "characters_with_spaces": 26549,
+      "words": 3365,
+      "sha256": "63e4e236b666a141cbb5299d1c20451ae476751bc49b6333577004684b764809"
+    },
+    {
+      "file": "05-tsena-i-usloviya-na-kotorykh-rabota-imeet-smysl.md",
+      "characters_with_spaces": 29914,
+      "words": 3939,
+      "sha256": "e47aaa45bdc2b42a5cdc3d7b32c7a9c696113c8d6e5e5c7cb556477a2dbfe45a"
+    },
+    {
+      "file": "06-rabota-kotoruyu-predstoit-sdelat-klientu.md",
+      "characters_with_spaces": 20135,
+      "words": 2615,
+      "sha256": "832dc54c9e3a180796282e671bcb1755a374980437850a1123ab09838b3d5185"
+    },
+    {
+      "file": "07-dokazatelstva-kotorye-vyderzhivayut-proverku.md",
+      "characters_with_spaces": 25741,
+      "words": 3324,
+      "sha256": "73c344353f6331cb8dc771dabcd8703cca72c86002d797ec643c28b100859afd"
+    },
+    {
+      "file": "08-pervoe-obrashchenie-dostatochno-li-dannykh-dlya-predlozheniya.md",
+      "characters_with_spaces": 24278,
+      "words": 3127,
+      "sha256": "c25457f488f120f6a586c01a7fd652a2db689fbc9041a56153b3b8029b31d68e"
+    },
+    {
+      "file": "09-predlozhenie-iz-kotorogo-ponyaten-vybor.md",
+      "characters_with_spaces": 25230,
+      "words": 3364,
+      "sha256": "9c6ccc161ef9f84709324ddfde3869a73c2e068b8363836143e86df25de2c3d3"
+    },
+    {
+      "file": "10-peregovory-o-sostave-zakaza.md",
+      "characters_with_spaces": 25349,
+      "words": 3396,
+      "sha256": "968c7abfc1c7baa3fe847aa73072d40e04751da990455818d6b85419bbf15018"
+    },
+    {
+      "file": "11-dogovorennosti-kotorye-perezhivut-oplatu.md",
+      "characters_with_spaces": 27407,
+      "words": 3542,
+      "sha256": "1dda9fb2f454067de3f1c8feded08ba052f9b33c145ac2bbc3af648c778ddc90"
+    },
+    {
+      "file": "12-kak-dovesti-zakaz-do-nachala-raboty.md",
+      "characters_with_spaces": 25055,
+      "words": 3351,
+      "sha256": "755fb792467442893964c23894f41a931ecb61d90029a410746dbffbc94bb3da"
+    },
+    {
+      "file": "13-skolko-zakazov-vy-mozhete-obeshchat.md",
+      "characters_with_spaces": 24148,
+      "words": 3292,
+      "sha256": "9de8dc1eb6ed4e6d57ae3034a82d871495883071db8bbc16d88e384e202c7164"
+    },
+    {
+      "file": "14-kak-ponyat-chto-vy-izmenili-prodazhi.md",
+      "characters_with_spaces": 22258,
+      "words": 2935,
+      "sha256": "03b79ce4305995de8bdbc8f960ab9b2522d991a5e90892f73f222d1608f22aae"
+    },
+    {
+      "file": "15-zaklyuchenie.md",
+      "characters_with_spaces": 4401,
+      "words": 585,
+      "sha256": "042f599441b6c4dd4e0f4973b5a18074d7b1f51de18e0f75042592d0daebb75b"
+    }
+  ],
+  "main_characters_with_spaces": 351113,
+  "main_word_count": 45973,
+  "source_blocks": 1194,
+  "authored_replacement_ids": [
+    "00-002",
+    "00-009",
+    "00-011",
+    "00-013",
+    "01-056",
+    "01-057",
+    "02-058",
+    "02-059",
+    "04-074",
+    "04-075",
+    "05-015",
+    "05-028",
+    "05-034",
+    "05-035",
+    "05-038",
+    "05-039",
+    "05-043",
+    "05-044",
+    "05-045",
+    "05-046",
+    "05-049",
+    "05-050",
+    "05-058",
+    "05-059",
+    "05-060",
+    "05-067",
+    "06-048",
+    "06-050",
+    "07-024",
+    "07-025",
+    "07-026",
+    "07-027",
+    "07-031",
+    "07-066",
+    "07-081",
+    "08-072",
+    "08-073",
+    "09-029",
+    "09-030",
+    "09-031",
+    "09-034",
+    "09-063",
+    "10-010",
+    "10-084",
+    "10-085",
+    "10-086",
+    "10-089",
+    "11-014",
+    "11-087",
+    "12-037",
+    "12-073",
+    "12-075",
+    "13-014",
+    "13-015",
+    "13-039",
+    "13-040",
+    "13-045",
+    "13-046",
+    "13-047",
+    "13-048",
+    "14-018",
+    "14-019",
+    "14-021",
+    "14-022",
+    "14-043",
+    "14-074"
+  ],
+  "targeted_edit_ids": [
+    "01-008",
+    "01-027",
+    "01-055",
+    "04-075",
+    "05-048",
+    "05-051",
+    "05-062",
+    "05-070",
+    "05-095",
+    "06-049",
+    "08-074",
+    "09-055",
+    "12-080",
+    "14-030",
+    "14-040",
+    "14-058"
+  ],
+  "changed_blocks": 203,
+  "source_files": [
+    {
+      "file": "00-vvedenie.md",
+      "source_sha256": "40aba4e0cbba2bdc54bcd22449b46a8489ca510638216c1fc057cfb1adadbe68",
+      "audio_sha256": "eea52616f08a8a484045f4e3456a7bd91c4760f725900100a8dfd93fc071ba9e",
+      "blocks": 16,
+      "source_chars": 5199,
+      "audio_chars": 5483
+    },
+    {
+      "file": "01-kogda-poyavlyaetsya-prichina-platit.md",
+      "source_sha256": "148679e4ae2b7c96417e6c1c99d1b336de8d4616f66ccab9b19f10ea6569c5c9",
+      "audio_sha256": "37a9309c742ebe3a6e85312e107392327a1c5aafbe83c41f1eb22aad3798f30f",
+      "blocks": 76,
+      "source_chars": 20822,
+      "audio_chars": 20632
+    },
+    {
+      "file": "02-dlya-kogo-vy-budete-rabotat.md",
+      "source_sha256": "836c147ded3ec0ddb015d461ffdb96856c6bd6033155633773eb33ab7c71f178",
+      "audio_sha256": "6b838cdae273ab0bad6cc1f050f6ae215694692f7214c9afb3a0df393a5a0672",
+      "blocks": 69,
+      "source_chars": 21450,
+      "audio_chars": 21066
+    },
+    {
+      "file": "03-za-kakoy-rezultat-vy-otvechaete.md",
+      "source_sha256": "396b3721f0480273d9646bd23b92ebb06cdbcbbb28a643c5139481c60f7f27ad",
+      "audio_sha256": "4f82112211c88e4cc7b8c5019c23a16198bacec89a13cebbc3306fe8bd6eef35",
+      "blocks": 77,
+      "source_chars": 24540,
+      "audio_chars": 24041
+    },
+    {
+      "file": "04-kakuyu-uslugu-klient-mozhet-zakazat.md",
+      "source_sha256": "af483be9f094ba8ea4de0f35ff62b36ebf67066ed6dda46e43ffc042ee760cea",
+      "audio_sha256": "63e4e236b666a141cbb5299d1c20451ae476751bc49b6333577004684b764809",
+      "blocks": 83,
+      "source_chars": 26901,
+      "audio_chars": 26755
+    },
+    {
+      "file": "05-tsena-i-usloviya-na-kotorykh-rabota-imeet-smysl.md",
+      "source_sha256": "a4e1f112654f0aa5c39fb701f735d4ccddc1c035776874a3b6924d1060db0c3d",
+      "audio_sha256": "e47aaa45bdc2b42a5cdc3d7b32c7a9c696113c8d6e5e5c7cb556477a2dbfe45a",
+      "blocks": 108,
+      "source_chars": 27853,
+      "audio_chars": 30175
+    },
+    {
+      "file": "06-rabota-kotoruyu-predstoit-sdelat-klientu.md",
+      "source_sha256": "955074c870f2fce86665d9ce3bcd7be218ecac776d7f070074146b7e30c001d0",
+      "audio_sha256": "832dc54c9e3a180796282e671bcb1755a374980437850a1123ab09838b3d5185",
+      "blocks": 70,
+      "source_chars": 20584,
+      "audio_chars": 20306
+    },
+    {
+      "file": "07-dokazatelstva-kotorye-vyderzhivayut-proverku.md",
+      "source_sha256": "e8198f9d45fc414f6c40cb14b789fa504ab8ed4a0a61e99232d61bd48a9a89bf",
+      "audio_sha256": "73c344353f6331cb8dc771dabcd8703cca72c86002d797ec643c28b100859afd",
+      "blocks": 88,
+      "source_chars": 26249,
+      "audio_chars": 25949
+    },
+    {
+      "file": "08-pervoe-obrashchenie-dostatochno-li-dannykh-dlya-predlozheniya.md",
+      "source_sha256": "798ddb20863edbdf91ba0b38004a04019634a4a5208178b1c855bfb50e960474",
+      "audio_sha256": "c25457f488f120f6a586c01a7fd652a2db689fbc9041a56153b3b8029b31d68e",
+      "blocks": 81,
+      "source_chars": 24733,
+      "audio_chars": 24474
+    },
+    {
+      "file": "09-predlozhenie-iz-kotorogo-ponyaten-vybor.md",
+      "source_sha256": "cb4543d535b979ad9feb18235e2765efdf8af92fd589f340ac051c97825cd55b",
+      "audio_sha256": "9c6ccc161ef9f84709324ddfde3869a73c2e068b8363836143e86df25de2c3d3",
+      "blocks": 88,
+      "source_chars": 25566,
+      "audio_chars": 25446
+    },
+    {
+      "file": "10-peregovory-o-sostave-zakaza.md",
+      "source_sha256": "32ff6c133266ddb716cd72ec7e97ab0a2139b835a50e123edea91bdea655bdaf",
+      "audio_sha256": "968c7abfc1c7baa3fe847aa73072d40e04751da990455818d6b85419bbf15018",
+      "blocks": 91,
+      "source_chars": 25619,
+      "audio_chars": 25568
+    },
+    {
+      "file": "11-dogovorennosti-kotorye-perezhivut-oplatu.md",
+      "source_sha256": "5bdc2441b157058bff2be52f5cbafec2c20b573fc89392179e1f3ebf6452c275",
+      "audio_sha256": "1dda9fb2f454067de3f1c8feded08ba052f9b33c145ac2bbc3af648c778ddc90",
+      "blocks": 93,
+      "source_chars": 29159,
+      "audio_chars": 27639
+    },
+    {
+      "file": "12-kak-dovesti-zakaz-do-nachala-raboty.md",
+      "source_sha256": "849680ff41de952e2685fff64059b14dc17a5fa2019f865521712b02df0f199d",
+      "audio_sha256": "755fb792467442893964c23894f41a931ecb61d90029a410746dbffbc94bb3da",
+      "blocks": 82,
+      "source_chars": 24977,
+      "audio_chars": 25254
+    },
+    {
+      "file": "13-skolko-zakazov-vy-mozhete-obeshchat.md",
+      "source_sha256": "ac26900da101858fa25eb42e7ff43a4ee93d5849cdb5709a6056ead3c896a8ef",
+      "audio_sha256": "9de8dc1eb6ed4e6d57ae3034a82d871495883071db8bbc16d88e384e202c7164",
+      "blocks": 79,
+      "source_chars": 22032,
+      "audio_chars": 24353
+    },
+    {
+      "file": "14-kak-ponyat-chto-vy-izmenili-prodazhi.md",
+      "source_sha256": "2d09c69142c1bcdc2238644f462e62de90db1751a6b8d542ad7a17b115fca401",
+      "audio_sha256": "03b79ce4305995de8bdbc8f960ab9b2522d991a5e90892f73f222d1608f22aae",
+      "blocks": 79,
+      "source_chars": 22171,
+      "audio_chars": 22460
+    },
+    {
+      "file": "15-zaklyuchenie.md",
+      "source_sha256": "042f599441b6c4dd4e0f4973b5a18074d7b1f51de18e0f75042592d0daebb75b",
+      "audio_sha256": "042f599441b6c4dd4e0f4973b5a18074d7b1f51de18e0f75042592d0daebb75b",
+      "blocks": 14,
+      "source_chars": 4430,
+      "audio_chars": 4430
+    }
+  ],
+  "source_citations": [
+    {
+      "source_block": "01-008",
+      "label": "Моэста, What is Demand-Side Sales?",
+      "url": "https://therewiredgroup.com/learn/demand-side-sales-101-stop-selling-and-help-your-customers-make-progress/"
+    },
+    {
+      "source_block": "01-027",
+      "label": "Интервью с Робом Фитцпатриком, выпуск 206",
+      "url": "https://saasclub.io/podcast/saas-idea-validation-rob-fitzpatrick/"
+    },
+    {
+      "source_block": "01-028",
+      "label": "Фитцпатрик, Bias is never 0%, validation is never 100%",
+      "url": "https://robfitz.com/c/writing/bias-is-never-0-validation-is-never-100-context-and-pragmatism-in-custdev/"
+    },
+    {
+      "source_block": "01-034",
+      "label": "Шмидт и Беймолт, метаанализ готовности платить",
+      "url": "https://link.springer.com/article/10.1007/s11747-019-00666-6"
+    },
+    {
+      "source_block": "02-008",
+      "label": "Бейкер, Strengthening a Weak Horizontal Positioning",
+      "url": "https://punctuation.com/strengthening-a-weak-horizontal-positioning/"
+    },
+    {
+      "source_block": "02-038",
+      "label": "Making Strategic Trade-offs",
+      "url": "https://www.isc.hbs.edu/strategy/creating-a-successful-strategy/Pages/making-strategic-trade-offs.aspx"
+    },
+    {
+      "source_block": "02-048",
+      "label": "Роспотребнадзор, разъяснение от 13 октября 2023 года",
+      "url": "https://zpp.rospotrebnadzor.ru/Forum/Appeals/Details/40219"
+    },
+    {
+      "source_block": "02-065",
+      "label": "Continuity of Strategic Direction",
+      "url": "https://www.isc.hbs.edu/strategy/creating-a-successful-strategy/Pages/continuity-of-strategic-direction.aspx"
+    },
+    {
+      "source_block": "03-010",
+      "label": "Вирц, Service Products, 2020",
+      "url": "https://web2-bschool.nus.edu.sg/wp-content/uploads/media_rp/publications/qGKlc1603428901.pdf"
+    },
+    {
+      "source_block": "03-031",
+      "label": "Роспотребнадзор, официальный ответ от 13 февраля 2026 года",
+      "url": "https://zpp.rospotrebnadzor.ru/Forum/appeals/Details/59196"
+    },
+    {
+      "source_block": "03-037",
+      "label": "Роспотребнадзор, разъяснение статьи 4 от 19 сентября 2024 года",
+      "url": "https://zpp.rospotrebnadzor.ru/Forum/Appeals/Details/49180"
+    },
+    {
+      "source_block": "03-046",
+      "label": "Роспотребнадзор по Новгородской области, «О дополнительной защите прав потребителей»",
+      "url": "https://www.53.rospotrebnadzor.ru/?p=13522"
+    },
+    {
+      "source_block": "04-018",
+      "label": "Harkonen, Tolonen, Haapasalo, Service productisation",
+      "url": "https://oulurepo.oulu.fi/bitstream/10024/23415/1/nbnfi-fe2019112143586.pdf"
+    },
+    {
+      "source_block": "04-024",
+      "label": "Qlean, поддерживающая уборка",
+      "url": "https://qlean.ru/cleaning/standard"
+    },
+    {
+      "source_block": "04-035",
+      "label": "Роспотребнадзор по Новосибирской области, разъяснение статьи 16",
+      "url": "https://novo-sibirsk.ru/news/460792/"
+    },
+    {
+      "source_block": "05-015",
+      "label": "Garrett, Pricing 2: Practical aspects",
+      "url": "https://www.accaglobal.com/gb/en/student/exam-support-resources/fundamentals-exams-study-resources/f5/technical-articles/pricing-2.html"
+    },
+    {
+      "source_block": "05-035",
+      "label": "ФНС России, налог на профессиональный доход",
+      "url": "https://npd.nalog.ru/"
+    },
+    {
+      "source_block": "05-036",
+      "label": "ФНС России, разъяснение о расходах при НПД",
+      "url": "https://www.nalog.gov.ru/rn19/news/activities_fts/16421137/"
+    },
+    {
+      "source_block": "05-094",
+      "label": "Закон РФ № 2300-1, статья 33; редакция, действующая на 7 сентября 2026 года",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_305/1536a01e6c5fdae25dce77f54eabf02f32e0c382/"
+    },
+    {
+      "source_block": "06-008",
+      "label": "Bitner et al., Customer contributions and roles in service delivery",
+      "url": "https://doi.org/10.1108/09564239710185398"
+    },
+    {
+      "source_block": "06-039",
+      "label": "Scott, Six Tips for Preserving Family Archives",
+      "url": "https://siarchives.si.edu/blog/six-tips-preserving-family-archives"
+    },
+    {
+      "source_block": "06-043",
+      "label": "Федеральный закон «О персональных данных», статья 5; редакция от 26 июля 2026 года",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_61801/96fbc469f91f57235cc842a85e0516a99f23dc85/"
+    },
+    {
+      "source_block": "06-044",
+      "label": "Тот же закон, статья 6",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_61801/315f051396c88f1e4f827ba3f2ae313d999a1873/"
+    },
+    {
+      "source_block": "07-018",
+      "label": "Грин, Selling Professional Services",
+      "url": "https://trustedadvisor.com/public/files/pdf/selling.pdf"
+    },
+    {
+      "source_block": "07-030",
+      "label": "ATA, категории переводческих ошибок",
+      "url": "https://www.atanet.org/certification/how-the-exam-is-graded/error-categories/"
+    },
+    {
+      "source_block": "07-056",
+      "label": "Buell, Kim, Tsay, 2017",
+      "url": "https://doi.org/10.1287/mnsc.2015.2411"
+    },
+    {
+      "source_block": "07-063",
+      "label": "ГК РФ, статья 1260",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_64629/26eaf5de7ca59025f4388fe2980d3dd03dd5e775/"
+    },
+    {
+      "source_block": "07-065",
+      "label": "152-ФЗ, статья 6",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_61801/315f051396c88f1e4f827ba3f2ae313d999a1873/"
+    },
+    {
+      "source_block": "07-066",
+      "label": "ГК РФ, статья 1229",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_64629/98ad2641f95945c4b7956150260564c8b44028d9/"
+    },
+    {
+      "source_block": "07-067",
+      "label": "ГК РФ, статья 1270",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_64629/dffcf0b87b80ff38f430dc822a0074e76ccd41a0/"
+    },
+    {
+      "source_block": "08-031",
+      "label": "JURA, стоимость ремонта и обслуживания",
+      "url": "https://ru.jura.com/ru/support/official-service/Repair-and-maintenance-cost"
+    },
+    {
+      "source_block": "08-033",
+      "label": "Роспотребнадзор, разъяснение о дополнительных услугах, 2026",
+      "url": "https://novo-sibirsk.ru/news/460792/"
+    },
+    {
+      "source_block": "08-043",
+      "label": "Эннс и Бейкер, The Four Conversations",
+      "url": "https://2bobs.com/podcast/the-four-conversations-a-new-model-for-selling-expertise"
+    },
+    {
+      "source_block": "09-063",
+      "label": "GOV.UK, Using moderated usability testing",
+      "url": "https://www.gov.uk/service-manual/user-research/using-moderated-usability-testing"
+    },
+    {
+      "source_block": "09-070",
+      "label": "Zhao, Advice for better moderated usability testing, 2019",
+      "url": "https://userresearch.blog.gov.uk/2019/08/05/advice-for-better-moderated-usability-testing/"
+    },
+    {
+      "source_block": "10-010",
+      "label": "Shonk, Principled Negotiation, 2026",
+      "url": "https://www.pon.harvard.edu/daily/negotiation-skills-daily/principled-negotiation-focus-interests-create-value/"
+    },
+    {
+      "source_block": "10-035",
+      "label": "Malhotra, Four Strategies for Making Concessions, 2006",
+      "url": "https://www.library.hbs.edu/working-knowledge/four-strategies-for-making-concessions"
+    },
+    {
+      "source_block": "10-057",
+      "label": "ГК РФ, статья 432",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_5142/adbefccc8d538d42038164bb81d886c76e719d63/"
+    },
+    {
+      "source_block": "10-058",
+      "label": "ГК РФ, статья 450",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_5142/c231822b9f355b8c760b3389e80269f0d987870e/"
+    },
+    {
+      "source_block": "10-071",
+      "label": "ГК РФ, статья 452",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_5142/ca10f0c19da23330c9d92dacb11df0c92444bca3/"
+    },
+    {
+      "source_block": "11-006",
+      "label": "ГК РФ, статья 730",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_9027/28e9350147c65bfef403106a5b858c86f94fa747/"
+    },
+    {
+      "source_block": "11-010",
+      "label": "Правила бытового обслуживания",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_363382/691ff12ebc666eb5bb33e4f4e6e854abf8bd84c7/"
+    },
+    {
+      "source_block": "11-014",
+      "label": "Правила, пункт 4",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_363382/507afd15981cec542f9cd86433b3f2fa16c2e486/"
+    },
+    {
+      "source_block": "11-022",
+      "label": "ГК РФ, статья 734",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_9027/fcc2f65fb4414ef61f2b7d6d6bfa09ffff3670b5/"
+    },
+    {
+      "source_block": "11-024",
+      "label": "Закон о защите прав потребителей, статья 35",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_305/45c7ccb991b26b835bafa26beb226e4658dea317/"
+    },
+    {
+      "source_block": "11-027",
+      "label": "ГК РФ, статья 708",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_9027/94492e64fdea026f033e334a2f18b7f1de1f04a0/"
+    },
+    {
+      "source_block": "11-032",
+      "label": "Закон о защите прав потребителей, статья 28",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_305/f190d8f6c0d4f03af399cc0efcc722d87a0f83a6/"
+    },
+    {
+      "source_block": "11-037",
+      "label": "ГК РФ, статья 735",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_9027/3c8a1d67912a5264cca5589fd0c4618c7d3f595e/"
+    },
+    {
+      "source_block": "11-045",
+      "label": "Закон о защите прав потребителей, статья 16",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_305/9eb0f127ead4dc57e7d0a9d4954cf264c4b3cea8/"
+    },
+    {
+      "source_block": "11-051",
+      "label": "ГК РФ, статья 716",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_9027/0a0cc8dfd273d410f517bdd9e782b401d8b1db57/"
+    },
+    {
+      "source_block": "11-061",
+      "label": "ГК РФ, статья 720",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_9027/48e02faf6357243a0fa7806dd7ca2dc2493301a8/"
+    },
+    {
+      "source_block": "11-062",
+      "label": "Закон о защите прав потребителей, статья 29",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_305/41fd88c62c89ddba445ff85149b17a63b9679810/"
+    },
+    {
+      "source_block": "11-069",
+      "label": "Закон о защите прав потребителей, статья 32",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_305/758e2cfdf136a621c8f66dcb3372b772c7b5e6e8/"
+    },
+    {
+      "source_block": "11-082",
+      "label": "ГК РФ, статья 432",
+      "url": "https://www.consultant.ru/document/cons_doc_LAW_5142/adbefccc8d538d42038164bb81d886c76e719d63/"
+    },
+    {
+      "source_block": "12-037",
+      "label": "Разъяснения ФНС о чеках и моменте получения дохода",
+      "url": "https://npd.nalog.ru/faq/"
+    },
+    {
+      "source_block": "14-043",
+      "label": "Руководство по оценке, разделы 1.7.1 и 3.5",
+      "url": "https://www.gov.uk/government/publications/the-magenta-book/magenta-book-central-government-guidance-on-evaluation-html"
+    }
+  ],
+  "audio_recorded": false,
+  "audition_review_done": false
+}
