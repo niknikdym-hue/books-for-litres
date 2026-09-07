@@ -32,7 +32,7 @@
 | 4 | delivery — black box | что показать о future process | Process Visibility Map | ясны stages/inputs/outputs/roles/checkpoints/change rules | small agency/IT/consulting/professional-service contexts | **USED-DRAFT** |
 | 5 | предложение делается до достаточного понимания задачи | достаточно ли информации для проектирования offer | Diagnostic Conversation Map | fact/assumption/unknown + materially relevant gaps explicitly separated | individual / owner-led small B2B / multi-stakeholder B2B | **USED-DRAFT** |
 | 6 | понятная задача продаётся в несовместимой конфигурации | proceed / redesign / decline-refer | Критерии совместимости сделки | шесть compatibility conditions проверены; hard no-go не маскируется score | solo/NPD / ИП / small agency / regulated-professional boundary | **USED-DRAFT** |
-| 7 | КП не собирает decision logic | что buyer должен увидеть для решения | Offer Decision Sheet + revised proposal | decision-maker понимает situation/scope/proof/process/investment/next step | B2B КП vs B2C context | RESERVED / RESEARCH BLOCKER |
+| 7 | КП содержит seller information, но не собирает buyer decision | какую информацию оставить/убрать, чтобы решение можно было восстановить без продавца | Offer Decision Sheet / Карта решения по предложению + revision of one real proposal | independent buyer-retell test covers task/service/proof/process/conditions/investment/limits/next action | short/simple B2B, formal procurement, distributed B2C decision information | **USED-DRAFT** |
 | 8 | price отделена от scope/risk | что менять при ценовом напряжении | Price–Scope–Risk Map | price change связан с scope/obligation/risk | payment/staging/B2B-B2C after fresh check | RESERVED / HIGH BLOCKER |
 | 9 | одинаковая фраза скрывает разные причины | clarify/redesign/wait/decline etc. | Uncertainty/Objection Diagnostic | competing hypotheses проверяются до response | no unsupported Russia stereotypes | RESERVED / HIGH BLOCKER |
 | 10 | seller неверно объясняет wins/losses | какое system change тестировать | Lost-Deal Learning Loop + system assembly | facts/assumptions/pattern/test separated | usable without BI stack | RESERVED |
@@ -88,6 +88,15 @@
 - rejects personality/red-flag/chemistry framing;
 - practical value is protection against delivery loss/capacity displacement, not just conversion optimization.
 
+### Ch7 — Offer Decision Sheet / Карта решения по предложению
+- next-business-day: PASS;
+- reader audits and rewrites one existing real proposal rather than generating a generic template;
+- eight fields integrate Ch2–6 without reteaching their tools;
+- buyer-retell test checks whether decision logic survives without seller explanation;
+- no ideal page count/visual format/three-package recipe;
+- price must be visible, but its economic design remains protected for Ch8;
+- short ≠ automatically good; decision complexity and objective requirements determine necessary detail.
+
 ## 4. Next-business-day test
 
 Каждый artifact должен быть применим к реальной продаже уже на следующий рабочий день. «Повышать ценность / доверие / качество» не считается action.
@@ -122,6 +131,6 @@ Practical gate FAIL, если reader должен сам придумывать 
 
 ## 10. Current status
 
-Ch1–6 practical outputs = **USED-DRAFT / QA PASS-DRAFT**.
+Ch1–7 practical outputs = **USED-DRAFT / QA PASS-DRAFT**.
 
-Ch7–10 remain `RESERVED` until their own contract gates. No later chapter may create renamed versions of Ch1–6 tools.
+Ch8–10 remain `RESERVED` until their own contract gates. No later chapter may create renamed versions of Ch1–7 tools.
