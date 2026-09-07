@@ -17,7 +17,7 @@
 Изменения версии 1.0: введение, заключение и сквозная редактура; фактический полный объём и отчёт о проверках.
 Основание: [решение пользователя](00-RESTART-DECISION-2026-09-07.md).
 Источники и границы: [исследовательская записка](01-RESEARCH-AND-BOUNDARIES.md).
-Статус: полная рукопись с введением, 14 главами и заключением завершена; авторская приёмка не присвоена. Итоговая сборка и визуальная проверка страниц выполняются.
+Статус: полная рукопись с введением, 14 главами и заключением завершена; авторская приёмка не присвоена. Итоговые файлы собраны, визуальная проверка выполнена.
 
 ## 1. Книга и её читатель
 
@@ -161,7 +161,7 @@
 
 **Источники:** авторская версия статьи Вирца и три официальных разъяснения Роспотребнадзора. Фактическая глубина чтения и ограничения сохранены в [записке главы 3](06-CHAPTER-3-RESEARCH.md). Отраслевые технические нормативы не изобретались.
 
-**Рукопись:** [первый отредактированный черновик](book-1/manuscript/03-za-kakoy-rezultat-vy-otvechaete.md), 24 289 знаков видимого текста с пробелами. Дополнительный пример C03a — оформление витрины: его собственная функция состоит в различии проверяемых признаков и субъективного впечатления.
+**Рукопись:** [первый отредактированный черновик](book-1/manuscript/03-za-kakoy-rezultat-vy-otvechaete.md), 24 093 знаков видимого текста с пробелами. Дополнительный пример C03a — оформление витрины: его собственная функция состоит в различии проверяемых признаков и субъективного впечатления.
 
 **Граница:** критерий результата формулируется здесь; перечень включённых действий — в главе 4; договорное оформление — в главе 11.
 
@@ -294,7 +294,7 @@
 
 **Граница:** дизайн сайта, рекламные объявления, продающие посты и копирайтинг для отдельных каналов исключены. Это структура решения о конкретном заказе.
 
-**Рукопись главы 9:** [отредактированный черновик](book-1/manuscript/09-predlozhenie-iz-kotorogo-ponyaten-vybor.md), 25 611 знаков видимого текста. P09 исправляет информационный дефект и проверяет доступное покупателю решение; C09 сохраняет исходный состав и цены двух вариантов проекта балкона. [Источники и предел проверки](12-CHAPTER-9-RESEARCH.md).
+**Рукопись главы 9:** [отредактированный черновик](book-1/manuscript/09-predlozhenie-iz-kotorogo-ponyaten-vybor.md), 25 065 знаков видимого текста. P09 исправляет информационный дефект и проверяет доступное покупателю решение; C09 сохраняет исходный состав и цены двух вариантов проекта балкона. [Источники и предел проверки](12-CHAPTER-9-RESEARCH.md).
 
 ### Глава 10. Переговоры о составе заказа — 24 000 знаков
 
@@ -360,7 +360,7 @@
 
 **Граница:** удержание и повторные продажи начинаются в другой книге после выполненного заказа. Здесь не создаётся CRM-система и не преподаётся бухгалтерия.
 
-**Рукопись главы 12:** [отредактированный черновик](book-1/manuscript/12-kak-dovesti-zakaz-do-nachala-raboty.md), 24 685 знаков видимого текста. P12 связывает действие, ответственного и подтверждение; C12 показывает потерю согласованного времени при передаче в календарь. Оплата после сдачи отделена от готовности старта. [Источники и проверки](15-CHAPTER-12-RESEARCH.md).
+**Рукопись главы 12:** [отредактированный черновик](book-1/manuscript/12-kak-dovesti-zakaz-do-nachala-raboty.md), 24 676 знаков видимого текста. P12 связывает действие, ответственного и подтверждение; C12 показывает потерю согласованного времени при передаче в календарь. Оплата после сдачи отделена от готовности старта. [Источники и проверки](15-CHAPTER-12-RESEARCH.md).
 
 ### Глава 13. Сколько заказов вы можете обещать — 20 000 знаков
 
@@ -477,7 +477,9 @@
 
 Подготовлены центральный тезис, адресат, границы, композиция, бюджет 324 тысячи знаков, содержание 14 глав и отдельные функции 14 практических результатов. Исследовательская записка содержит фактическую глубину доступа к каждому источнику и нерешённые вопросы.
 
-Полная рукопись написана: введение, 14 глав и заключение. Основной текст — 344 854 знаков видимого текста с пробелами, без библиографии и титульных материалов. Библиография содержит 38 записей. Сквозная редактура содержания и проверка связности выполнены; подробности — в [отчёте](18-WHOLE-BOOK-REVIEW.md). Итоговая сборка и визуальная проверка страниц выполняются. Авторская приёмка и статус ACCEPTED/LOCKED не присваиваются автоматически.
+Полная рукопись написана: введение, 14 глав и заключение. Основной текст — 343 483 знака видимого текста с пробелами, без библиографии и титульных материалов. Библиография содержит 38 записей. Сквозная редактура содержания и проверка связности выполнены; подробности — в [отчёте](18-WHOLE-BOOK-REVIEW.md). Итоговые файлы собраны, визуальная проверка выполнена. Авторская приёмка и статус ACCEPTED/LOCKED не присваиваются автоматически.
+
+Состав рукописи: [введение](book-1/manuscript/00-vvedenie.md), [глава 1](book-1/manuscript/01-kogda-poyavlyaetsya-prichina-platit.md), [глава 2](book-1/manuscript/02-dlya-kogo-vy-budete-rabotat.md), [глава 3](book-1/manuscript/03-za-kakoy-rezultat-vy-otvechaete.md), [глава 4](book-1/manuscript/04-kakuyu-uslugu-klient-mozhet-zakazat.md), [глава 5](book-1/manuscript/05-tsena-i-usloviya-na-kotorykh-rabota-imeet-smysl.md), [глава 6](book-1/manuscript/06-rabota-kotoruyu-predstoit-sdelat-klientu.md), [глава 7](book-1/manuscript/07-dokazatelstva-kotorye-vyderzhivayut-proverku.md), [глава 8](book-1/manuscript/08-pervoe-obrashchenie-dostatochno-li-dannykh-dlya-predlozheniya.md), [глава 9](book-1/manuscript/09-predlozhenie-iz-kotorogo-ponyaten-vybor.md), [глава 10](book-1/manuscript/10-peregovory-o-sostave-zakaza.md), [глава 11](book-1/manuscript/11-dogovorennosti-kotorye-perezhivut-oplatu.md), [глава 12](book-1/manuscript/12-kak-dovesti-zakaz-do-nachala-raboty.md), [глава 13](book-1/manuscript/13-skolko-zakazov-vy-mozhete-obeshchat.md), [глава 14](book-1/manuscript/14-kak-ponyat-chto-vy-izmenili-prodazhi.md), [заключение](book-1/manuscript/15-zaklyuchenie.md). Полнотекстовая проверка отсутствующих соседних книг остаётся открытой.
 
 Состав рукописи: [введение](book-1/manuscript/00-vvedenie.md), [глава 1](book-1/manuscript/01-kogda-poyavlyaetsya-prichina-platit.md), [глава 2](book-1/manuscript/02-dlya-kogo-vy-budete-rabotat.md), [глава 3](book-1/manuscript/03-za-kakoy-rezultat-vy-otvechaete.md), [глава 4](book-1/manuscript/04-kakuyu-uslugu-klient-mozhet-zakazat.md), [глава 5](book-1/manuscript/05-tsena-i-usloviya-na-kotorykh-rabota-imeet-smysl.md), [глава 6](book-1/manuscript/06-rabota-kotoruyu-predstoit-sdelat-klientu.md), [глава 7](book-1/manuscript/07-dokazatelstva-kotorye-vyderzhivayut-proverku.md), [глава 8](book-1/manuscript/08-pervoe-obrashchenie-dostatochno-li-dannykh-dlya-predlozheniya.md), [глава 9](book-1/manuscript/09-predlozhenie-iz-kotorogo-ponyaten-vybor.md), [глава 10](book-1/manuscript/10-peregovory-o-sostave-zakaza.md), [глава 11](book-1/manuscript/11-dogovorennosti-kotorye-perezhivut-oplatu.md), [глава 12](book-1/manuscript/12-kak-dovesti-zakaz-do-nachala-raboty.md), [глава 13](book-1/manuscript/13-skolko-zakazov-vy-mozhete-obeshchat.md), [глава 14](book-1/manuscript/14-kak-ponyat-chto-vy-izmenili-prodazhi.md), [заключение](book-1/manuscript/15-zaklyuchenie.md). Полнотекстовая проверка отсутствующих соседних книг остаётся открытой.
 
