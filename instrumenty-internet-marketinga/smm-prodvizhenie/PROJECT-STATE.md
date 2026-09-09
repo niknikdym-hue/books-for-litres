@@ -1,7 +1,7 @@
 # PROJECT STATE — «SMM продвижение»
 
-**Date:** 2026-09-07  
-**Status:** PRE-PRODUCTION / DEFINITION PACK ASSEMBLY / WRITING BLOCKED  
+**Date:** 2026-09-09  
+**Status:** PRE-PRODUCTION / FINAL BOOK DEFINITION PROPOSED / OWNER GATE  
 **Series:** «Инструменты интернет-маркетинга»  
 **Author:** Елена Дым
 
@@ -11,169 +11,163 @@
 - First real production-pilot book for BOOK OS.
 - Title: **«SMM продвижение»** — `TITLE-LOCKED`.
 - Content: `WRITE-FROM-ZERO`; old manuscript content inheritance = NONE.
+- Target length: **300 000–350 000 characters including spaces**.
+- `NO PADDING / NO WATER` remains binding.
 
-## Owner-locked requirements
+## Current authority candidate
 
-1. Central reader question: **«Как профессионально продвигать товар или услугу через SMM?»**
-2. Book form: **course-in-a-book** with world-class theory AND world-class practice.
-3. Russia execution: practical recommendations only through actually usable/relevant SMM platforms, with separate access/organic/paid/legal/audience/business-fit gates.
-4. Goods and services must be decomposed into materially different promotion archetypes; one generic playbook is prohibited.
-5. Snickers-like FMCG ≠ industrial machine B2B playbook.
-6. Local manicure service ≠ tutor/expert-service playbook.
-7. World authors/research schools may and should be named where materially used.
-8. Book must preserve explicit **Elena Dym author synthesis** after comparing world views; bibliography must not replace the author's voice.
-9. Final book includes a real bibliography of sources actually used.
-10. Target length: **300 000–350 000 characters including spaces**.
-11. **NO PADDING / NO WATER**: no volume growth without a new substantive function.
-12. If a strong book solves the reader problem below 300k and further expansion reduces density, escalate to Owner review rather than padding.
+`BOOK-DEFINITION-PROPOSED-v1.0.md`
 
-## Current book-level authority / research objects
+Status:
 
-- `README.md` — recovery/read order and locked high-level contour.
-- `../OWNER-DECISION-2026-09-07-PRODUCTION-PILOT-SMM-FIRST.md` — binding Owner pilot/book decisions.
-- `BOOK-DEFINITION-DRAFT-v0.1.md` — current Definition candidate, NOT approved.
-- `READER-PROBLEM-MAP-DRAFT-v0.1.md` — reader decisions/problems.
-- `OFFER-ARCHETYPE-MATRIX-DRAFT-v0.1.md` — goods/services archetype decomposition.
-- `GOODS-DECISION-TREE-DRAFT-v0.1.md` — reader path for goods from economics/buying process to SMM playbook.
-- `SERVICES-DECISION-TREE-DRAFT-v0.1.md` — reader path for services from trust/capacity/buying process to SMM playbook.
-- `PRACTICAL-VALUE-MAP-DRAFT-v0.1.md` — problem→decision→action→artifact→check chain.
-- `RESEARCH-MAP-v0.1.md` — research programme.
-- `WORLD-CLASS-BENCHMARK-MAP-v0.1.md` — world schools and tensions.
-- `AUTHOR-SYNTHESIS-AND-ATTRIBUTION.md` — named-source + author-voice governance.
-- `AUTHOR-SYNTHESIS-DRAFT-v0.1.md` — working Elena Dym positions.
-- `WORKING-BIBLIOGRAPHY.md` — working source pool.
-- `RUSSIA-SMM-PLATFORM-MATRIX-2026.md` — platform/access/paid/legal/audience matrix.
-- `AI-SUBSTITUTION-GATE-v0.1.md` — value above strong AI/free substitute.
-- style-profile materials.
+`FINAL CANDIDATE / PROPOSED FOR OWNER REVIEW / NOT OWNER-APPROVED`.
 
-## Practical branching state
+This file reconciles the previous definition/research objects into one owner-reviewable Book Definition Pack. Earlier `*-DRAFT-v0.1.md` files remain research/evidence history and do not supersede v1.0.
 
-**GOODS BRANCHING: DRAFT COMPLETE FOR DEFINITION STAGE.**
+## Definition decisions now closed for Owner review
 
-Current reader-facing families:
-- mass/FMCG/low-involvement;
-- considered/durable consumer goods;
-- complex/high-ticket B2B goods.
+### Central reader question
 
-**SERVICES BRANCHING: DRAFT COMPLETE FOR DEFINITION STAGE.**
+**«Как профессионально продвигать конкретный товар или услугу через SMM в российской действительности?»**
 
-Current reader-facing families:
-- local recurring service;
-- expert/professional service;
-- complex B2B service, subject to final evidence gate;
-- other service archetypes only if research proves materially different buying/trust/conversion mechanics.
+### Book form
 
-Shared SMM theory is explained once. Archetype playbooks contain only meaningful deltas. Repetition with swapped examples is prohibited.
+**Course-in-a-book:** world-class theory + world-class practice + a connected reader-owned SMM Operating System.
+
+### Central mechanism
+
+`BUSINESS ECONOMICS / GOAL → BUYER & BUYING PROCESS → OFFER / SALES ARCHETYPE → ROLE OF SOCIAL → PLATFORM / AUDIENCE FIT → TRUST & CONTENT JOBS → DISTRIBUTION → CONVERSION / HANDOFF → MEASUREMENT → DIAGNOSIS → ITERATION`
+
+This is an Elena Dym synthesis/operating model, not an invented scientific law.
+
+### Admitted reader-facing archetypes
+
+Goods:
+1. G1 — mass / FMCG / low-involvement;
+2. G2 — considered / durable consumer goods;
+3. G3 — complex / high-ticket B2B goods.
+
+Services:
+4. S1 — local recurring service;
+5. S2 — expert / professional service;
+6. S3 — complex B2B service.
+
+S3 is admitted because it combines long-cycle/multi-stakeholder B2B buying with service-specific implementation/team/process uncertainty and cannot be represented cleanly by S2 or G3 alone.
+
+Restaurants/hospitality, real estate, education, SaaS, subscriptions and multi-location businesses remain stress-test/edge cases routed through the existing decision dimensions unless Architecture proves a new archetype is necessary.
+
+## Final Definition-level Elena Dym positions
+
+1. SMM is a managed layer of social attention, memory, trust, proof, interaction and distribution — not a business goal or content factory.
+2. Planning begins with offer economics + buying process + archetype, not platform or format.
+3. Distinguish `CATEGORY REACH` from `OPERABLE REACH`.
+4. Separate `FUTURE DEMAND` from `CURRENT DEMAND`; the mix depends on category/sales cycle/cash/capacity.
+5. Design content by `JOB`, not rubric/format/frequency.
+6. Goods/services differ materially by what can be verified before purchase and what risk remains.
+7. Shared brand-memory principles do not imply one FMCG/B2B operating system.
+8. Russia platform choice follows job/archetype and must pass access/audience/job/organic/paid/legal/handoff/measurement/economics/freshness gates.
+9. Measurement exists to improve decisions, not manufacture attribution certainty.
+10. AI makes generic content cheap; scarce value shifts toward judgment, distinctive memory, credible evidence, expertise, distribution, buyer insight and operational feedback.
+
+## Russia platform layer — refreshed 2026-09-09
+
+Pre-Architecture dispositions in v1.0:
+
+- **ВКонтакте:** `CORE CANDIDATE`;
+- **Одноклассники:** `CORE FOR RELEVANT AUDIENCES / CONDITIONAL BY ARCHETYPE`;
+- **Дзен:** `CONDITIONAL CORE`;
+- **RUTUBE:** `VIDEO CORE CANDIDATE / ECONOMICS-CONDITIONAL`;
+- **MAX:** `EMERGING / TEST`, with materially stronger 2026 business/channel evidence than at the initial checkpoint;
+- **Telegram:** `MAJOR ORGANIC / COMMUNITY CANDIDATE`; paid/native advertising remains explicit legal/freshness gate;
+- **YouTube:** `COMPARATIVE / CONDITIONAL`, not default Russia execution foundation;
+- **TikTok:** `AUDIENCE / FORMAT BENCHMARK`, not core execution foundation;
+- **Instagram / Facebook (Meta):** excluded from practical playbook.
+
+All material platform/legal claims require freshness recheck when Architecture depends on them and again before Literary Master.
 
 ## World benchmark state
 
-Working benchmark includes, subject to exact claim/source verification:
-- Keller / Swaminathan — strategic brand management;
-- Sharp / Ehrenberg-Bass — growth and mental/physical availability;
-- Romaniuk / Ehrenberg-Bass — distinctive assets / category entry points;
-- Binet / Field / IPA — long vs short effects;
-- Quesenberry — social media strategy;
-- Tuten — social media marketing;
-- Wirtz / Lovelock services-marketing lineage;
-- B2B Institute + Ehrenberg-Bass B2B / John Dawes — long-cycle / out-market / mental-availability framing;
-- Berger — social transmission where relevant;
-- Cialdini — persuasion/trust mechanisms where relevant.
+Definition-level source functions/editions are now sufficient to enter Architecture after Owner approval, including:
 
-No source is manuscript authority by fame alone. Required pattern:
+- Keller / Swaminathan — `Strategic Brand Management`, 6th ed., Pearson, 2026;
+- Quesenberry — `Social Media Strategy`, 4th ed., 2024;
+- Tuten — `Social Media Marketing`, 5th ed., SAGE, 2023;
+- Wirtz / Lovelock / Chew — `Essentials of Services Marketing`, 4th ed.;
+- Ehrenberg-Bass / Sharp / Romaniuk — growth, mental/physical availability, category entry points, distinctive assets;
+- Binet / Field / IPA — short vs long effects;
+- LinkedIn B2B Institute + Ehrenberg-Bass / Dawes — B2B mental availability, out-market buyers, 95/5 framing with explicit non-universal caveat.
 
-`WORLD VIEWS → EVIDENCE → CONFLICT/GAP → ELENA DYM POSITION → RUSSIA TRANSLATION → ARCHETYPE DIFFERENCE → READER ACTION → OBSERVABLE CHECK`.
+Exact manuscript claims remain chapter-level evidence work; Definition approval does not convert benchmark names into blanket authority.
 
-## Russia platform research state
+## Practical product
 
-Platform matrix remains time-sensitive and NOT final recommendation.
+The reader-owned SMM Operating System is composed from:
 
-Current candidates/roles under research include:
-- VK — core candidate;
-- OK — core for relevant demographics/use cases;
-- Dzen — conditional core for relevant content/discovery jobs;
-- RUTUBE — video core candidate;
-- MAX — emerging/test candidate;
-- Telegram — major organic/community relevance, but paid/legal treatment requires fresh verification;
-- YouTube — constrained/conditional/comparative;
-- TikTok — audience/format benchmark; normal Russian publishing constrained;
-- Instagram/Facebook — excluded from practical advertising playbook under current Russian restrictions.
+1. SMM Business Role Brief;
+2. Offer / Sales Archetype Diagnosis;
+3. Buyer / Buying-Unit Map;
+4. SMM Journey Role Map;
+5. Russia Platform Portfolio;
+6. Trust / Proof Map;
+7. Content Jobs Portfolio;
+8. Content Operating System + AI Use / Risk Map;
+9. Distribution Mix;
+10. Conversion & Handoff Design;
+11. SMM Measurement Card;
+12. Experiment / Decision Queue — `STOP | FIX | TEST | SCALE`;
+13. Freshness Register.
 
-Platform popularity never equals platform recommendation. Final selection is archetype-specific and must pass:
-`ACCESS → AUDIENCE FIT → JOB/FORMAT FIT → ORGANIC → PAID → LEGAL → HANDOFF → MEASUREMENT → ECONOMICS → FRESHNESS`.
+Architecture must integrate these rather than produce decorative worksheets.
 
-## Current Book Definition status
+## Series overlap
 
-`DRAFT / NOT OWNER-APPROVED`.
+Definition-level boundary is `PASS` against:
 
-Working central mechanism hypothesis:
+- «Квиз-маркетинг. Как собирать лиды, вовлекать и продавать через тесты»;
+- «Как оценивать эффективность рекламы»;
+- separate series «Секреты продвижения услуг»;
+- marketplace-specific operating territory.
 
-`BUSINESS ECONOMICS / GOAL → BUYER & BUYING PROCESS → OFFER / SALES ARCHETYPE → ROLE OF SOCIAL → PLATFORM / AUDIENCE FIT → TRUST & CONTENT JOBS → DISTRIBUTION → CONVERSION / HANDOFF → MEASUREMENT → DIAGNOSIS → ITERATION`.
+Architecture must still declare neighboring territory and maximum allowed depth chapter-by-chapter.
 
-This is a synthesis hypothesis, not an invented scientific law.
+## AI-substitution
 
-### Definition gates now materially complete in draft
-- reader/problem map;
-- goods/services archetype decomposition;
-- Goods Decision Tree;
-- Services Decision Tree;
-- practical-value map;
-- initial world benchmark map;
-- initial Author Synthesis;
-- initial AI-substitution gate;
-- initial Russia platform matrix.
+Definition-level gate is `PASS` because the book's required value is no longer generic platform/content advice. The differentiator is:
 
-### Definition gates still requiring closure before Owner review
-1. deepen/verify material world claims and source functions;
-2. finalize Russia platform/legal/application matrix for pre-Architecture use;
-3. resolve whether any additional archetype materially earns inclusion;
-4. finalize Author Synthesis on central strategic tensions;
-5. prove series-overlap boundaries against the two protected locked titles;
-6. reconcile all evidence into a single final Book Definition Pack candidate.
+`ARCHETYPE DIAGNOSIS + WORLD EVIDENCE/SYNTHESIS + RUSSIA FRESHNESS + READER ARTIFACTS + DECISION RULES + AUTHOR JUDGMENT + END-TO-END OPERATING SYSTEM`.
 
-## Writing gate
+Chapter-level and whole-book AI-substitution gates remain mandatory.
+
+## Writing / Architecture gate
 
 `WRITING_ALLOWED = NO` globally.
 
-Do not start Architecture or manuscript Writing until the final Definition Pack is Owner-approved.
+Architecture is blocked only by the genuine human authority gate below, not by another general research loop.
 
-Even after Architecture approval, Writing remains chapter-specific and must pass BOOK OS admission gates.
+After Owner approval of v1.0:
 
-## BOOK OS system dependency
+`Architecture → Owner Architecture approval → chapter contracts/admission → bounded model execution → Chapter QA → mid-book audit → whole-book edit → Adversarial Review → Literary Master → Owner final gate`.
 
-BOOK OS source of truth: `niknikdym-hue/book-os`.
+Writing never opens globally; each chapter later requires its own `WRITING_ALLOWED=YES` admission.
 
-Two system lanes are currently being closed:
+## BOOK OS system relation
 
-1. **Task 017 / PR #25 — executable series production gates.** Codex has a locally validated implementation with full backend suite green, but transport into GitHub remains unresolved because Codex delivery is usage-limited. This remains the main system blocker for representative long-form Writing.
-2. **Task 018 / PR #26 — GPT-6 Astra production lane.** Astra pricing, long-context cost guard, reasoning-effort control/provenance and zero-call readiness are being finalized in GitHub CI. No live/paid Astra request has been authorized.
+BOOK OS source of truth remains `niknikdym-hue/book-os`.
 
-The external clean-restart services-series project is reference evidence only; it is not authority or a runtime dependency of this SMM book.
+Current BOOK OS `main` already contains:
+- GPT-6 Astra as an OpenAI model option in the book-workflow panel;
+- manual operation/book model pinning;
+- OpenAI work-level selection `Medium / High / Extra High`;
+- governance rule that model choice/work level does not change authority, stages or quality gates.
 
-## Immediate next work — autonomous
+Do not resume infrastructure work unless a concrete book-production defect blocks this pilot.
 
-1. finish/merge Astra Task 018 after exact-head canonical CI;
-2. close Task 017 delivery and exact-head CI without weakening gates;
-3. deepen source verification / Author Synthesis / Russia platform matrix;
-4. close series-overlap proof;
-5. produce **FINAL BOOK DEFINITION PACK — PROPOSED FOR OWNER REVIEW**;
-6. only after Owner approval: Architecture → chapter contracts/admission → bounded Astra production.
+## Next genuine Owner gate
 
-## Next Owner gate
+**Approve or rework `BOOK-DEFINITION-PROPOSED-v1.0.md`.**
 
-Owner does **not** need to reconfirm title, series, pilot identity, target length, course-in-book principle, product/service branching, Russia platform rule, named-world-authors rule, bibliography rule, author-synthesis rule, Astra preference, or NO PADDING.
+Owner does not need to reconfirm title, author, series, pilot identity, target length, clean-room rule, course-in-a-book principle, goods/services branching, Russia-current platform rule, named-world-authors/bibliography rule, Elena Dym synthesis rule, Astra preference or NO PADDING.
 
-Next genuine content gate: **approve/rework final Book Definition Pack**.
+If approved, proceed directly to Architecture.
 
-First live paid Astra execution remains a separate financial gate with an explicit bounded request/token/cost slice.
-
-## Prohibited shortcuts
-
-- no old manuscript reading for content salvage;
-- no Writing before gates;
-- no generic platform list as strategy;
-- no universal product/service playbook;
-- no bibliography/name-dropping without author synthesis;
-- no invented sources/cases/statistics;
-- no stale platform/legal facts;
-- no padding to hit 300k;
-- no manuscript prose in public BOOK OS repo.
+Paid/live Astra execution is still a separate bounded financial approval and is not implied by Definition approval.
